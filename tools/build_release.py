@@ -40,7 +40,7 @@ def ensure_pyinstaller() -> None:
 
 
 def build() -> Path:
-    ensure_pyinstaller()
+    ensure_dependencies()
 
     for directory in (DIST, BUILD):
         shutil.rmtree(directory, ignore_errors=True)
