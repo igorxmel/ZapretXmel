@@ -1,0 +1,59 @@
+name: Сверка с апстримом
+
+# Раз в сутки проверяем, не появилось ли в сборке Flowseal того, чего интерфейс
+# ещё не умеет. Коммитить тут нечего — ядро мы не вкладываем в репозиторий,
+# поэтому результат оформляется задачей: её видно, и она не теряется.
+on:
+  schedule:
+    - cron: '0 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Поставить зависимости
+        run: pip install requests
+
+      - name: Сверить
+        id: sync
+        continue-on-error: true
+        run: python tools/upstream_sync.py > report.md 2>&1
+
+      - name: Показать отчёт
+        run: cat report.md
+
+      - name: Завести или обновить задачу
+        if: steps.sync.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE="Апстрим обновился: интерфейс отстал"
+          BODY_FILE=report.md
+
+          # Одна задача на все накопившиеся расхождения: плодить по штуке на
+          # каждую сверку незачем, читать их всё равно разом.
+          EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number')
+
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --body-file "$BODY_FILE"
+            echo "Дописано в задачу #$EXISTING"
+          else
+            gh issue create --title "$TITLE" --body-file "$BODY_FILE" --label upstream
+            echo "Заведена новая задача"
+          fi

@@ -1,0 +1,62 @@
+name: Релиз
+
+# Собирает .exe и выкладывает его, когда появляется тег вида 1.2.3 или v1.2.3.
+#
+# Первый релиз лучше выпустить руками: так видно, что именно попало в сборку,
+# и можно убедиться, что самообновление находит файл. Автоматизировать стоит
+# после того, как ручной релиз отработал — отлаживать сборку вслепую мучительно.
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+*'
+      - 'v[0-9]+.[0-9]+.[0-9]+*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Сборка только на Windows: PyInstaller делает исполняемый файл под ту
+    # систему, на которой запущен.
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Поставить зависимости
+        run: |
+          pip install -e ".[ai]"
+          pip install pyinstaller
+
+      - name: Проверить перед сборкой
+        run: |
+          pip install pytest ruff
+          python -m pytest tests/ -q
+          python -m ruff check app/ tests/ tools/
+
+      - name: Собрать
+        run: python tools/build_release.py
+
+      - name: Сверить версию с тегом
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          VERSION=$(python -c "import app; print(app.__version__)")
+          if [ "$TAG" != "$VERSION" ]; then
+            echo "Тег $TAG не совпадает с версией в app/__init__.py ($VERSION)."
+            echo "Самообновление сравнивает тег именно с ней — иначе обновление себя не увидит."
+            exit 1
+          fi
+
+      - name: Выложить релиз
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/ZapretXmel.exe
+            dist/ZapretXmel.exe.sha256
+          generate_release_notes: true
