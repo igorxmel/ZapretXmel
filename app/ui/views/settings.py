@@ -8,6 +8,8 @@ import sys
 import winreg
 from pathlib import Path
 
+from PyQt6.QtCore import QUrl
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -20,11 +22,11 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import fakes, gamefilter, ipset
+from app.core import fakes, gamefilter, ipset, paths
 from app.core.gamefilter import GameFilter
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, view_header
+from app.ui.widgets import Card, Divider, KeyValueRow, view_header
 
 log = logging.getLogger(__name__)
 
@@ -148,6 +150,28 @@ class SettingsView(QWidget):
         self._parallel.valueChanged.connect(self._save_flags)
         body.addWidget(self._parallel)
 
+        body.addWidget(Divider())
+
+        # Куда всё складывается — вопрос, который возникает у каждого: папка
+        # берётся рядом с исполняемым файлом, и это стоит показать, а не
+        # оставлять выяснять самому.
+        self._folder_row = KeyValueRow("Папка программы")
+        body.addWidget(self._folder_row)
+
+        folder_hint = QLabel(
+            "Здесь лежат ядро zapret, настройки, логи и бэкапы. Чтобы перенести "
+            "программу, достаточно перенести папку целиком."
+        )
+        folder_hint.setObjectName("Muted")
+        folder_hint.setWordWrap(True)
+        body.addWidget(folder_hint)
+
+        open_folder = QPushButton("Открыть папку программы")
+        open_folder.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(paths.app_root())))
+        )
+        body.addWidget(open_folder)
+
         welcome = QPushButton("Показать окно знакомства")
         welcome.setToolTip("То самое окно с шагами настройки, что открывается при первом запуске")
         welcome.clicked.connect(self._show_welcome)
@@ -226,6 +250,7 @@ class SettingsView(QWidget):
             self._start_bypass.setChecked(settings.start_bypass_on_launch)
             self._start_minimized.setChecked(settings.start_minimized)
             self._minimize_to_tray.setChecked(settings.minimize_to_tray)
+            self._folder_row.set_value(str(paths.app_root()))
             self._timeout.setValue(settings.probe_timeout)
             self._parallel.setValue(settings.probe_parallel)
 

@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.core import coreinfo, paths, strategies, telegram
@@ -82,7 +83,11 @@ class WelcomeWindow(FramelessWindow):
         self._worker: CoreUpdateWorker | None = None
 
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
-        self.setFixedSize(640, 620)
+        # Ширина фиксированная, высота подбирается под содержимое: пояснения
+        # к шагам переносятся по словам, и при жёсткой высоте нижние строки
+        # обрезало.
+        self.setFixedWidth(680)
+        self.setMinimumHeight(640)
 
         layout = QVBoxLayout(self.body)
         layout.setContentsMargins(SPACE["xxl"], SPACE["xl"], SPACE["xxl"], SPACE["xl"])
@@ -115,6 +120,35 @@ class WelcomeWindow(FramelessWindow):
         self._finish_button.setObjectName("Primary")
         self._finish_button.clicked.connect(self._finish)
         layout.addWidget(self._finish_button)
+
+        layout.addWidget(self._build_location())
+
+    def _build_location(self) -> QWidget:
+        """Говорит, куда программа складывает ядро и настройки.
+
+        Без этого человек не знает, где окажутся полсотни мегабайт: папка
+        берётся рядом с исполняемым файлом, и если его запустили из «Загрузок»,
+        всё приземлится туда же.
+        """
+        container = QWidget()
+        row = QHBoxLayout(container)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(SPACE["sm"])
+
+        label = QLabel(f"Ядро и настройки лягут рядом с программой: {paths.app_root()}")
+        label.setObjectName("Muted")
+        label.setWordWrap(True)
+        row.addWidget(label, 1)
+
+        open_folder = QPushButton("Открыть папку")
+        open_folder.setObjectName("Ghost")
+        open_folder.setCursor(Qt.CursorShape.PointingHandCursor)
+        open_folder.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(paths.app_root())))
+        )
+        row.addWidget(open_folder)
+
+        return container
 
     def _build_steps(self) -> Card:
         card = Card()

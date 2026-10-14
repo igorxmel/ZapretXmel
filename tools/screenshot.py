@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import QApplication  # noqa: E402
 from app.core.config import Settings  # noqa: E402
 from app.ui.shell import MainWindow  # noqa: E402
 from app.ui.theme import build_stylesheet  # noqa: E402
+from app.ui.theme.tokens import SIZE  # noqa: E402
 
 VIEWS = (
     "dashboard",
@@ -46,7 +47,9 @@ def main() -> int:
     app.setStyleSheet(build_stylesheet())
     window = MainWindow(Settings.load())
     window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
-    window.resize(1180, 760)
+    # Снимаем в размере, с которым окно открывается на самом деле: на меньшем
+    # подсказки переносятся иначе, и снимки показывают проблемы, которых нет.
+    window.resize(SIZE["window_width"], SIZE["window_height"])
     window.show()
 
     for _ in range(3):
