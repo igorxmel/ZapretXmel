@@ -22,6 +22,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+# Вывод здесь русский, а на сборочной машине GitHub стандартный поток
+# открывается в cp1252 — без этого скрипт падает на первой же строке с
+# кириллицей, ещё не начав собирать.
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+
 from app import __version__  # noqa: E402
 
 NAME = "ZapretXmel"
