@@ -1,0 +1,43 @@
+[project]
+name = "zapretxmel"
+version = "0.1.0"
+description = "GUI для zapret (сборка Flowseal) с авто-подбором стратегий и ИИ-диагностикой"
+requires-python = ">=3.12"
+dependencies = [
+    "PyQt6>=6.7",
+    "psutil>=6.0",
+    "requests>=2.32",
+]
+
+[project.optional-dependencies]
+# Нужен только для разбора через Claude. Остальные сервисы работают по HTTP,
+# поэтому без этого пакета приложение остаётся полностью рабочим.
+ai = [
+    "anthropic>=1.0",
+]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.6",
+]
+
+[project.scripts]
+zapretxmel = "app.__main__:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+ignore = ["B008"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

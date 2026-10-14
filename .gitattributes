@@ -1,0 +1,11 @@
+# Переносы строк приводятся к LF в репозитории и к CRLF на диске у Windows.
+* text=auto
+
+# Батники обязаны быть с CRLF: cmd.exe спотыкается на одиночном LF.
+*.bat text eol=crlf
+
+# Картинки и собранные файлы не трогать.
+*.png binary
+*.ico binary
+*.exe binary
+*.bin binary

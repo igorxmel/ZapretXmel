@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Управляемая копия ядра и всё, что приложение создаёт во время работы.
+core/
+data/
+build/
+dist/
+*.spec
+*.egg-info/
+
+# Снимки экранов и отчёты, которые делаются локально.
+data/screenshots/
+upstream/reports/
