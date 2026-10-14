@@ -29,13 +29,24 @@ DIST = ROOT / "dist"
 BUILD = ROOT / "build"
 
 
-def ensure_pyinstaller() -> None:
+def ensure_dependencies() -> None:
+    """Проверяет, что в окружении есть всё, что должно попасть в сборку."""
     try:
         import PyInstaller  # noqa: F401
     except ImportError:
         raise SystemExit(
             "не установлен PyInstaller — выполните:\n"
-            '    .venv\\Scripts\\pip install pyinstaller'
+            "    .venv\\Scripts\\pip install pyinstaller"
+        ) from None
+
+    # Без этого пакета сборка пройдёт, но разбор через Claude в ней молча не
+    # заработает — и заметит это уже пользователь.
+    try:
+        import anthropic  # noqa: F401
+    except ImportError:
+        raise SystemExit(
+            "не установлен anthropic — без него в сборке не будет разбора через Claude:\n"
+            '    .venv\\Scripts\\pip install -e ".[ai]"'
         ) from None
 
 
