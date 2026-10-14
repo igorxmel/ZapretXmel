@@ -25,6 +25,7 @@ def healthy_facts() -> SystemFacts:
         core_version="1.10.3",
         core_path=r"D:\Code\ZapretXmel\core",
         strategy_count=22,
+        available_strategies=["general", "general (ALT)", "discord"],
         windivert_driver_present=True,
         service_state="running",
         service_strategy="general",
@@ -156,6 +157,18 @@ def test_portable_run_without_service_is_fine() -> None:
     facts.service_strategy = ""
 
     assert find(facts, "bypass").severity is Severity.OK
+
+
+def test_vanished_strategy_warns() -> None:
+    """Служба осталась со стратегией, которой после обновления ядра уже нет."""
+    facts = healthy_facts()
+    facts.service_strategy = "general (переименованная)"
+
+    assert find(facts, "strategy_missing").severity is Severity.WARNING
+
+
+def test_present_strategy_produces_no_finding() -> None:
+    assert find(healthy_facts(), "strategy_missing") is None
 
 
 def test_multiple_winws_instances_warn_with_fix() -> None:
