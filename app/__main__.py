@@ -16,7 +16,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from app import logging_setup
-from app.core import elevation, paths
+from app.core import elevation, paths, singleton
 from app.core.config import Settings
 from app.core.updater import selfupdate
 from app.ui.theme import build_stylesheet
@@ -115,6 +115,14 @@ def main() -> int:
     app.setStyleSheet(build_stylesheet())
 
     if not ensure_admin(app, skip=skip_elevation):
+        return 0
+
+    # Проверка повторного запуска идёт именно здесь, после решения вопроса о
+    # правах: при перезапуске через UAC старый процесс ещё доживает свои
+    # мгновения, и более ранняя проверка приняла бы его за чужой экземпляр.
+    if not singleton.acquire():
+        log.info("Программа уже запущена, поднимаю её окно")
+        singleton.focus_existing()
         return 0
 
     settings = Settings.load()
