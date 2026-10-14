@@ -12,12 +12,19 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import QDesktopServices
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import (
+    QFileDialog,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
 
-from app.core import coreinfo, paths, strategies, telegram
+from app.core import coreinfo, location, paths, strategies, telegram
 from app.core.updater import github
 from app.ui.frameless import FramelessWindow
 from app.ui.theme.tokens import COLORS, SPACE
@@ -124,31 +131,62 @@ class WelcomeWindow(FramelessWindow):
         layout.addWidget(self._build_location())
 
     def _build_location(self) -> QWidget:
-        """Говорит, куда программа складывает ядро и настройки.
+        """Говорит, куда программа складывает ядро и настройки, и даёт сменить место.
 
         Без этого человек не знает, где окажутся полсотни мегабайт: папка
         берётся рядом с исполняемым файлом, и если его запустили из «Загрузок»,
-        всё приземлится туда же.
+        всё приземлится туда же. До установки ядра сменить место дешевле всего —
+        переносить ещё нечего.
         """
         container = QWidget()
         row = QHBoxLayout(container)
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(SPACE["sm"])
 
-        label = QLabel(f"Ядро и настройки лягут рядом с программой: {paths.app_root()}")
-        label.setObjectName("Muted")
-        label.setWordWrap(True)
-        row.addWidget(label, 1)
+        self._location_label = QLabel()
+        self._location_label.setObjectName("Muted")
+        self._location_label.setWordWrap(True)
+        row.addWidget(self._location_label, 1)
 
-        open_folder = QPushButton("Открыть папку")
-        open_folder.setObjectName("Ghost")
-        open_folder.setCursor(Qt.CursorShape.PointingHandCursor)
-        open_folder.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(paths.app_root())))
-        )
-        row.addWidget(open_folder)
+        change = QPushButton("Выбрать…")
+        change.setObjectName("Ghost")
+        change.setCursor(Qt.CursorShape.PointingHandCursor)
+        change.clicked.connect(self._choose_location)
+        row.addWidget(change)
 
+        self._show_location()
         return container
+
+    def _show_location(self) -> None:
+        where = "рядом с программой" if paths.is_portable() else "в выбранной папке"
+        self._location_label.setText(f"Ядро и настройки лягут {where}: {paths.install_root()}")
+
+    def _choose_location(self) -> None:
+        chosen = QFileDialog.getExistingDirectory(
+            self,
+            "Куда складывать ядро и настройки",
+            str(paths.install_root()),
+        )
+        if not chosen:
+            return
+
+        target = Path(chosen)
+        reason = location.check_target(target)
+        if reason:
+            self._say(reason, COLORS["danger"])
+            return
+
+        try:
+            result = location.relocate(target)
+        except Exception as error:  # noqa: BLE001 — причину показываем пользователю
+            log.exception("Не удалось выбрать папку установки")
+            self._say(str(error), COLORS["danger"])
+            return
+
+        self._show_location()
+        self._say(f"Папка установки: {result.target}", COLORS["success"])
+        self.controller.refresh()
+        self.refresh()
 
     def _build_steps(self) -> Card:
         card = Card()

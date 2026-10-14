@@ -13,20 +13,23 @@ from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMessageBox,
     QPushButton,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
-from app.core import fakes, gamefilter, ipset, paths
+from app.core import fakes, gamefilter, ipset, location, paths
 from app.core.gamefilter import GameFilter
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, Divider, KeyValueRow, view_header
+from app.ui.workers import Task
 
 log = logging.getLogger(__name__)
 
@@ -84,6 +87,7 @@ class SettingsView(QWidget):
         super().__init__(parent)
         self.controller = controller
         self._loading = False
+        self._relocate_task: Task | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -152,25 +156,31 @@ class SettingsView(QWidget):
 
         body.addWidget(Divider())
 
-        # Куда всё складывается — вопрос, который возникает у каждого: папка
-        # берётся рядом с исполняемым файлом, и это стоит показать, а не
-        # оставлять выяснять самому.
-        self._folder_row = KeyValueRow("Папка программы")
+        # Куда всё складывается — вопрос, который возникает у каждого: по
+        # умолчанию папка берётся рядом с исполняемым файлом, то есть чаще
+        # всего в «Загрузках». Это стоит и показать, и дать сменить.
+        self._folder_row = KeyValueRow("Папка установки")
         body.addWidget(self._folder_row)
 
-        folder_hint = QLabel(
-            "Здесь лежат ядро zapret, настройки, логи и бэкапы. Чтобы перенести "
-            "программу, достаточно перенести папку целиком."
-        )
-        folder_hint.setObjectName("Muted")
-        folder_hint.setWordWrap(True)
-        body.addWidget(folder_hint)
+        self._folder_hint = QLabel("")
+        self._folder_hint.setObjectName("Muted")
+        self._folder_hint.setWordWrap(True)
+        body.addWidget(self._folder_hint)
 
-        open_folder = QPushButton("Открыть папку программы")
+        folder_buttons = QHBoxLayout()
+        folder_buttons.setSpacing(SPACE["sm"])
+
+        open_folder = QPushButton("Открыть папку")
         open_folder.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(paths.app_root())))
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(paths.install_root())))
         )
-        body.addWidget(open_folder)
+        folder_buttons.addWidget(open_folder)
+
+        change_folder = QPushButton("Сменить папку…")
+        change_folder.clicked.connect(self._change_install_folder)
+        folder_buttons.addWidget(change_folder)
+
+        body.addLayout(folder_buttons)
 
         welcome = QPushButton("Показать окно знакомства")
         welcome.setToolTip("То самое окно с шагами настройки, что открывается при первом запуске")
@@ -250,7 +260,16 @@ class SettingsView(QWidget):
             self._start_bypass.setChecked(settings.start_bypass_on_launch)
             self._start_minimized.setChecked(settings.start_minimized)
             self._minimize_to_tray.setChecked(settings.minimize_to_tray)
-            self._folder_row.set_value(str(paths.app_root()))
+            self._folder_row.set_value(str(paths.install_root()))
+            self._folder_hint.setText(
+                "Здесь лежат ядро zapret, настройки, логи и бэкапы."
+                + (
+                    " Сейчас это папка рядом с программой: перенести всё можно,"
+                    " просто перенеся её целиком."
+                    if paths.is_portable()
+                    else " Сама программа при этом осталась в своей папке."
+                )
+            )
             self._timeout.setValue(settings.probe_timeout)
             self._parallel.setValue(settings.probe_parallel)
 
@@ -269,6 +288,7 @@ class SettingsView(QWidget):
             self._reload_fakes()
         finally:
             self._loading = False
+        self._relocate_task: Task | None = None
 
     def _reload_fakes(self) -> None:
         self._fake_slot.clear()
@@ -286,6 +306,65 @@ class SettingsView(QWidget):
             if mapping[key] == value:
                 combo.setCurrentIndex(index)
                 return
+
+    # --- место установки ------------------------------------------------
+
+    def _change_install_folder(self) -> None:
+        """Спрашивает новую папку и переносит в неё установку."""
+        chosen = QFileDialog.getExistingDirectory(
+            self,
+            "Куда складывать ядро и настройки",
+            str(paths.install_root()),
+        )
+        if not chosen:
+            return
+
+        target = Path(chosen)
+        reason = location.check_target(target)
+        if reason:
+            self._refuse_folder(reason)
+            return
+
+        if not self._confirm_relocation(target):
+            return
+
+        self._relocate_task = Task(self.controller.relocate, target)
+        self._relocate_task.done.connect(lambda _: self.reload())
+        self._relocate_task.failed.connect(self.controller.error.emit)
+        self._relocate_task.start()
+        self._folder_hint.setText(f"Переношу установку в {target}…")
+
+    def _refuse_folder(self, reason: str) -> None:
+        refusal = QMessageBox(self)
+        refusal.setWindowTitle("Папка не подходит")
+        refusal.setIcon(QMessageBox.Icon.Warning)
+        refusal.setText(reason)
+        refusal.addButton("Понятно", QMessageBox.ButtonRole.AcceptRole)
+        refusal.exec()
+
+    def _confirm_relocation(self, target: Path) -> bool:
+        """Переезд останавливает обход и трогает сотню мегабайт — спросим прямо."""
+        size = location.installed_size_mb()
+        free = location.free_space_mb(target)
+
+        question = QMessageBox(self)
+        question.setWindowTitle("Сменить папку установки")
+        question.setIcon(QMessageBox.Icon.Question)
+        question.setText(f"Перенести ядро и настройки в {target}?")
+        details = [
+            f"Переносится {size} МБ, на диске свободно {free} МБ.",
+            "Обход выключится на время переноса и включится заново: служба "
+            "помнит полный путь к winws.exe, и после переезда её нужно поставить снова.",
+        ]
+        if free and size > free:
+            details.insert(1, "Места на диске может не хватить.")
+        question.setInformativeText("\n\n".join(details))
+
+        move = question.addButton("Перенести", QMessageBox.ButtonRole.AcceptRole)
+        question.addButton("Отмена", QMessageBox.ButtonRole.RejectRole)
+        question.exec()
+
+        return question.clickedButton() is move
 
     def _show_welcome(self) -> None:
         # Окно знакомства живёт в главном окне: оно модальное и должно

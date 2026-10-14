@@ -286,6 +286,42 @@ class Controller(QObject):
         finally:
             self.refresh()
 
+    def relocate(self, target) -> None:
+        """Переносит установку в другую папку.
+
+        Обход гасится до переноса: файлы ядра заняты запущенным winws, а служба
+        помнит абсолютный путь к нему. После переезда обход поднимается заново
+        с новым путём, если был включён.
+        """
+        from pathlib import Path
+
+        from app.core import location
+
+        was_active = self.status.is_active
+        telegram_was_running = self.telegram.is_running()
+
+        self._set_busy(True)
+        try:
+            if telegram_was_running:
+                self.telegram.stop()
+            if was_active:
+                self.stop()
+
+            result = location.relocate(Path(target))
+            self.message.emit(f"Папка установки: {result.target} ({result.summary})")
+        except Exception as error:  # noqa: BLE001 — причину показываем пользователю
+            log.exception("Не удалось перенести установку")
+            self.error.emit(str(error))
+            return
+        finally:
+            self._set_busy(False)
+
+        if was_active:
+            self.start()
+        if telegram_was_running and telegram.is_installed():
+            self.toggle_telegram()
+        self.refresh()
+
     def restart(self) -> None:
         """Перезапуск нужен после смены стратегии, списков или игрового фильтра."""
         was_active = self.status.is_active

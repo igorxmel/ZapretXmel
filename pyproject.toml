@@ -38,6 +38,12 @@ target-version = "py312"
 select = ["E", "F", "W", "I", "UP", "B", "SIM"]
 ignore = ["B008"]
 
+[tool.ruff.lint.isort]
+# Своё объявляем прямо: при установке пакета (`pip install -e .`) ruff
+# относил `app` к сторонним библиотекам, и порядок импортов на машине
+# разработчика и в CI получался разным — сборка падала на линтере.
+known-first-party = ["app"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]

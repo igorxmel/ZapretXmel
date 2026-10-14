@@ -30,12 +30,11 @@ jobs:
 
       - name: Поставить зависимости
         run: |
-          pip install -e ".[ai]"
+          pip install -e ".[ai,dev]"
           pip install pyinstaller
 
       - name: Проверить перед сборкой
         run: |
-          pip install pytest ruff
           python -m pytest tests/ -q
           python -m ruff check app/ tests/ tools/
 
