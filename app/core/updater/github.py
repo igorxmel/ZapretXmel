@@ -121,6 +121,13 @@ def _to_release(data: dict) -> Release:
     )
 
 
+def fetch_text(asset: Asset, timeout: int = 20) -> str:
+    """Читает маленький файл релиза целиком — например, файл с хешем."""
+    response = requests.get(asset.url, timeout=timeout, headers={"User-Agent": USER_AGENT})
+    response.raise_for_status()
+    return response.text
+
+
 def download(
     asset: Asset,
     destination: Path,

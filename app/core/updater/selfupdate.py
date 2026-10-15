@@ -79,22 +79,76 @@ def check(repo: str = REPO, timeout: int = 20) -> github.Release | None:
     return release if github.is_newer(release.version, current_version()) else None
 
 
-def download(release: github.Release, progress: Progress | None = None) -> Path:
-    """Скачивает новую сборку рядом с текущей."""
+def download(
+    release: github.Release,
+    progress: Progress | None = None,
+    on_bytes: Callable[[int, int], None] | None = None,
+) -> Path:
+    """Скачивает новую сборку рядом с текущей и проверяет, что она целая.
+
+    Целость проверяется по файлу с хешем из того же релиза. Полсотни
+    мегабайт по дороге могут оборваться, а недокачанную программу мы
+    поставим на место рабочей — и она не запустится вовсе.
+    """
     asset = next((item for item in release.assets if item.name == ASSET_NAME), None)
     if asset is None:
         raise SelfUpdateError(f"в релизе {release.tag} нет файла {ASSET_NAME}")
 
     target = executable().with_suffix(NEW_SUFFIX + executable().suffix)
-    if progress:
-        progress(f"Скачиваю версию {release.version}…")
 
-    github.download(asset, target)
+    # Остаток от прошлой попытки убираем сам: иначе вторая загрузка писала
+    # бы в занятый файл, а это ошибка доступа посреди обновления.
+    _discard(target)
+
+    if progress:
+        progress(f"Скачиваю версию {release.version} ({asset.size // 1048576} МБ)…")
+
+    try:
+        digest = github.download(asset, target, progress=on_bytes)
+    except Exception as error:
+        _discard(target)
+        raise SelfUpdateError(
+            f"не удалось скачать обновление: {error}. "
+            "Файл берётся с GitHub — если обход сейчас выключен, включите его."
+        ) from error
+
     if target.stat().st_size < 1024:
-        target.unlink(missing_ok=True)
+        _discard(target)
         raise SelfUpdateError("скачанный файл подозрительно мал")
 
+    expected = _published_hash(release)
+    if expected and digest.lower() != expected.lower():
+        _discard(target)
+        raise SelfUpdateError(
+            "скачанный файл не совпал с published-хешем — загрузка оборвалась. "
+            "Попробуйте ещё раз."
+        )
+
     return target
+
+
+def _discard(path: Path) -> None:
+    """Убирает файл, не поднимая шум, если он уже занят."""
+    for leftover in (path, path.with_suffix(path.suffix + ".part")):
+        try:
+            leftover.unlink(missing_ok=True)
+        except OSError:
+            log.debug("Файл %s занят, оставляю как есть", leftover.name)
+
+
+def _published_hash(release: github.Release) -> str:
+    """Берёт SHA-256 из файла рядом со сборкой. Пусто — значит его нет."""
+    asset = next((item for item in release.assets if item.name == ASSET_NAME + ".sha256"), None)
+    if asset is None:
+        return ""
+
+    try:
+        text = github.fetch_text(asset)
+    except Exception:  # noqa: BLE001 — без хеша просто не проверяем
+        log.warning("Не удалось прочитать файл с хешем, пропускаю проверку")
+        return ""
+
+    return text.split()[0] if text.split() else ""
 
 
 def apply(downloaded: Path, progress: Progress | None = None) -> None:
@@ -141,6 +195,10 @@ def restart() -> None:
         raise SelfUpdateError(f"не удалось перезапустить программу: {error}") from error
 
 
-def update(release: github.Release, progress: Progress | None = None) -> None:
+def update(
+    release: github.Release,
+    progress: Progress | None = None,
+    on_bytes: Callable[[int, int], None] | None = None,
+) -> None:
     """Скачивает и ставит новую версию. Перезапуск вызывается отдельно."""
-    apply(download(release, progress), progress)
+    apply(download(release, progress, on_bytes), progress)

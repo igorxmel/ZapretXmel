@@ -23,6 +23,10 @@ import sys
 # прописывает себе сама, и она совпадает с `sys._MEIPASS`.
 _MARKERS = ("QT_PLUGIN_PATH", "QML2_IMPORT_PATH", "_PYI_APPLICATION_HOME_DIR")
 
+# Ставится перед перезапуском: второй раз себя не перезапускаем даже
+# если чистка чего-то не доглядела.
+_MARK = "ZAPRETXMEL_RELAUNCHED"
+
 
 def _foreign(value: str, mine: str) -> bool:
     """Правда, если в значении есть чужая временная папка сборки."""
@@ -34,39 +38,53 @@ def _foreign(value: str, mine: str) -> bool:
 
 
 def _inherited_from_another_build(mine: str) -> bool:
-    # PATH важнее остальных: из него берутся библиотеки Qt, и чужая папка в
-    # начале списка подсовывает их из сборки, которая вот-вот исчезнет.
+    # Главный признак — сама переменная `_MEIPASS2`. По ней загрузчик решает,
+    # что распаковывать ничего не нужно, и берёт готовую папку: нашу
+    # собственную он к этому моменту уже удалил из окружения, так что её
+    # наличие означает ровно одно — нас запустила другая сборка, и работаем
+    # мы в её папке. Сравнивать значение с `sys._MEIPASS` бесполезно: они
+    # как раз совпадают, потому что чужую папку мы и получили.
+    if os.environ.get("_MEIPASS2"):
+        return True
+
+    # Папка может достаться и иначе — через пути к библиотекам Qt.
     if _foreign(os.environ.get("PATH", ""), mine):
         return True
 
-    for name in _MARKERS:
-        value = os.environ.get(name, "")
-        if value and _foreign(value, mine):
-            return True
-
-    return bool(os.environ.get("_MEIPASS2", "")) and os.environ["_MEIPASS2"] != mine
+    return any(_foreign(os.environ.get(name, ""), mine) for name in _MARKERS)
 
 
 def _clean(mine: str) -> dict:
+    """Убирает из окружения чужие временные папки, не трогая свои.
+
+    Чистить приходится по частям, а не по значению целиком: в `PATH`
+    одновременно лежат и наша папка, и доставшаяся от запустившей нас
+    программы. Пропустив такое значение, мы оставили бы чужую папку на
+    месте — и перезапуск не помог бы, а повторился бы снова.
+    """
     environment = dict(os.environ)
     for name in ("_MEIPASS2", "_PYI_APPLICATION_HOME_DIR", "_PYI_ARCHIVE_FILE"):
         environment.pop(name, None)
 
     for key, value in list(environment.items()):
-        if mine.lower() in value.lower() or "_mei" not in value.lower():
+        if "_mei" not in value.lower():
             continue
-        kept = [part for part in value.split(os.pathsep) if "_mei" not in part.lower()]
+
+        kept = [part for part in value.split(os.pathsep) if not _foreign(part, mine)]
         if kept:
             environment[key] = os.pathsep.join(kept)
         else:
             environment.pop(key, None)
 
+    # Метка о перезапуске: если чужие пути почему-то переживут чистку,
+    # программа запустится как есть, а не будет перезапускать себя по кругу.
+    environment[_MARK] = "1"
     return environment
 
 
 def _restart() -> None:
     mine = getattr(sys, "_MEIPASS", "")
-    if not mine or not _inherited_from_another_build(mine):
+    if not mine or os.environ.get(_MARK) or not _inherited_from_another_build(mine):
         return
 
     executable = sys.executable

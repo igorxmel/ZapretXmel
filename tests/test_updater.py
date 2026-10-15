@@ -204,3 +204,92 @@ def test_every_released_version_is_described() -> None:
     changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
 
     assert section(changelog, __version__), f"в CHANGELOG.md нет раздела про {__version__}"
+
+
+# --- обновление самой программы -----------------------------------------
+
+
+class FakeAsset:
+    def __init__(self, name: str, size: int = 50 * 1048576):
+        self.name = name
+        self.size = size
+        self.url = f"https://example.invalid/{name}"
+
+
+class FakeRelease:
+    tag = "0.1.8"
+    version = "0.1.8"
+
+    def __init__(self, assets):
+        self.assets = assets
+
+
+def test_broken_download_is_not_installed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Недокачанный файл нельзя ставить на место рабочей программы.
+
+    Полсотни мегабайт по дороге могут оборваться, и тогда мы заменим
+    работающую программу на ту, что не запустится вовсе.
+    """
+    from app.core.updater import selfupdate
+
+    target = tmp_path / "ZapretXmel.exe"
+    monkeypatch.setattr(selfupdate, "executable", lambda: target)
+    def half_a_file(_asset, destination, progress=None):
+        destination.write_bytes(b"x" * 2048)
+        return "0" * 64
+
+    monkeypatch.setattr(selfupdate.github, "download", half_a_file)
+    monkeypatch.setattr(selfupdate, "_published_hash", lambda _: "f" * 64)
+
+    release = FakeRelease([FakeAsset("ZapretXmel.exe")])
+
+    with pytest.raises(selfupdate.SelfUpdateError, match="не совпал"):
+        selfupdate.download(release)
+
+    assert not (tmp_path / "ZapretXmel.new.exe").exists(), "битую копию надо убирать"
+
+
+def test_matching_hash_passes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from app.core.updater import selfupdate
+
+    target = tmp_path / "ZapretXmel.exe"
+    monkeypatch.setattr(selfupdate, "executable", lambda: target)
+    monkeypatch.setattr(selfupdate, "_published_hash", lambda _: "A" * 64)
+
+    def fake_download(_asset, destination, progress=None):
+        destination.write_bytes(b"x" * 2048)
+        return "a" * 64
+
+    monkeypatch.setattr(selfupdate.github, "download", fake_download)
+
+    result = selfupdate.download(FakeRelease([FakeAsset("ZapretXmel.exe")]))
+
+    assert result == tmp_path / "ZapretXmel.new.exe"
+
+
+def test_leftovers_from_a_previous_attempt_are_cleared(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Вторая попытка не должна писать в файл, оставшийся от первой."""
+    from app.core.updater import selfupdate
+
+    target = tmp_path / "ZapretXmel.exe"
+    monkeypatch.setattr(selfupdate, "executable", lambda: target)
+    monkeypatch.setattr(selfupdate, "_published_hash", lambda _: "")
+
+    leftover = tmp_path / "ZapretXmel.new.exe"
+    leftover.write_bytes(b"leftover")
+    (tmp_path / "ZapretXmel.new.exe.part").write_bytes(b"half")
+
+    seen: list[bool] = []
+
+    def fake_download(_asset, destination, progress=None):
+        seen.append(destination.exists())
+        destination.write_bytes(b"x" * 2048)
+        return "a" * 64
+
+    monkeypatch.setattr(selfupdate.github, "download", fake_download)
+    selfupdate.download(FakeRelease([FakeAsset("ZapretXmel.exe")]))
+
+    assert seen == [False], "старый файл должен быть убран до загрузки"
+    assert not (tmp_path / "ZapretXmel.new.exe.part").exists()

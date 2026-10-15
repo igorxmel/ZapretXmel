@@ -124,6 +124,45 @@ class TelegramInstallWorker(QThread):
         )
 
 
+class AppUpdateWorker(QThread):
+    """Обновление самой программы.
+
+    Отдельный поток с прогрессом: файл весит полсотни мегабайт, и без цифр
+    на экране обновление выглядит зависшим — человек жмёт «проверить» ещё
+    раз, запускает вторую загрузку в тот же файл и получает ошибку доступа.
+    """
+
+    progress = pyqtSignal(str)
+    percent = pyqtSignal(int)
+    done = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, release: github.Release):
+        super().__init__()
+        self._release = release
+
+    def run(self) -> None:
+        from app.core.updater import selfupdate
+
+        try:
+            selfupdate.update(
+                self._release, progress=self.progress.emit, on_bytes=self._on_download
+            )
+            self.done.emit(self._release.version)
+        except Exception as error:  # noqa: BLE001 — причину показываем пользователю
+            log.exception("Обновление программы не удалось")
+            self.failed.emit(str(error))
+
+    def _on_download(self, downloaded: int, total: int) -> None:
+        if total <= 0:
+            return
+        self.percent.emit(int(downloaded * 100 / total))
+        self.progress.emit(
+            f"Скачиваю {self._release.version}: "
+            f"{downloaded // 1048576} из {total // 1048576} МБ"
+        )
+
+
 class CoreUpdateWorker(QThread):
     """Скачивание и установка релиза ядра."""
 

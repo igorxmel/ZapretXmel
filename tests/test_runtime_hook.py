@@ -12,12 +12,21 @@
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
 
-from runtime_hook_clean_env import _clean, _foreign, _inherited_from_another_build  # noqa: E402
+from runtime_hook_clean_env import (  # noqa: E402
+    _MARK,
+    _clean,
+    _foreign,
+    _inherited_from_another_build,
+    _restart,
+)
 
 MINE = r"C:\Users\user\AppData\Local\Temp\_MEI000011111"
 FOREIGN = r"C:\Users\user\AppData\Local\Temp\_MEI000099999"
@@ -65,3 +74,44 @@ def test_clean_environment_drops_the_unpacking_marker(monkeypatch) -> None:
     monkeypatch.setenv("_MEIPASS2", FOREIGN)
 
     assert "_MEIPASS2" not in _clean(MINE)
+
+
+def test_both_folders_in_path_keeps_only_ours(monkeypatch) -> None:
+    """В PATH лежат обе папки сразу — так и было после обновления.
+
+    Пропустив такое значение целиком, чистка оставляла чужую папку на месте:
+    перезапуск не помогал, а повторялся снова.
+    """
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join(
+            [
+                rf"{FOREIGN}\PyQt6\Qt6\bin",
+                rf"{MINE}\PyQt6\Qt6\bin",
+                r"C:\Windows\system32",
+            ]
+        ),
+    )
+
+    kept = _clean(MINE)["PATH"].split(os.pathsep)
+
+    assert kept == [rf"{MINE}\PyQt6\Qt6\bin", r"C:\Windows\system32"]
+
+
+def test_relaunch_mark_is_set(monkeypatch) -> None:
+    monkeypatch.setenv("PATH", rf"{FOREIGN}\bin")
+
+    assert _clean(MINE)[_MARK] == "1"
+
+
+def test_marked_process_does_not_relaunch_again(monkeypatch) -> None:
+    """Защита от круга: второй раз себя не перезапускаем."""
+    monkeypatch.setattr("runtime_hook_clean_env.sys._MEIPASS", MINE, raising=False)
+    monkeypatch.setenv("PATH", rf"{FOREIGN}\bin")
+    monkeypatch.setenv(_MARK, "1")
+    monkeypatch.setattr(
+        "runtime_hook_clean_env.subprocess.Popen",
+        lambda *_, **__: pytest.fail("перезапуск по кругу"),
+    )
+
+    _restart()

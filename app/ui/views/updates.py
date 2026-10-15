@@ -21,7 +21,7 @@ from app.core.updater import github, install, selfupdate
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, KeyValueRow, view_header
-from app.ui.workers import CoreUpdateWorker, Task
+from app.ui.workers import AppUpdateWorker, CoreUpdateWorker, Task
 
 
 class UpdatesView(QWidget):
@@ -34,6 +34,7 @@ class UpdatesView(QWidget):
         self._worker: CoreUpdateWorker | None = None
         self._task: Task | None = None
         self._install_after_check = False
+        self._app_worker: AppUpdateWorker | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -80,11 +81,26 @@ class UpdatesView(QWidget):
         self._app_status.setWordWrap(True)
         body.addWidget(self._app_status)
 
+        self._app_progress = QProgressBar()
+        self._app_progress.setRange(0, 100)
+        self._app_progress.hide()
+        body.addWidget(self._app_progress)
+
         return card
 
     # --- сама программа ---------------------------------------------------
 
+    def _app_busy(self) -> bool:
+        """Правда, если обновление уже идёт."""
+        return self._app_worker is not None and self._app_worker.isRunning()
+
     def _check_app(self) -> None:
+        # Пока идёт загрузка, проверять нечего: повторное нажатие включало
+        # кнопку обновления обратно, вторая загрузка писала в тот же файл, и
+        # обновление падало с ошибкой доступа.
+        if self._app_busy():
+            return
+
         if not selfupdate.is_frozen():
             self._app_say(
                 "Программа запущена из исходников — обновлять нечего: "
@@ -117,16 +133,23 @@ class UpdatesView(QWidget):
 
     def _update_app(self) -> None:
         release = getattr(self, "_new_app", None)
-        if release is None:
+        if release is None or self._app_busy():
             return
 
         self._app_install.setEnabled(False)
-        self._task = Task(selfupdate.update, release, self._app_say)
-        self._task.done.connect(self._app_updated)
-        self._task.failed.connect(self._app_failed)
-        self._task.start()
+        self._app_check.setEnabled(False)
+        self._app_progress.setValue(0)
+        self._app_progress.show()
+
+        self._app_worker = AppUpdateWorker(release)
+        self._app_worker.progress.connect(self._app_say)
+        self._app_worker.percent.connect(self._app_progress.setValue)
+        self._app_worker.done.connect(self._app_updated)
+        self._app_worker.failed.connect(self._app_failed)
+        self._app_worker.start()
 
     def _app_updated(self, _result) -> None:
+        self._app_progress.hide()
         self._app_say("Обновлено, перезапускаюсь…", COLORS["success"])
         try:
             selfupdate.restart()
@@ -136,7 +159,9 @@ class UpdatesView(QWidget):
         QApplication.quit()
 
     def _app_failed(self, message: str) -> None:
+        self._app_progress.hide()
         self._app_check.setEnabled(True)
+        self._app_install.setEnabled(getattr(self, "_new_app", None) is not None)
         self._app_say(message, COLORS["danger"])
 
     def _app_say(self, text: str, colour: str = COLORS["text_muted"]) -> None:
