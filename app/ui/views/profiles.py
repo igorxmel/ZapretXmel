@@ -11,6 +11,7 @@ import logging
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QHBoxLayout,
     QInputDialog,
     QLabel,
@@ -51,6 +52,9 @@ class ProfilesView(QWidget):
         self.controller = controller
         self._recorder: Recorder | None = None
         self._profiles: list[Profile] = []
+        # Пока подставляем значения в галочку, её сигнал не должен
+        # перезаписывать профиль.
+        self._loading = False
 
         self._timer = QTimer(self)
         self._timer.setInterval(SAMPLE_INTERVAL_MS)
@@ -153,6 +157,16 @@ class ProfilesView(QWidget):
         row.addStretch(1)
         body.addLayout(row)
 
+        # Профиль включают перед игрой и забывают выключить — или не включают
+        # вовсе и потом удивляются, почему снова лагает.
+        self._auto_start = QCheckBox("Включать вместе с приложением")
+        self._auto_start.setToolTip(
+            "Программа заметит, что приложение запустилось, поднимет профиль "
+            "и погасит его, когда приложение закроется"
+        )
+        self._auto_start.toggled.connect(self._save_auto_start)
+        body.addWidget(self._auto_start)
+
         body.addWidget(Divider())
 
         limits = QLabel(LIMITS)
@@ -195,6 +209,30 @@ class ProfilesView(QWidget):
         self._apply_button.setEnabled(profile is not None)
         self._delete_button.setEnabled(profile is not None)
         self._stop_button.setEnabled(running)
+
+        self._auto_start.setEnabled(profile is not None and bool(profile.exe))
+        self._loading = True
+        try:
+            self._auto_start.setChecked(bool(profile and profile.auto_start))
+        finally:
+            self._loading = False
+
+    def _save_auto_start(self, wanted: bool) -> None:
+        """Запоминает выбор в самом профиле — он переживает перезапуск."""
+        if self._loading:
+            return
+
+        profile = self._current_profile()
+        if profile is None:
+            return
+
+        profile.auto_start = wanted
+        appprofile.save(profile)
+        self._say(
+            f"Профиль «{profile.name}» будет включаться вместе с приложением"
+            if wanted
+            else f"Профиль «{profile.name}» включается только вручную"
+        )
 
     def _apply_status(self, status: Status) -> None:
         self._stop_button.setEnabled(bool(status.active_profile))

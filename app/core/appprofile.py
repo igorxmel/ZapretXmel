@@ -89,6 +89,10 @@ class Profile:
     udp_ports: list[int] = field(default_factory=list)
     addresses: list[str] = field(default_factory=list)
     source_strategy: str = ""
+    # Поднимать профиль, когда приложение запустилось, и гасить, когда оно
+    # закрылось. По умолчанию выключено: профиль — это ещё один экземпляр
+    # winws, и включаться он должен осознанно.
+    auto_start: bool = False
 
     @property
     def is_empty(self) -> bool:

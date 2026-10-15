@@ -44,6 +44,8 @@ class Status:
     # и та же, и без этого состояние на экране относилось бы к ней молча.
     foreign_install: str = ""
     active_profile: str = ""
+    # Что сделать с профилем приложения по итогам опроса: («start»|«stop», имя).
+    profile_action: tuple[str, str] = ("", "")
     telegram_installed: bool = False
     telegram_running: bool = False
     log_tail: list[str] = field(default_factory=list)
@@ -208,6 +210,7 @@ class Controller(QObject):
             telegram_installed=telegram.is_installed(),
             telegram_running=self.telegram.is_running(),
             active_profile=self._profile_name if self._profile_alive() else "",
+            profile_action=self._decide_about_profiles(),
             log_tail=list(self._process.output) if self._process else [],
         )
 
@@ -221,6 +224,10 @@ class Controller(QObject):
     def _publish(self, status: Status) -> None:
         self.status = status
         self.status_changed.emit(status)
+
+        action, name = status.profile_action
+        if action:
+            self._follow_apps(action, name)
 
     def refresh(self) -> Status:
         """Синхронно перечитывает состояние — после действий пользователя."""
@@ -321,6 +328,49 @@ class Controller(QObject):
 
     def toggle(self) -> None:
         self.stop() if self.status.is_active else self.start()
+
+    def _decide_about_profiles(self) -> tuple[str, str]:
+        """Что сделать с профилем приложения: («start»|«stop», имя профиля).
+
+        Решается в фоновом опросе: перебор процессов стоит денег, а в потоке
+        интерфейса он подвешивал бы окно каждые несколько секунд. Само же
+        действие выполняет интерфейс — запуск winws трогает состояние
+        контроллера.
+        """
+        from app.core import appprofile, appwatch
+
+        profiles = [item for item in appprofile.load_all() if item.auto_start]
+        if not profiles:
+            return ("", "")
+
+        running = appwatch.running_executables()
+        for profile in profiles:
+            action = appwatch.decide(
+                profile.exe,
+                auto=True,
+                profile_active=self._profile_name == profile.name and self._profile_alive(),
+                running=running,
+            )
+            if action:
+                return (action, profile.name)
+
+        return ("", "")
+
+    def _follow_apps(self, action: str, name: str) -> None:
+        from app.core import appprofile
+
+        if action == "stop":
+            log.info("Приложение профиля «%s» закрылось — гашу профиль", name)
+            self.stop_profile()
+            self.message.emit(f"Профиль «{name}» выключен вместе с приложением")
+            return
+
+        profile = next((item for item in appprofile.load_all() if item.name == name), None)
+        if profile is None:
+            return
+
+        log.info("Приложение профиля «%s» запущено — поднимаю профиль", name)
+        self.start_profile(profile)
 
     def _profile_alive(self) -> bool:
         return self._profile_process is not None and self._profile_process.is_alive()
