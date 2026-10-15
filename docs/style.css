@@ -77,11 +77,11 @@ body::after {
 }
 
 a { color: var(--text); text-decoration: none; }
-a:not(.button):not(.dot) {
+a:not(.button):not(.dot):not(.bar-name) {
   border-bottom: 1px solid var(--border-strong);
   transition: border-color 0.15s, color 0.15s;
 }
-a:not(.button):not(.dot):hover { border-color: var(--orange); color: #fff; }
+a:not(.button):not(.dot):not(.bar-name):hover { border-color: var(--orange); color: #fff; }
 
 code {
   background: #000;
@@ -106,7 +106,7 @@ code {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 10px 24px;
+  padding: 9px 24px;
   background: rgba(11, 11, 12, 0.82);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
@@ -115,14 +115,10 @@ code {
 }
 
 .bar.shown { transform: none; }
-.bar img { width: 26px; height: 26px; }
 
-.bar-name {
-  font-family: var(--display);
-  font-size: 17px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
+.bar-name { display: flex; opacity: 0.95; transition: opacity 0.15s; }
+.bar-name:hover { opacity: 1; }
+.bar-name img { height: 38px; width: auto; display: block; }
 
 .bar .button { margin-left: auto; padding: 7px 16px; font-size: 14px; }
 
