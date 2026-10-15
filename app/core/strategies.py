@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 
 from app.core import gamefilter, paths
@@ -82,3 +83,69 @@ def load_one(name: str, root: Path | None = None) -> StrategySpec | None:
     except (BatParseError, OSError) as error:
         log.warning("Стратегия %s не разобрана: %s", path.name, error)
         return None
+
+
+# --- свои стратегии -----------------------------------------------------
+
+# Пометка в имени файла. Нужна не программе, а человеку: в списке рядом со
+# штатными «general (ALT7)» сразу видно, какие стратегии он завёл сам.
+OWN_MARK = "своя"
+
+
+def own_name(base: str) -> str:
+    """Свободное имя для своей стратегии, не затирающее существующую."""
+    stem = base.removesuffix(".bat").strip() or "general"
+    candidate = f"{stem} ({OWN_MARK})"
+
+    taken = {path.stem.lower() for path in discover()}
+    if candidate.lower() not in taken:
+        return candidate
+
+    number = 2
+    while f"{candidate}{number}".lower() in taken:
+        number += 1
+    return f"{candidate}{number}"
+
+
+def is_own(name: str) -> bool:
+    return f"({OWN_MARK}" in name
+
+
+def add(source: Path) -> Path:
+    """Кладёт чужой .bat в папку ядра, проверив, что он вообще стратегия.
+
+    Разбираем до копирования: файл, который не удаётся прочитать, появился
+    бы в списке и сломался только при запуске обхода — то есть тогда, когда
+    причину уже не связать с добавлением.
+    """
+    if not paths.core_dir().is_dir():
+        raise ValueError("ядро не установлено — складывать стратегию некуда")
+
+    try:
+        spec = parse_bat(source)
+    except BatParseError as error:
+        raise ValueError(f"файл не похож на стратегию: {error}") from error
+
+    if not spec.argv:
+        raise ValueError("в файле нет ни одной команды winws — это не стратегия")
+
+    target = paths.core_dir() / f"{own_name(source.stem)}.bat"
+    shutil.copy2(source, target)
+    log.info("Добавлена своя стратегия %s", target.name)
+    return target
+
+
+def duplicate(name: str) -> Path:
+    """Делает копию стратегии под своим именем — чтобы править, не ломая её.
+
+    Писать стратегию с нуля почти никто не станет: у рабочих сборок слишком
+    много тонкостей. А вот поправить готовую — обычное дело.
+    """
+    source = paths.core_dir() / f"{name}.bat"
+    if not source.is_file():
+        raise ValueError(f"стратегии «{name}» нет в папке ядра")
+
+    target = paths.core_dir() / f"{own_name(name)}.bat"
+    shutil.copy2(source, target)
+    log.info("Создана копия стратегии: %s", target.name)
+    return target

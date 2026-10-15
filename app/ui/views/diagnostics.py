@@ -112,11 +112,9 @@ class DiagnosticsView(QWidget):
         self._run_button.clicked.connect(self.run_checks)
         controls.addWidget(self._run_button)
 
-        # Второстепенная кнопка: нужна не всем, поэтому не спорит за внимание
-        # с основной проверкой.
-        self._discord_button = QPushButton("отдельно проверить Discord")
-        self._discord_button.setObjectName("Ghost")
-        self._discord_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Проверка нужна не всем, но набранная строчным шрифтом она читалась
+        # как примечание — и её просто не замечали.
+        self._discord_button = QPushButton("Проверить Discord")
         self._discord_button.setToolTip(
             "Проверяет вход, гейтвей и загрузку картинок по отдельности — "
             "обычная проверка показывает успех, даже когда клиент не подключается"

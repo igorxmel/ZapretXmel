@@ -123,9 +123,7 @@ class AutoPickView(QWidget):
         self._merge_button.clicked.connect(self._merge_best)
         row.addWidget(self._merge_button)
 
-        own_targets = QPushButton("свои цели")
-        own_targets.setObjectName("Ghost")
-        own_targets.setCursor(Qt.CursorShape.PointingHandCursor)
+        own_targets = QPushButton("Добавить свои цели")
         own_targets.setToolTip(
             "Открыть файл, где можно дописать свои сайты. Заголовок ### задаёт "
             "новый сервис — он появится здесь отдельной кнопкой."

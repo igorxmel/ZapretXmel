@@ -7,8 +7,13 @@ Flowseal появляются здесь сами. Для каждой пока�
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
+import logging
+from pathlib import Path
+
+from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -23,6 +28,8 @@ from app.core.batfile import StrategySpec
 from app.ui.controller import Controller, Status
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, KeyValueRow, view_header
+
+log = logging.getLogger(__name__)
 
 
 class StrategiesView(QWidget):
@@ -57,7 +64,75 @@ class StrategiesView(QWidget):
         self._list = QListWidget()
         self._list.currentRowChanged.connect(self._show_details)
         card.add(self._list)
+
+        # Свои стратегии складываются в ту же папку и переживают обновление
+        # ядра: апдейтер переносит всё, чего нет в новой сборке.
+        own = QHBoxLayout()
+        own.setSpacing(SPACE["sm"])
+
+        self._add_button = QPushButton("Добавить свою…")
+        self._add_button.setToolTip("Взять готовый .bat и положить его в папку ядра")
+        self._add_button.clicked.connect(self._add_own)
+        own.addWidget(self._add_button)
+
+        self._copy_button = QPushButton("Копия для правки")
+        self._copy_button.setToolTip(
+            "Сделать копию выбранной стратегии под своим именем и открыть её — "
+            "писать с нуля почти никто не станет, а поправить готовую несложно"
+        )
+        self._copy_button.clicked.connect(self._duplicate_selected)
+        own.addWidget(self._copy_button)
+
+        card.body().addLayout(own)
         return card
+
+    # --- свои стратегии ---------------------------------------------------
+
+    def _add_own(self) -> None:
+        chosen, _ = QFileDialog.getOpenFileName(
+            self,
+            "Выберите файл стратегии",
+            str(Path.home()),
+            "Стратегии zapret (*.bat)",
+        )
+        if not chosen:
+            return
+
+        try:
+            added = strategies.add(Path(chosen))
+        except Exception as error:  # noqa: BLE001 — причину показываем пользователю
+            log.exception("Не удалось добавить стратегию")
+            self.controller.error.emit(str(error))
+            return
+
+        self.controller.message.emit(f"Добавлена стратегия «{added.stem}»")
+        self.reload()
+        self._select_by_name(added.stem)
+
+    def _duplicate_selected(self) -> None:
+        spec = self._current_spec()
+        if spec is None:
+            return
+
+        try:
+            copy = strategies.duplicate(spec.name)
+        except Exception as error:  # noqa: BLE001 — причину показываем пользователю
+            log.exception("Не удалось скопировать стратегию")
+            self.controller.error.emit(str(error))
+            return
+
+        self.reload()
+        self._select_by_name(copy.stem)
+        self.controller.message.emit(
+            f"Создана «{copy.stem}» — откройте её и правьте, исходная осталась как была"
+        )
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(copy)))
+
+    def _select_by_name(self, name: str) -> None:
+        for row in range(self._list.count()):
+            if self._list.item(row).text().startswith(name):
+                self._list.setCurrentRow(row)
+                return
 
     def _build_detail_card(self) -> Card:
         card = Card("Что делает стратегия")

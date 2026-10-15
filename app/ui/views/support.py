@@ -36,12 +36,6 @@ WHAT_IT_PAYS_FOR = (
     "• время на поддержку, когда у провайдеров меняются правила."
 )
 
-WHAT_STAYS_FREE = (
-    "Что остаётся бесплатным всегда: сам обход, подбор стратегий, обновления ядра, "
-    "диагностика и выгрузка пакета для любой нейросети. Запирать за оплату то, "
-    "от чего зависит, работает ли у человека интернет, — так себе затея."
-)
-
 
 class SupportView(QWidget):
     """Благодарность и ссылка на Boosty."""
@@ -81,11 +75,6 @@ class SupportView(QWidget):
         pays.setObjectName("Dim")
         pays.setWordWrap(True)
         body.addWidget(pays)
-
-        free = QLabel(WHAT_STAYS_FREE)
-        free.setObjectName("Muted")
-        free.setWordWrap(True)
-        body.addWidget(free)
 
         boosty = QPushButton("Открыть Boosty")
         boosty.setObjectName("Primary")
