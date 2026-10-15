@@ -5,14 +5,18 @@ GitHub Pages раздаёт только то, что лежит внутри `d
 руками, а готовятся здесь: исходники весят по полтора мегабайта каждый, и
 класть их на страницу как есть нельзя.
 
-    python tools/make_site_assets.py
+    python tools/make_site_assets.py --shoot
 
-Снимки экранов берутся из `data/screenshots/`. Если их там нет, сначала
-выполните `python tools/screenshot.py`.
+С ключом `--shoot` снимки экранов делаются тут же; без него берутся те, что
+уже лежат в `data/screenshots/`.
+
+Обзор и подбор показывают название активного VPN прямо в окне, поэтому при
+включённом туннеле снимать отказываемся: страница открыта всему интернету.
 """
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -57,7 +61,35 @@ def resized(source: Path, width: int, target: Path) -> None:
     print(f"{target.relative_to(ROOT)}  ({target.stat().st_size // 1024} КБ)")
 
 
+def shoot() -> None:
+    """Пересоздаёт снимки экранов перед подготовкой картинок."""
+    print("снимаю экраны приложения…\n")
+    result = subprocess.run(  # noqa: S603 — собственный скрипт проекта
+        [sys.executable, str(ROOT / "tools" / "screenshot.py"), str(SHOTS)],
+        cwd=ROOT,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit("не удалось снять экраны")
+    print()
+
+
 def main() -> int:
+    # С --shoot снимки делаются тут же. Без него берутся те, что уже лежат
+    # в data/screenshots.
+    if "--shoot" in sys.argv:
+        tunnel = vpn.detect()
+        if tunnel:
+            print(
+                f"включён {tunnel.label}.\n\n"
+                "Обзор и подбор показывают название туннеля прямо в окне, и на\n"
+                "странице, открытой всему интернету, ему не место. Выключите VPN\n"
+                "и запустите команду снова — снимки делаются секунд за двадцать,\n"
+                "после этого VPN можно включить обратно."
+            )
+            return 1
+        shoot()
+
     TARGET.mkdir(parents=True, exist_ok=True)
 
     resized(ASSETS / "banner.png", BANNER_WIDTH, TARGET / "banner.png")
