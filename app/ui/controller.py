@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
-from app.core import coreinfo, foreign, service, strategies, telegram, winws
+from app.core import coreinfo, foreign, service, strategies, telegram, watch, winws
 from app.core.batfile import StrategySpec
 from app.core.config import Settings
 from app.core.diagnostics import vpn
@@ -74,6 +74,8 @@ class Controller(QObject):
     # Путь к чужой установке, которую затронет включение обхода. Решение за
     # человеком, поэтому контроллер только сообщает, а спрашивает интерфейс.
     foreign_conflict = pyqtSignal(str)
+    # Сообщение сторожа и признак того, что он сам переключил стратегию.
+    watch_alert = pyqtSignal(str, bool)
 
     def __init__(self, settings: Settings, parent: QObject | None = None):
         super().__init__(parent)
@@ -96,14 +98,80 @@ class Controller(QObject):
         self._timer.setInterval(POLL_INTERVAL_MS)
         self._timer.timeout.connect(self.poll)
 
+        # Сторож: своя задача и свой таймер. Проверка ходит в сеть и длится
+        # секунды, поэтому опрос состояния её ждать не должен.
+        self._watch_worker = None
+        self._watch_tried: list[str] = []
+        self._watch_timer = QTimer(self)
+        self._watch_timer.timeout.connect(self.watch_now)
+
     def start_polling(self) -> None:
         self.poll()
         self._timer.start()
+        self.restart_watch()
 
     def stop_polling(self) -> None:
         self._timer.stop()
+        self._watch_timer.stop()
         if self._poll_task is not None and self._poll_task.isRunning():
             self._poll_task.wait(3000)
+
+    # --- сторож ---------------------------------------------------------
+
+    def restart_watch(self) -> None:
+        """Перезапускает таймер сторожа по текущим настройкам."""
+        self._watch_timer.stop()
+        if not self.settings.watch_enabled:
+            return
+
+        minutes = max(1, self.settings.watch_interval_minutes)
+        self._watch_timer.start(minutes * 60 * 1000)
+        log.info("Сторож проверяет обход раз в %d мин", minutes)
+
+    def watch_now(self) -> None:
+        """Запускает проверку сторожа, если предыдущая уже закончилась."""
+        from app.ui.workers import QuickCheckWorker
+
+        if self._watch_worker is not None and self._watch_worker.isRunning():
+            return
+        if not self.status.core_present:
+            return
+
+        self._watch_worker = QuickCheckWorker(
+            timeout=self.settings.probe_timeout, parallel=self.settings.probe_parallel
+        )
+        self._watch_worker.done.connect(self._watch_result)
+        self._watch_worker.start()
+
+    def _watch_result(self, check) -> None:
+        """Решает, что делать с результатом проверки."""
+        status = self.status
+        decision = watch.decide(
+            check.broken,
+            active=status.is_active,
+            vpn=bool(status.active_vpn),
+            autoswitch=self.settings.watch_autoswitch,
+            favorites=list(self.settings.favorites),
+            current=status.active_strategy or self.settings.selected_strategy,
+            tried=self._watch_tried,
+        )
+
+        if not decision.broken:
+            # Всё в порядке — счётчик попыток можно обнулить: следующая
+            # поломка начнётся с чистого листа.
+            self._watch_tried.clear()
+            return
+
+        if decision.quiet:
+            return
+
+        self.watch_alert.emit(decision.message, bool(decision.switch_to))
+        if not decision.switch_to:
+            return
+
+        self._watch_tried.append(decision.switch_to)
+        self.select_strategy(decision.switch_to)
+        self.restart()
 
     # --- состояние ------------------------------------------------------
 

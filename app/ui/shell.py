@@ -194,6 +194,7 @@ class MainWindow(FramelessWindow):
         self.views["dashboard"].navigate.connect(self.navigate)
         self.views["dashboard"].install_core_requested.connect(self._install_core)
         self.controller.foreign_conflict.connect(self._ask_about_foreign)
+        self.controller.watch_alert.connect(self._watch_alert)
 
     # --- поведение ------------------------------------------------------
 
@@ -212,6 +213,22 @@ class MainWindow(FramelessWindow):
             reload_method()
         if key == "logs":
             view.load_tail(self.controller.status.log_tail)
+
+    def _watch_alert(self, message: str, switched: bool) -> None:
+        """Показывает сообщение сторожа.
+
+        И в окне, и в трее: окно может быть свёрнуто, а новость из тех, из-за
+        которых человек и полезет в программу.
+        """
+        self._show_toast(message, COLORS["warning"])
+        self._tray.showMessage(
+            "ZapretXmel",
+            message,
+            build_icon(self.controller.status.is_active),
+            8000,
+        )
+        if switched:
+            log.info("Сторож переключил стратегию: %s", message)
 
     def _ask_about_foreign(self, path: str) -> None:
         """Спрашивает разрешение подвинуть другую установку zapret.

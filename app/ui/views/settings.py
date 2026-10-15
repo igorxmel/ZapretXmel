@@ -145,6 +145,35 @@ class SettingsView(QWidget):
 
         # Проверка идёт один раз, через минуту после запуска, и молчит, если
         # всё свежее. Но и это кому-то лишнее — пусть выключается.
+        # Сторож гоняет те же проверки, что и кнопка на главном экране,
+        # только сам и по таймеру.
+        self._watch = QCheckBox("Следить, работает ли обход")
+        self._watch.setToolTip(
+            "Раз в несколько минут проверяет те же сервисы и сообщает, если "
+            "что-то перестало открываться"
+        )
+        self._watch.toggled.connect(self._save_flags)
+        body.addWidget(self._watch)
+
+        watch_row = QHBoxLayout()
+        watch_row.setSpacing(SPACE["sm"])
+        watch_row.addWidget(QLabel("Проверять раз в, минут"))
+
+        self._watch_interval = QSpinBox()
+        self._watch_interval.setRange(1, 240)
+        self._watch_interval.valueChanged.connect(self._save_flags)
+        watch_row.addWidget(self._watch_interval)
+        watch_row.addStretch(1)
+        body.addLayout(watch_row)
+
+        self._watch_autoswitch = QCheckBox("Переключать на следующую избранную стратегию")
+        self._watch_autoswitch.setToolTip(
+            "Если обход сломался, сторож попробует другую стратегию из избранного. "
+            "Перебирать все подряд он не станет — для этого есть подбор."
+        )
+        self._watch_autoswitch.toggled.connect(self._save_flags)
+        body.addWidget(self._watch_autoswitch)
+
         self._notify_updates = QCheckBox("Сообщать о новых версиях")
         self._notify_updates.setToolTip(
             "Программа, ядро zapret и прокси для Telegram проверяются один раз "
@@ -278,6 +307,11 @@ class SettingsView(QWidget):
             self._start_minimized.setChecked(settings.start_minimized)
             self._minimize_to_tray.setChecked(settings.minimize_to_tray)
             self._notify_updates.setChecked(settings.notify_updates)
+            self._watch.setChecked(settings.watch_enabled)
+            self._watch_interval.setValue(settings.watch_interval_minutes)
+            self._watch_autoswitch.setChecked(settings.watch_autoswitch)
+            self._watch_interval.setEnabled(settings.watch_enabled)
+            self._watch_autoswitch.setEnabled(settings.watch_enabled)
             self._folder_row.set_value(str(paths.install_root()))
             self._shortcut.setChecked(shortcut.exists())
             self._shortcut.setEnabled(paths.is_frozen())
@@ -453,9 +487,18 @@ class SettingsView(QWidget):
         settings.start_minimized = self._start_minimized.isChecked()
         settings.minimize_to_tray = self._minimize_to_tray.isChecked()
         settings.notify_updates = self._notify_updates.isChecked()
+        settings.watch_enabled = self._watch.isChecked()
+        settings.watch_interval_minutes = self._watch_interval.value()
+        settings.watch_autoswitch = self._watch_autoswitch.isChecked()
+        self._watch_interval.setEnabled(settings.watch_enabled)
+        self._watch_autoswitch.setEnabled(settings.watch_enabled)
         settings.probe_timeout = self._timeout.value()
         settings.probe_parallel = self._parallel.value()
         settings.save()
+
+        # Таймер сторожа живёт в контроллере и должен узнать о новой частоте
+        # сразу, а не после перезапуска программы.
+        self.controller.restart_watch()
 
     def _toggle_autostart(self, enabled: bool) -> None:
         if self._loading:

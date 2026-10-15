@@ -44,6 +44,12 @@ class Settings:
     minimize_to_tray: bool = True
     # Сообщать о новых версиях программы, ядра и прокси для Telegram.
     notify_updates: bool = True
+    # Сторож: раз в несколько минут проверяет, работает ли обход, и говорит,
+    # если что-то отвалилось. Переключать стратегию сам не станет, пока его
+    # об этом не попросят.
+    watch_enabled: bool = True
+    watch_interval_minutes: int = 15
+    watch_autoswitch: bool = False
     probe_timeout: int = 5
     probe_parallel: int = 8
     ai: AiSettings = field(default_factory=AiSettings)
