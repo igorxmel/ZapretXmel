@@ -293,3 +293,92 @@ def test_leftovers_from_a_previous_attempt_are_cleared(
 
     assert seen == [False], "старый файл должен быть убран до загрузки"
     assert not (tmp_path / "ZapretXmel.new.exe.part").exists()
+
+
+# --- целостность скачанного ---------------------------------------------
+
+
+def test_download_rejects_a_file_that_does_not_match_the_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Скачанное сверяется с хешем из релиза.
+
+    Любой из этих файлов мы потом запускаем с правами администратора, так что
+    оборванная загрузка или подмена по дороге не должны доходить до диска.
+    """
+    from app.core.updater import github
+
+    class FakeResponse:
+        headers = {"Content-Length": "4"}
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, chunk_size):
+            yield b"not the expected bytes"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr(github.requests, "get", lambda *_, **__: FakeResponse())
+
+    asset = github.Asset(
+        name="ZapretXmel.exe", url="https://example.invalid/x", size=4, digest="f" * 64
+    )
+    target = tmp_path / "ZapretXmel.exe"
+
+    with pytest.raises(github.DownloadError, match="не совпал"):
+        github.download(asset, target)
+
+    assert not target.exists()
+    assert not list(tmp_path.glob("*.part")), "обрывки оставлять нельзя"
+
+
+def test_download_without_a_published_hash_still_works(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Старые релизы хеша не несут — проверять тогда нечего."""
+    from app.core.updater import github
+
+    class FakeResponse:
+        headers = {"Content-Length": "5"}
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, chunk_size):
+            yield b"bytes"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+    monkeypatch.setattr(github.requests, "get", lambda *_, **__: FakeResponse())
+
+    asset = github.Asset(name="core.zip", url="https://example.invalid/x", size=5)
+    target = tmp_path / "core.zip"
+
+    github.download(asset, target)
+
+    assert target.read_bytes() == b"bytes"
+
+
+def test_digest_prefix_is_stripped() -> None:
+    """GitHub отдаёт его как «sha256:…», а сравниваем мы голое значение."""
+    from app.core.updater.github import _to_release
+
+    release = _to_release(
+        {
+            "tag_name": "1.0",
+            "assets": [
+                {"name": "x.zip", "browser_download_url": "u", "size": 1, "digest": "sha256:abc"}
+            ],
+        }
+    )
+
+    assert release.assets[0].digest == "abc"

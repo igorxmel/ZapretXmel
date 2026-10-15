@@ -1,6 +1,6 @@
 @echo off
 :: Запуск приложения. Права администратора приложение запросит само.
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 if not exist ".venv\Scripts\pythonw.exe" goto :no_venv
 

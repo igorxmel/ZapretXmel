@@ -19,6 +19,10 @@ import requests
 
 log = logging.getLogger(__name__)
 
+
+class DownloadError(Exception):
+    """Скачанный файл не тот, которого мы ждали."""
+
 CORE_REPO = "Flowseal/zapret-discord-youtube"
 TG_PROXY_REPO = "Flowseal/tg-ws-proxy"
 
@@ -32,6 +36,8 @@ class Asset:
     name: str
     url: str
     size: int
+    # SHA-256, посчитанный самим GitHub. Пусто, если он его не отдал.
+    digest: str = ""
 
 
 @dataclass(frozen=True)
@@ -115,6 +121,8 @@ def _to_release(data: dict) -> Release:
                 name=item.get("name", ""),
                 url=item.get("browser_download_url", ""),
                 size=int(item.get("size", 0)),
+                # Приходит в виде «sha256:abc…» — держим только само значение.
+                digest=str(item.get("digest", "")).removeprefix("sha256:"),
             )
             for item in data.get("assets", [])
         ],
@@ -160,9 +168,21 @@ def download(
                 if progress:
                     progress(downloaded, total)
 
+    actual = digest.hexdigest()
+
+    # Хеш считает сам GitHub, и сверить скачанное с ним дешевле всего здесь:
+    # через эту функцию проходят и ядро, и прокси, и сама программа, а любой
+    # из этих файлов мы потом запускаем с правами администратора.
+    if asset.digest and actual.lower() != asset.digest.lower():
+        partial.unlink(missing_ok=True)
+        raise DownloadError(
+            f"{asset.name}: скачанный файл не совпал с хешем из релиза — "
+            "загрузка оборвалась или файл подменили по дороге"
+        )
+
     partial.replace(destination)
     log.info("Скачано %s (%d байт)", destination.name, downloaded)
-    return digest.hexdigest()
+    return actual
 
 
 def file_sha256(path: Path) -> str:

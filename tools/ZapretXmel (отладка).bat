@@ -1,7 +1,7 @@
 @echo off
 :: Запуск с видимой консолью: сюда попадут ошибки, которых не видно
 :: при обычном запуске через pythonw. Окно не закроется само.
-cd /d "%~dp0"
+cd /d "%~dp0.."
 
 if not exist ".venv\Scripts\python.exe" goto :no_venv
 

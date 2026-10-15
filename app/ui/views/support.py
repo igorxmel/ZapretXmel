@@ -83,9 +83,9 @@ class SupportView(QWidget):
                 lambda: QDesktopServices.openUrl(QUrl(supporters.BOOSTY_URL))
             )
         else:
-            # Мёртвая кнопка раздражает сильнее, чем её отсутствие.
-            boosty.setEnabled(False)
-            boosty.setText("Boosty — ссылка появится позже")
+            # Кнопки, которая ничего не делает, быть не должно: пока ссылки
+            # нет, её просто нет.
+            boosty.hide()
         body.addWidget(boosty)
 
         body.addStretch(1)

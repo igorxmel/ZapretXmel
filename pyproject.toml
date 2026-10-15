@@ -1,6 +1,6 @@
 [project]
 name = "zapretxmel"
-version = "0.1.11"
+version = "0.1.12"
 description = "GUI для zapret (сборка Flowseal) с авто-подбором стратегий и ИИ-диагностикой"
 requires-python = ">=3.12"
 dependencies = [
