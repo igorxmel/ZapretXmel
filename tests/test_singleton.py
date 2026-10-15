@@ -41,6 +41,28 @@ def test_second_launch_is_detected(unique_name: str) -> None:
         kernel32.CloseHandle(holder)
 
 
+def test_retry_after_the_holder_is_gone_succeeds(unique_name: str) -> None:
+    """После снятия зависшего экземпляра повторная попытка обязана пройти.
+
+    Свой дескриптор от неудачной попытки держит объект ядра живым — если его
+    не закрыть, имя так и останется занятым нами самими.
+    """
+    kernel32 = ctypes.windll.kernel32
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+    holder = kernel32.CreateMutexW(None, True, unique_name)
+
+    assert not singleton.acquire()
+    kernel32.CloseHandle(holder)
+
+    assert singleton.acquire()
+
+
+def test_sources_run_reports_no_other_instances() -> None:
+    """В исходниках программа живёт внутри pythonw — чужие процессы не трогаем."""
+    assert singleton.other_instances() == []
+
+
 def test_name_is_scoped_to_session() -> None:
     """Префикс Local\\ даёт каждому пользователю свою копию на сервере терминалов."""
     assert singleton.MUTEX_NAME.startswith("Local\\")

@@ -7,6 +7,7 @@ import logging
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
+    QApplication,
     QButtonGroup,
     QHBoxLayout,
     QLabel,
@@ -17,6 +18,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app import __version__
+from app.core import foreground
 from app.core.config import Settings
 from app.ui.controller import Controller, Status
 from app.ui.frameless import FramelessWindow
@@ -220,6 +222,10 @@ class MainWindow(FramelessWindow):
         self._welcome.navigate.connect(self.navigate)
         self._welcome.refresh()
         self._welcome.show()
+        # Знакомство модальное и всплывает поверх главного окна само, но если
+        # вперёд не пустили всё приложение целиком, оно окажется позади чужих
+        # окон вместе с ним.
+        foreground.force(int(self._welcome.winId()))
 
     def _apply_status(self, status: Status) -> None:
         self._sidebar_state.setText(status.state_label)
@@ -237,10 +243,21 @@ class MainWindow(FramelessWindow):
         if self._toast.text() == text:
             self._toast.setText("")
 
-    def _restore_window(self) -> None:
+    def present(self) -> None:
+        """Показывает окно и выводит его вперёд.
+
+        Одного `show()` мало: после перезапуска через UAC процесс новый, а
+        активное окно осталось за чужой программой — Windows в таком случае
+        поднимать окно запрещает, и оно открывается где-то позади. Поэтому
+        просим систему отдельно (`app/core/foreground.py`).
+        """
         self.showNormal()
         self.raise_()
         self.activateWindow()
+        foreground.force(int(self.winId()))
+
+    def _restore_window(self) -> None:
+        self.present()
 
     def quit(self) -> None:
         self._quitting = True
@@ -261,6 +278,13 @@ class MainWindow(FramelessWindow):
         self.controller.shutdown()
         self._tray.hide()
         event.accept()
+
+        # Выход из цикла событий обязан быть явным. Приложение живёт без окон
+        # намеренно (`setQuitOnLastWindowClosed(False)`) — иначе сворачивание в
+        # трей завершало бы его. Но без этой строки закрытое окно оставляло
+        # процесс в памяти навсегда: невидимый, без значка в трее и с занятым
+        # мьютексом, из-за которого следующий запуск молча ничего не делал.
+        QApplication.quit()
 
     def changeEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
         super().changeEvent(event)

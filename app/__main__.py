@@ -87,6 +87,48 @@ def install_crash_handler() -> None:
     sys.excepthook = handle
 
 
+def revive_stuck_instance() -> bool:
+    """Предлагает снять зависший экземпляр. True — можно продолжать запуск.
+
+    Так выглядит «программа не открывается»: процесс в памяти есть, окна нет,
+    мьютекс занят. Снимаем его только с согласия — вдруг экземпляр всего лишь
+    не успел показать окно, и через мгновение покажет.
+    """
+    stuck = singleton.other_instances()
+    if not stuck:
+        QMessageBox.information(
+            None,
+            "ZapretXmel уже запущен",
+            "Программа уже работает, но её окно пока не появилось.\n\n"
+            "Подождите несколько секунд и попробуйте ещё раз — или откройте её "
+            "из значка в трее.",
+        )
+        return False
+
+    answer = QMessageBox.question(
+        None,
+        "ZapretXmel уже запущен",
+        "Программа есть в памяти, но её окно не отзывается — похоже, прошлый "
+        "запуск завис.\n\nЗавершить его и открыть программу заново?",
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.Yes,
+    )
+    if answer is not QMessageBox.StandardButton.Yes:
+        return False
+
+    singleton.terminate_others()
+    if singleton.acquire():
+        return True
+
+    QMessageBox.warning(
+        None,
+        "ZapretXmel",
+        "Зависший процесс не удалось завершить. Снимите ZapretXmel.exe в "
+        "диспетчере задач и запустите программу ещё раз.",
+    )
+    return False
+
+
 def main() -> int:
     paths.ensure_dirs()
     logging_setup.setup()
@@ -121,9 +163,14 @@ def main() -> int:
     # правах: при перезапуске через UAC старый процесс ещё доживает свои
     # мгновения, и более ранняя проверка приняла бы его за чужой экземпляр.
     if not singleton.acquire():
-        log.info("Программа уже запущена, поднимаю её окно")
-        singleton.focus_existing()
-        return 0
+        log.info("Программа уже запущена")
+        if singleton.focus_existing():
+            return 0
+        # Мьютекс занят, а окна нет — экземпляр завис. Просто выйти здесь
+        # нельзя: человек жмёт на ярлык, и ничего не происходит, причём
+        # сколько угодно раз подряд.
+        if not revive_stuck_instance():
+            return 0
 
     settings = Settings.load()
 
@@ -133,7 +180,7 @@ def main() -> int:
     if settings.start_minimized:
         window.hide()
     else:
-        window.show()
+        window.present()
 
     return app.exec()
 
