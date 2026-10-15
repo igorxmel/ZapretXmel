@@ -99,6 +99,25 @@ def build_stylesheet() -> str:
     /* Шапка меню отделена от пунктов такой же линией, какими разделены
        блоки по всему окну: логотип с версией — своя часть, и без неё он
        сливался со списком разделов. */
+    QPushButton#TitleLink {{
+        background: transparent;
+        border: none;
+        color: {c["text_muted"]};
+        font-size: {FONT_SIZE["caption"]}px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        padding: {s["xs"]}px {s["sm"]}px;
+    }}
+
+    QPushButton#TitleLink:hover {{
+        color: {c["text"]};
+    }}
+
+    #TitleSeparator {{
+        background: {c["border"]};
+        margin: {s["md"]}px 0;
+    }}
+
     #SidebarHeader {{
         /* Фон обязан быть прозрачным: рамка делает виджет styled, и он
            начинает заливать свою область фоном окна — вместе с ней

@@ -42,7 +42,8 @@ class Settings:
     autostart_with_windows: bool = False
     start_minimized: bool = False
     minimize_to_tray: bool = True
-    check_core_updates: bool = True
+    # Сообщать о новых версиях программы, ядра и прокси для Telegram.
+    notify_updates: bool = True
     probe_timeout: int = 5
     probe_parallel: int = 8
     ai: AiSettings = field(default_factory=AiSettings)

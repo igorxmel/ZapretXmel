@@ -288,3 +288,4 @@ def badge(text: str, color: str) -> QLabel:
         f"font-size: {FONT_SIZE['caption']}px;"
     )
     return label
+

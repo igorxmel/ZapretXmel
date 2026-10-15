@@ -143,6 +143,16 @@ class SettingsView(QWidget):
         self._minimize_to_tray.toggled.connect(self._save_flags)
         body.addWidget(self._minimize_to_tray)
 
+        # Проверка идёт один раз, через минуту после запуска, и молчит, если
+        # всё свежее. Но и это кому-то лишнее — пусть выключается.
+        self._notify_updates = QCheckBox("Сообщать о новых версиях")
+        self._notify_updates.setToolTip(
+            "Программа, ядро zapret и прокси для Telegram проверяются один раз "
+            "при запуске. Обновляется всё равно вручную, в разделе «Обновления»."
+        )
+        self._notify_updates.toggled.connect(self._save_flags)
+        body.addWidget(self._notify_updates)
+
         body.addWidget(QLabel("Таймаут одной проверки, секунд"))
         self._timeout = QSpinBox()
         self._timeout.setRange(2, 30)
@@ -267,6 +277,7 @@ class SettingsView(QWidget):
             self._start_bypass.setChecked(settings.start_bypass_on_launch)
             self._start_minimized.setChecked(settings.start_minimized)
             self._minimize_to_tray.setChecked(settings.minimize_to_tray)
+            self._notify_updates.setChecked(settings.notify_updates)
             self._folder_row.set_value(str(paths.install_root()))
             self._shortcut.setChecked(shortcut.exists())
             self._shortcut.setEnabled(paths.is_frozen())
@@ -441,6 +452,7 @@ class SettingsView(QWidget):
         settings.start_bypass_on_launch = self._start_bypass.isChecked()
         settings.start_minimized = self._start_minimized.isChecked()
         settings.minimize_to_tray = self._minimize_to_tray.isChecked()
+        settings.notify_updates = self._notify_updates.isChecked()
         settings.probe_timeout = self._timeout.value()
         settings.probe_parallel = self._parallel.value()
         settings.save()

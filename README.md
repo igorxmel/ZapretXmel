@@ -2,9 +2,10 @@
   <img src="assets/banner.png" width="560" alt="ZapretXmel">
 
   <p>
-    <strong>Графическая надстройка над сборкой
-    <a href="https://github.com/Flowseal/zapret-discord-youtube">Flowseal/zapret-discord-youtube</a>:
-    вместо батников и консольных меню — одно окно, а стратегия подбирается перебором автоматически.</strong>
+    <strong>Обход блокировок в одном окне: ядро
+    <a href="https://github.com/Flowseal/zapret-discord-youtube">zapret в сборке Flowseal</a>,
+    прокси для Telegram и подбор стратегии перебором. Чужие инструменты программа
+    ставит и обновляет сама — разбираться с ними отдельно не нужно.</strong>
   </p>
 
   <p>

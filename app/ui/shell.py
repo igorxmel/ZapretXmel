@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app import __version__
-from app.core import foreground
+from app.core import foreground, updates
 from app.core.config import Settings
 from app.ui.controller import Controller, Status
 from app.ui.frameless import FramelessWindow
@@ -39,8 +39,12 @@ from app.ui.views.telegram import TelegramView
 from app.ui.views.updates import UpdatesView
 from app.ui.views.welcome import WelcomeWindow
 from app.ui.widgets import banner_pixmap
+from app.ui.workers import Task
 
 log = logging.getLogger(__name__)
+
+# Пауза перед проверкой обновлений: см. `_look_for_updates`.
+UPDATE_CHECK_DELAY_MS = 60_000
 
 TOAST_MS = 6000
 
@@ -57,6 +61,7 @@ class MainWindow(FramelessWindow):
         self.settings = settings
         self.controller = Controller(settings, self)
         self._quitting = False
+        self._updates_task: Task | None = None
 
         self.setWindowIcon(app_icon())
         self.setMinimumSize(SIZE["window_min_width"], SIZE["window_min_height"])
@@ -256,6 +261,39 @@ class MainWindow(FramelessWindow):
             self._show_toast("Включаю обход…", COLORS["text_dim"])
             QTimer.singleShot(0, self.controller.start)
 
+        self._look_for_updates()
+
+    def _look_for_updates(self) -> None:
+        """Проверяет обновления в фоне, через минуту после запуска.
+
+        Сразу — нельзя: при старте программа и так опрашивает службу, читает
+        ядро и, если попросили, поднимает обход. Задержка нужна и по смыслу:
+        сообщение о новой версии в первую секунду перебивает то, ради чего
+        программу открыли.
+        """
+        if not self.settings.notify_updates:
+            return
+
+        def start() -> None:
+            self._updates_task = Task(updates.check_all)
+            self._updates_task.done.connect(self._updates_found)
+            self._updates_task.start()
+
+        QTimer.singleShot(UPDATE_CHECK_DELAY_MS, start)
+
+    def _updates_found(self, found: list) -> None:
+        if not found:
+            return
+
+        text = updates.summary(found)
+        self._show_toast(f"{text} — загляните в «Обновления»", COLORS["warning"])
+        self._tray.showMessage(
+            "ZapretXmel",
+            text,
+            build_icon(self.controller.status.is_active),
+            6000,
+        )
+
     def show_welcome(self) -> None:
         """Открывает знакомство — при первом запуске и по кнопке из настроек."""
         self._welcome = WelcomeWindow(self.controller, self)
@@ -304,15 +342,12 @@ class MainWindow(FramelessWindow):
         self.close()
 
     def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 — имя задано Qt
+        # Уведомление о сворачивании в трей не показываем: человек сам
+        # закрыл окно, значок в трее у него перед глазами, и всплывающая
+        # подсказка каждый раз сообщала бы то, что и так видно.
         if self.settings.minimize_to_tray and not self._quitting:
             event.ignore()
             self.hide()
-            self._tray.showMessage(
-                "ZapretXmel",
-                "Приложение свёрнуто в трей и продолжает работать.",
-                build_icon(self.controller.status.is_active),
-                3000,
-            )
             return
 
         self.controller.shutdown()

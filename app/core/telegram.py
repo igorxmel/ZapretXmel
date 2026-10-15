@@ -138,6 +138,23 @@ def port_is_free(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> bool:
         probe.close()
 
 
+def version_file() -> Path:
+    """Версия установленного прокси.
+
+    Храним рядом с ним самим, а не в настройках: папка переезжает вместе с
+    программой, и версия должна ехать за своим файлом. Сам tg-ws-proxy
+    номер версии нигде не оставляет.
+    """
+    return home() / "version.txt"
+
+
+def installed_version() -> str:
+    try:
+        return version_file().read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
 def latest_release(timeout: int = 20) -> github.Release:
     return github.latest_release(REPO, timeout=timeout)
 
@@ -168,6 +185,11 @@ def install(release: github.Release | None = None, progress=None, on_bytes=None)
             "файл качается с GitHub, а он доступен не у всех провайдеров."
         ) from error
     ensure_config()
+    try:
+        version_file().write_text(release.version, encoding="utf-8")
+    except OSError:
+        log.warning("Не удалось запомнить версию прокси")
+
     log.info("tg-ws-proxy %s установлен", release.version)
     return release.version
 

@@ -16,8 +16,8 @@ import ctypes
 import sys
 from ctypes import wintypes
 
-from PyQt6.QtCore import QEvent, QSize, Qt
-from PyQt6.QtGui import QFont, QFontDatabase, QPainter
+from PyQt6.QtCore import QEvent, QSize, Qt, QUrl
+from PyQt6.QtGui import QDesktopServices, QFont, QFontDatabase, QPainter
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -33,6 +33,13 @@ from app.ui.theme.tokens import SPACE
 WINDOWS = sys.platform == "win32"
 
 TITLEBAR_HEIGHT = 40
+
+# Ссылки наружу. Держим их здесь, а не в разделах: страница проекта и
+# исходники нужны из любого места программы, а заголовок виден всегда.
+LINKS = (
+    ("ВЕБ-САЙТ", "https://igorxmel.github.io/ZapretXmel/"),
+    ("GITHUB", "https://github.com/igorxmel/ZapretXmel"),
+)
 GRIP_THICKNESS = 5
 
 # Значки кнопок окна из иконочного шрифта Windows. Обычные символы тут не
@@ -154,6 +161,22 @@ class TitleBar(QWidget):
         # при этом задано и видно системе — в панели задач и при alt-tab.
         row.addStretch(1)
 
+        # Ссылки наружу живут в заголовке: в разделах им места нет, а найти
+        # сайт и исходники человек должен из любого места программы.
+        if not compact:
+            for text, url in LINKS:
+                row.addWidget(self._link(text, url))
+
+            # Линия отделяет ссылки от кнопок управления: без неё надписи
+            # читаются как часть той же группы, а это разные вещи — одни
+            # открывают браузер, другие управляют окном.
+            separator = QWidget()
+            separator.setObjectName("TitleSeparator")
+            separator.setFixedWidth(1)
+            row.addSpacing(SPACE["sm"])
+            row.addWidget(separator)
+            row.addSpacing(SPACE["sm"])
+
         # У вспомогательных окон остаётся только закрытие: сворачивать и
         # разворачивать там нечего, а лишние кнопки сбивают с толку.
         self.maximize: CaptionButton | None = None
@@ -170,6 +193,16 @@ class TitleBar(QWidget):
         close.setProperty("close", True)
         close.clicked.connect(window.close)
         row.addWidget(close)
+
+    @staticmethod
+    def _link(text: str, url: str) -> QPushButton:
+        """Надпись-ссылка в заголовке: открывает страницу в браузере."""
+        link = QPushButton(text)
+        link.setObjectName("TitleLink")
+        link.setCursor(Qt.CursorShape.PointingHandCursor)
+        link.setToolTip(url)
+        link.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
+        return link
 
     def toggle_maximize(self) -> None:
         if self.maximize is None:

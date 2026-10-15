@@ -6,22 +6,28 @@ from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
+    QButtonGroup,
     QComboBox,
     QHBoxLayout,
     QLabel,
     QProgressBar,
     QPushButton,
+    QSizePolicy,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
 )
 
-from app.core import coreinfo, hosts, ipset, paths
+from app.core import coreinfo, hosts, ipset, paths, telegram
 from app.core.updater import github, install, selfupdate
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, KeyValueRow, view_header
-from app.ui.workers import AppUpdateWorker, CoreUpdateWorker, Task
+from app.ui.workers import AppUpdateWorker, CoreUpdateWorker, Task, TelegramInstallWorker
+
+# Источники обновлений в общей карточке.
+CORE = "core"
+PROXY = "proxy"
 
 
 class UpdatesView(QWidget):
@@ -35,6 +41,9 @@ class UpdatesView(QWidget):
         self._task: Task | None = None
         self._install_after_check = False
         self._app_worker: AppUpdateWorker | None = None
+        self._proxy_worker: TelegramInstallWorker | None = None
+        self._proxy_task: Task | None = None
+        self._source = CORE
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -52,6 +61,7 @@ class UpdatesView(QWidget):
         columns = QHBoxLayout()
         columns.setSpacing(SPACE["lg"])
         columns.addWidget(self._build_core_card(), 3)
+
         columns.addWidget(self._build_extras_card(), 2)
         layout.addLayout(columns, 1)
 
@@ -171,8 +181,30 @@ class UpdatesView(QWidget):
     # --- ядро -----------------------------------------------------------
 
     def _build_core_card(self) -> Card:
-        card = Card("Ядро zapret")
+        card = Card()
         body = card.body()
+
+        # Переключатель источника. Ядро и прокси обновляются из разных
+        # репозиториев, но выглядит это одинаково, поэтому и карточка одна.
+        switch = QHBoxLayout()
+        switch.setSpacing(SPACE["sm"])
+
+        self._source_group = QButtonGroup(self)
+        self._source_group.setExclusive(True)
+
+        self._source_buttons: dict[str, QPushButton] = {}
+        for key, title in (("core", "Ядро zapret"), ("proxy", "Прокси Telegram")):
+            button = QPushButton(title)
+            button.setObjectName("Chip")
+            button.setCheckable(True)
+            button.setChecked(key == CORE)
+            button.clicked.connect(lambda _, source=key: self._switch_source(source))
+            self._source_group.addButton(button)
+            self._source_buttons[key] = button
+            switch.addWidget(button)
+
+        switch.addStretch(1)
+        body.addLayout(switch)
 
         self._row_installed = KeyValueRow("Установлена версия")
         self._row_latest = KeyValueRow("Доступна версия")
@@ -183,13 +215,13 @@ class UpdatesView(QWidget):
         buttons.setSpacing(SPACE["sm"])
 
         self._check_button = QPushButton("Проверить обновления")
-        self._check_button.clicked.connect(self.check_updates)
+        self._check_button.clicked.connect(self._check_current)
         buttons.addWidget(self._check_button)
 
         self._install_button = QPushButton("Установить")
         self._install_button.setObjectName("Primary")
         self._install_button.setEnabled(False)
-        self._install_button.clicked.connect(self._install)
+        self._install_button.clicked.connect(self._install_current)
         buttons.addWidget(self._install_button)
         buttons.addStretch(1)
         body.addLayout(buttons)
@@ -208,17 +240,78 @@ class UpdatesView(QWidget):
         self._changelog.setOpenExternalLinks(True)
         body.addWidget(self._changelog, 1)
 
-        rollback = QHBoxLayout()
+        # Откат есть только у ядра: его бэкапы мы храним сами, а прокси —
+        # один файл, который просто перекачивается.
+        self._rollback_row = QWidget()
+        rollback = QHBoxLayout(self._rollback_row)
+        rollback.setContentsMargins(0, 0, 0, 0)
         rollback.setSpacing(SPACE["sm"])
+
         self._backups = QComboBox()
         rollback.addWidget(self._backups, 1)
 
         self._rollback_button = QPushButton("Откатиться")
         self._rollback_button.clicked.connect(self._rollback)
         rollback.addWidget(self._rollback_button)
-        body.addLayout(rollback)
+        body.addWidget(self._rollback_row)
 
         return card
+
+    # --- переключение источника ------------------------------------------
+
+    def _switch_source(self, source: str) -> None:
+        """Показывает ядро или прокси в той же карточке."""
+        self._source = source
+        self._rollback_row.setVisible(source == CORE)
+        self._changelog.setMarkdown("")
+        self._status.setStyleSheet(f"color: {COLORS['text_muted']};")
+        self._status.setText("Нажмите «Проверить обновления»")
+        self._install_button.setEnabled(False)
+        self._install_button.setText("Установить" if source == CORE else "Обновить")
+        self.reload()
+
+    def _check_current(self) -> None:
+        self.check_updates() if self._source == CORE else self._check_proxy()
+
+    def _install_current(self) -> None:
+        self._install() if self._source == CORE else self._update_proxy()
+
+    def _check_proxy(self) -> None:
+        """Спрашивает GitHub о последнем релизе прокси."""
+        if self._proxy_worker is not None and self._proxy_worker.isRunning():
+            return
+
+        self._check_button.setEnabled(False)
+        self._status.setStyleSheet(f"color: {COLORS['text_muted']};")
+        self._status.setText("Смотрю релизы прокси…")
+
+        self._proxy_task = Task(telegram.latest_release)
+        self._proxy_task.done.connect(self._show_proxy_release)
+        self._proxy_task.failed.connect(self._proxy_failed)
+        self._proxy_task.start()
+
+    def _show_proxy_release(self, release) -> None:
+        self._check_button.setEnabled(True)
+        installed = telegram.installed_version()
+
+        self._row_latest.set_value(f"{release.version} от {release.published_date}")
+        self._changelog.setMarkdown(release.body or "Описание релиза отсутствует")
+
+        # Прокси, поставленный до того, как версия стала запоминаться, тоже
+        # можно обновить — просто мы не знаем, нужно ли это.
+        outdated = not installed or github.is_newer(release.version, installed)
+        self._install_button.setEnabled(telegram.is_installed() and outdated)
+
+        if not telegram.is_installed():
+            self._status.setText(
+                "Прокси не установлен — поставить его можно на вкладке Telegram"
+            )
+        elif outdated:
+            self._status.setStyleSheet(f"color: {COLORS['warning']};")
+            self._status.setText(f"Доступно обновление до {release.version}")
+        else:
+            self._status.setStyleSheet(f"color: {COLORS['success']};")
+            self._status.setText("Установлена последняя версия")
 
     def _build_extras_card(self) -> Card:
         card = Card("Списки и hosts")
@@ -245,13 +338,14 @@ class UpdatesView(QWidget):
         body.addLayout(ipset_buttons)
 
         note = QLabel(
-            "Это адреса YouTube, Discord и прочих сервисов — их собирает и "
-            "выкладывает сам Flowseal, мы только скачиваем файл в папку ядра. "
-            "Он нужен режиму «по списку» из настроек: тогда обход применяется "
-            "к адресам из этого файла, а не ко всему трафику на отобранных портах."
+            "Список собирает Flowseal. Он нужен режиму «по списку» из настроек: "
+            "тогда обход применяется только к адресам из файла."
         )
         note.setObjectName("Muted")
         note.setWordWrap(True)
+        # Без этого перенесённый текст не получает высоту под вторую строку
+        # и уезжает под соседнюю строку карточки.
+        note.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         body.addWidget(note)
 
         self._row_hosts = KeyValueRow("Секция в hosts")
@@ -284,8 +378,17 @@ class UpdatesView(QWidget):
             + ("" if selfupdate.is_frozen() else " (из исходников)")
         )
 
-        info = coreinfo.describe()
-        self._row_installed.set_value(info.version_label)
+        if self._source == CORE:
+            self._row_installed.set_value(coreinfo.describe().version_label)
+        else:
+            proxy_version = telegram.installed_version()
+            self._row_installed.set_value(
+                (proxy_version or "версия неизвестна")
+                if telegram.is_installed()
+                else "не установлен"
+            )
+
+        self._check_button.setEnabled(True)
         self._row_ipset.set_value(ipset.LABELS[ipset.status()])
         ipset_list = ipset.describe_list()
         self._row_ipset_list.set_value(ipset_list.label)
@@ -397,6 +500,38 @@ class UpdatesView(QWidget):
         self._task.done.connect(self._ipset_updated)
         self._task.failed.connect(self._fail)
         self._task.start()
+
+    def _update_proxy(self) -> None:
+        """Ставит свежий tg-ws-proxy поверх установленного."""
+        if self._proxy_worker is not None and self._proxy_worker.isRunning():
+            return
+
+        self._install_button.setEnabled(False)
+        self._check_button.setEnabled(False)
+        self._status.setStyleSheet(f"color: {COLORS['text_muted']};")
+        self._status.setText("Спрашиваю GitHub о последнем релизе прокси…")
+        self._progress.setValue(0)
+        self._progress.show()
+
+        self._proxy_worker = TelegramInstallWorker()
+        self._proxy_worker.progress.connect(self._status.setText)
+        self._proxy_worker.percent.connect(self._progress.setValue)
+        self._proxy_worker.done.connect(self._proxy_updated)
+        self._proxy_worker.failed.connect(self._proxy_failed)
+        self._proxy_worker.start()
+
+    def _proxy_updated(self, version: str) -> None:
+        self._progress.hide()
+        self._check_button.setEnabled(True)
+        self._status.setStyleSheet(f"color: {COLORS['success']};")
+        self._status.setText(f"Прокси обновлён до версии {version}")
+        self.reload()
+
+    def _proxy_failed(self, message: str) -> None:
+        self._progress.hide()
+        self._check_button.setEnabled(True)
+        self._status.setStyleSheet(f"color: {COLORS['danger']};")
+        self._status.setText(message)
 
     def _show_ipset_file(self) -> None:
         """Открывает папку со списком и подсвечивает сам файл."""
