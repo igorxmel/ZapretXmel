@@ -23,7 +23,7 @@
 <meta name="theme-color" content="#0b0b0c">
 
 <link rel="icon" href="assets/favicon.png" type="image/png">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=2">
 
 <!-- Класс ставится до отрисовки: по нему стили прячут блоки, которые
      потом проявит скрипт. Без скрипта всё остаётся видимым. -->
@@ -41,13 +41,15 @@
 <header class="hero" id="top">
   <img class="banner reveal" style="--step: 0" src="assets/banner.png" alt="ZapretXmel" width="560">
 
-  <p class="lead reveal" style="--step: 1">
+  <p class="slogan reveal" style="--step: 1">Свободный интернет каждому</p>
+
+  <p class="lead reveal" style="--step: 2">
     Одно окно вместо батников и консольных меню: обход блокировок, прокси для
     Telegram и подбор стратегии перебором. Чужие инструменты программа ставит
     и обновляет сама — разбираться с ними отдельно не нужно.
   </p>
 
-  <div class="actions reveal" style="--step: 2">
+  <div class="actions reveal" style="--step: 3">
     <a class="button primary" href="https://github.com/igorxmel/ZapretXmel/releases/latest/download/ZapretXmel.exe">
       Скачать для Windows
     </a>
@@ -55,7 +57,7 @@
     <a class="button boosty" id="boosty" href="#" hidden>Поддержать на Boosty</a>
   </div>
 
-  <p class="meta reveal" style="--step: 3" id="meta">Windows 10/11 · 64 бита · без установки</p>
+  <p class="meta reveal" style="--step: 4" id="meta">Windows 10/11 · 64 бита · без установки</p>
 </header>
 
 <main>
@@ -116,7 +118,8 @@
     <h3>Telegram через прокси</h3>
     <p>
       Клиент Telegram стратегии не чинят — его чинит отдельный локальный
-      MTProto-прокси. Ставится из программы, настроек не требует.
+      прокси <a href="https://github.com/Flowseal/tg-ws-proxy">tg-ws-proxy</a>.
+      Программа ставит и обновляет его сама, настроек он не требует.
     </p>
   </article>
 
@@ -196,6 +199,13 @@
   </p>
 </footer>
 
-<script src="site.js"></script>
+<!-- Снимок во весь экран. Разметка здесь, а не в скрипте: без JS она
+     просто не показывается, и страница от этого не ломается. -->
+<div class="lightbox" id="lightbox" hidden>
+  <button class="lightbox-close" id="lightbox-close" type="button" aria-label="Закрыть">×</button>
+  <img id="lightbox-image" alt="">
+</div>
+
+<script src="site.js?v=2"></script>
 </body>
 </html>

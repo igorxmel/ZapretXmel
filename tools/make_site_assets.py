@@ -120,7 +120,7 @@ def social_card(target: Path) -> None:
     painter.drawText(
         QRectF(80, height - 210, width - 160, 70),
         int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
-        "Обход блокировок без батников и консоли",
+        "Свободный интернет каждому",
     )
 
     painter.setPen(QColor(COLORS["text_muted"]))

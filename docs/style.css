@@ -137,9 +137,18 @@ code {
   filter: drop-shadow(0 24px 60px rgba(245, 160, 0, 0.14));
 }
 
+.slogan {
+  margin: 22px 0 0;
+  font-family: var(--display);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+
 .lead {
   max-width: 640px;
-  margin: 24px auto 0;
+  margin: 14px auto 0;
   color: var(--text-dim);
   font-size: 18px;
 }
@@ -262,10 +271,11 @@ p { margin: 0 0 12px; color: var(--text-dim); }
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55);
+  cursor: zoom-in;
 }
 
 .frame figcaption {
-  margin-top: 16px;
+  margin-top: 20px;
   color: var(--text-muted);
   font-family: var(--mono);
   font-size: 13px;
@@ -277,7 +287,7 @@ p { margin: 0 0 12px; color: var(--text-dim); }
   align-items: center;
   justify-content: center;
   gap: 16px;
-  margin-top: 18px;
+  margin-top: 26px;
 }
 
 .arrow {
@@ -441,6 +451,7 @@ footer p { margin: 0 0 10px; }
 @media (max-width: 640px) {
   body { padding: 0 16px 56px; }
   .hero { padding: 64px 0 40px; }
+  .slogan { font-size: 24px; }
   .lead { font-size: 16px; }
   .button { flex: 1 1 100%; text-align: center; }
   .bar { padding: 8px 16px; }
@@ -449,4 +460,53 @@ footer p { margin: 0 0 10px; }
   .honest blockquote { font-size: 18px; }
   section { margin-top: 64px; }
   h2 { font-size: 22px; }
+}
+
+/* --- снимок во весь экран --------------------------------------------- */
+
+/* Экраны программы — главное, что есть показать на странице, а в полосе
+   карусели мелкий текст не прочитать. */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  background: rgba(5, 5, 6, 0.94);
+  backdrop-filter: blur(6px);
+  cursor: zoom-out;
+}
+
+.lightbox[hidden] { display: none; }
+
+.lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 40px 90px rgba(0, 0, 0, 0.6);
+}
+
+.lightbox-close {
+  position: absolute;
+  top: 18px;
+  right: 22px;
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lightbox-close:hover { color: var(--text); border-color: var(--text-muted); }
+
+@media (max-width: 640px) {
+  .lightbox { padding: 16px; }
 }

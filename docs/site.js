@@ -164,8 +164,40 @@ function setupBar() {
   toggle();
 }
 
+// --- снимок во весь экран ---------------------------------------------
+
+function setupLightbox() {
+  const box = document.getElementById("lightbox");
+  const full = document.getElementById("lightbox-image");
+  const close = document.getElementById("lightbox-close");
+  if (!box || !full) return;
+
+  function open(image) {
+    full.src = image.currentSrc || image.src;
+    full.alt = image.alt;
+    box.hidden = false;
+    close.focus();
+  }
+
+  function hide() {
+    box.hidden = true;
+    // Путь сбрасываем, чтобы следующий снимок не мелькнул предыдущим.
+    full.removeAttribute("src");
+  }
+
+  for (const image of document.querySelectorAll(".frame img")) {
+    image.addEventListener("click", () => open(image));
+  }
+
+  box.addEventListener("click", hide);
+  addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !box.hidden) hide();
+  });
+}
+
 showBoosty();
 showVersion();
 setupGallery();
 setupReveal();
 setupBar();
+setupLightbox();

@@ -128,6 +128,7 @@ Pull request'ы открыты, и мелкие тоже — опечатка в
 - [bol-van/zapret](https://github.com/bol-van/zapret) — движок обхода
 - [Flowseal/zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) — сборка и стратегии
 - [hyperion-cs/dpi-checkers](https://github.com/hyperion-cs/dpi-checkers) — набор хостов для проверки DPI
+- [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) — прокси, который чинит Telegram
 - [basil00/WinDivert](https://github.com/basil00/WinDivert) — перехват пакетов
 - [Noktomezo/ZapretInteractive](https://github.com/Noktomezo/ZapretInteractive) и
   [medvedeff-true/Zapret-GUI](https://github.com/medvedeff-true/Zapret-GUI) — соседние
