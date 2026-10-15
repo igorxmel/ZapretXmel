@@ -18,7 +18,17 @@ from pathlib import Path
 
 import psutil
 
-from app.core import coreinfo, gamefilter, ipset, lists, paths, service, strategies, winws
+from app.core import (
+    coreinfo,
+    foreign,
+    gamefilter,
+    ipset,
+    lists,
+    paths,
+    service,
+    strategies,
+    winws,
+)
 
 log = logging.getLogger(__name__)
 
@@ -115,6 +125,10 @@ class SystemFacts:
     windivert_driver_present: bool = False
     path_has_cyrillic: bool = False
     path_in_onedrive: bool = False
+
+    # Чужая установка zapret: та же служба, другая папка
+    foreign_install: str = ""
+    foreign_source: str = ""
 
     # Состояние обхода
     service_state: str = "not_installed"
@@ -246,6 +260,7 @@ def collect() -> SystemFacts:
     names = all_service_names()
     tunnel = vpn.detect()
     instances = winws.find_instances()
+    stranger = foreign.detect()
 
     facts = SystemFacts(
         os_version=f"{platform.system()} {platform.release()} ({platform.version()})",
@@ -265,6 +280,8 @@ def collect() -> SystemFacts:
         windivert_driver_present=windivert_driver_present(),
         path_has_cyrillic=path_has_cyrillic(core.path),
         path_in_onedrive=path_in_onedrive(core.path),
+        foreign_install=str(stranger.root) if stranger else "",
+        foreign_source=stranger.source if stranger else "",
         service_state=service.query_state(),
         service_strategy=service.installed_strategy(),
         windivert_state=service.windivert_state(),

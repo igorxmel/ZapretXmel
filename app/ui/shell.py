@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (
     QButtonGroup,
     QHBoxLayout,
     QLabel,
+    QMessageBox,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
@@ -184,6 +185,7 @@ class MainWindow(FramelessWindow):
         self.controller.status_changed.connect(self._apply_status)
         self.views["dashboard"].navigate.connect(self.navigate)
         self.views["dashboard"].install_core_requested.connect(self._install_core)
+        self.controller.foreign_conflict.connect(self._ask_about_foreign)
 
     # --- поведение ------------------------------------------------------
 
@@ -202,6 +204,35 @@ class MainWindow(FramelessWindow):
             reload_method()
         if key == "logs":
             view.load_tail(self.controller.status.log_tail)
+
+    def _ask_about_foreign(self, path: str) -> None:
+        """Спрашивает разрешение подвинуть другую установку zapret.
+
+        Служба у неё и у нас одна и та же, так что включение обхода её
+        пересоздаёт. Человек, который до этого пользовался zapret вручную,
+        должен узнать об этом до, а не после.
+        """
+        question = QMessageBox(self)
+        question.setWindowTitle("На компьютере уже есть zapret")
+        question.setIcon(QMessageBox.Icon.Warning)
+        question.setText(f"Обходом сейчас управляет установка в {path}.")
+        question.setInformativeText(
+            "Служба Windows у неё и у нас называется одинаково, поэтому включение "
+            "обхода здесь пересоздаст её на нашу копию, а в режиме обычного "
+            "процесса ещё и остановит её winws.\n\n"
+            "Прежняя установка никуда не денется: её консольное меню сможет "
+            "вернуть службу себе. Свои списки доменов стоит перенести заранее — "
+            "в разделе «Списки» есть импорт из другой папки zapret."
+        )
+
+        replace = question.addButton(
+            "Переключить на эту программу", QMessageBox.ButtonRole.AcceptRole
+        )
+        question.addButton("Оставить как есть", QMessageBox.ButtonRole.RejectRole)
+        question.exec()
+
+        if question.clickedButton() is replace:
+            self.controller.start(replace_foreign=True)
 
     def _install_core(self) -> None:
         """Ставит ядро по нажатию главной кнопки, когда его ещё нет."""

@@ -283,10 +283,38 @@ def _multiple_instances(facts: SystemFacts) -> Finding | None:
     )
 
 
+def _foreign_install(facts: SystemFacts) -> Finding | None:
+    """Другая копия zapret на той же машине.
+
+    Служба у сборки Flowseal называется так же, как наша, — это одна и та же
+    служба. Поэтому без этого предупреждения человек видит «обход работает» и
+    чужое имя стратегии, не понимая, откуда они взялись.
+    """
+    if not facts.foreign_install:
+        return None
+
+    return Finding(
+        "foreign_install",
+        Severity.WARNING,
+        f"Найдена другая установка zapret: {facts.foreign_install}",
+        f"Признак: {facts.foreign_source}. Служба у неё и у нас одна и та же, "
+        "поэтому состояние на главном экране относится к ней.\n\n"
+        "Включение обхода здесь переустановит службу на нашу копию, а запуск "
+        "в режиме обычного процесса снимет её winws. Пока вы этого не сделали, "
+        "прежняя установка продолжает работать как раньше. Свои списки доменов "
+        "из неё можно перенести в разделе «Списки».",
+    )
+
+
 def _strategy_marker(facts: SystemFacts) -> Finding | None:
     if facts.service_state == "not_installed" or not facts.service_strategy:
         return None
     if not facts.core_present:
+        return None
+    # Службу поставила другая установка, и имя стратегии — из её папки.
+    # Жаловаться на пропажу того, чего у нас и не было, незачем: об этом
+    # говорит отдельная находка про чужую установку.
+    if facts.foreign_install:
         return None
 
     # Список берётся из снимка, а не с диска: иначе правила перестают быть
@@ -371,6 +399,7 @@ _RULES: tuple[Callable[[SystemFacts], Finding | None], ...] = (
     _bypass_state,
     _windivert_pending,
     _multiple_instances,
+    _foreign_install,
     _strategy_marker,
     _user_lists,
     _ipset,

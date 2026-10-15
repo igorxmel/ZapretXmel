@@ -159,6 +159,26 @@ def test_portable_run_without_service_is_fine() -> None:
     assert find(facts, "bypass").severity is Severity.OK
 
 
+def test_foreign_install_warns() -> None:
+    facts = healthy_facts()
+    facts.foreign_install = r"D:\zapret"
+    facts.foreign_source = "на неё настроена служба zapret"
+
+    finding = find(facts, "foreign_install")
+
+    assert finding.severity is Severity.WARNING
+    assert r"D:\zapret" in finding.title
+
+
+def test_foreign_install_silences_the_vanished_strategy_warning() -> None:
+    """Имя стратегии принадлежит чужой папке — жаловаться на пропажу незачем."""
+    facts = healthy_facts()
+    facts.service_strategy = "general (их собственная)"
+    facts.foreign_install = r"D:\zapret"
+
+    assert find(facts, "strategy_missing") is None
+
+
 def test_vanished_strategy_warns() -> None:
     """Служба осталась со стратегией, которой после обновления ядра уже нет."""
     facts = healthy_facts()

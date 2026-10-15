@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
-from app.core import coreinfo, service, strategies, telegram, winws
+from app.core import coreinfo, foreign, service, strategies, telegram, winws
 from app.core.batfile import StrategySpec
 from app.core.config import Settings
 from app.core.diagnostics import vpn
@@ -40,6 +40,9 @@ class Status:
     active_strategy: str = ""
     selected_strategy: str = ""
     active_vpn: str = ""
+    # Папка другой установки zapret, если она есть: служба у неё и у нас одна
+    # и та же, и без этого состояние на экране относилось бы к ней молча.
+    foreign_install: str = ""
     active_profile: str = ""
     telegram_installed: bool = False
     telegram_running: bool = False
@@ -68,6 +71,9 @@ class Controller(QObject):
     error = pyqtSignal(str)
     message = pyqtSignal(str)
     log_line = pyqtSignal(str)
+    # Путь к чужой установке, которую затронет включение обхода. Решение за
+    # человеком, поэтому контроллер только сообщает, а спрашивает интерфейс.
+    foreign_conflict = pyqtSignal(str)
 
     def __init__(self, settings: Settings, parent: QObject | None = None):
         super().__init__(parent)
@@ -110,6 +116,14 @@ class Controller(QObject):
         """
         info = coreinfo.describe()
         service_state = service.query_state()
+        running = winws.count_instances()
+
+        # Чужую установку ищем только когда есть по чему искать: без службы и
+        # без запущенных winws следов всё равно нет, а опрос идёт каждые
+        # несколько секунд.
+        stranger = (
+            foreign.detect() if service_state != "not_installed" or running else None
+        )
 
         own_process_alive = self._process is not None and self._process.is_alive()
         status = Status(
@@ -118,10 +132,11 @@ class Controller(QObject):
             strategy_count=info.strategy_count,
             service_state=service_state,
             service_strategy=service.installed_strategy(),
-            winws_count=winws.count_instances(),
+            winws_count=running,
             run_mode="process" if own_process_alive else "service",
             selected_strategy=self.settings.selected_strategy,
             active_vpn=tunnel.adapter if (tunnel := vpn.detect_fast()) else "",
+            foreign_install=str(stranger.root) if stranger else "",
             telegram_installed=telegram.is_installed(),
             telegram_running=self.telegram.is_running(),
             active_profile=self._profile_name if self._profile_alive() else "",
@@ -183,11 +198,18 @@ class Controller(QObject):
         self.settings.save()
         self.refresh()
 
-    def start(self) -> None:
+    def start(self, replace_foreign: bool = False) -> None:
         """Включает обход выбранным способом — службой или обычным процессом."""
         spec = self.selected_spec()
         if spec is None:
             self.error.emit("Не выбрана стратегия — сначала установите ядро.")
+            return
+
+        # Чужую установку нельзя подвинуть молча: служба будет пересоздана на
+        # наш путь, а в режиме процесса её winws вдобавок снимут. Спрашиваем —
+        # и только потом трогаем.
+        if self.status.foreign_install and not replace_foreign:
+            self.foreign_conflict.emit(self.status.foreign_install)
             return
 
         self._set_busy(True)

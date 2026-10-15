@@ -67,6 +67,14 @@ class DashboardView(QWidget):
         self._vpn_banner.hide()
         layout.addWidget(self._vpn_banner)
 
+        # Чужая установка zapret пользуется той же службой, поэтому состояние
+        # ниже относится к ней, а не к нам. Промолчать об этом нельзя.
+        self._foreign_banner = QLabel("")
+        self._foreign_banner.setObjectName("Dim")
+        self._foreign_banner.setWordWrap(True)
+        self._foreign_banner.hide()
+        layout.addWidget(self._foreign_banner)
+
         layout.addWidget(self._build_power_card())
 
         details = QHBoxLayout()
@@ -170,6 +178,17 @@ class DashboardView(QWidget):
             self._vpn_banner.show()
         else:
             self._vpn_banner.hide()
+
+        if status.foreign_install:
+            self._foreign_banner.setText(
+                f"На компьютере уже есть zapret: {status.foreign_install}. Служба у него и "
+                "у нас одна и та же, поэтому состояние ниже относится к нему. Включение "
+                "обхода здесь переключит службу на эту программу — она сначала спросит."
+            )
+            self._foreign_banner.setStyleSheet(f"color: {COLORS['warning']};")
+            self._foreign_banner.show()
+        else:
+            self._foreign_banner.hide()
 
         self._bypass.apply(
             active=status.is_active,
