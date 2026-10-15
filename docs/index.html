@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ZapretXmel — обход блокировок без батников</title>
+<meta name="description" content="Графическая надстройка над сборкой zapret от Flowseal: одно окно вместо консольных меню, стратегия подбирается перебором с честным замером без обхода.">
+
+<meta property="og:title" content="ZapretXmel">
+<meta property="og:description" content="Обход блокировок без батников и консоли. Стратегия подбирается сама.">
+<meta property="og:image" content="https://igorxmel.github.io/ZapretXmel/assets/banner.png">
+<meta property="og:type" content="website">
+
+<link rel="icon" href="assets/favicon.png" type="image/png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="hero">
+  <img class="banner" src="assets/banner.png" alt="ZapretXmel" width="560">
+
+  <p class="lead">
+    Графическая надстройка над сборкой
+    <a href="https://github.com/Flowseal/zapret-discord-youtube">zapret от Flowseal</a>.
+    Вместо батников и консольных меню — одно окно, а стратегия подбирается перебором.
+  </p>
+
+  <div class="actions">
+    <a class="button primary" href="https://github.com/igorxmel/ZapretXmel/releases/latest/download/ZapretXmel.exe">
+      Скачать для Windows
+    </a>
+    <a class="button" href="https://github.com/igorxmel/ZapretXmel">Исходники на GitHub</a>
+    <a class="button boosty" id="boosty" href="#" hidden>Поддержать на Boosty</a>
+  </div>
+
+  <p class="meta" id="meta">Windows 10/11 · 64 бита · без установки</p>
+</header>
+
+<main>
+
+<section class="shot">
+  <img src="assets/strategies.png" alt="Экран стратегий: разбор выбранной стратегии по секциям" loading="lazy">
+</section>
+
+<section class="features">
+  <article>
+    <h2>Одна кнопка</h2>
+    <p>
+      Обход включается службой Windows или обычным процессом. Служба стартует
+      вместе с системой — даже до входа в неё и без запущенного окна.
+    </p>
+  </article>
+
+  <article>
+    <h2>Стратегия подбирается сама</h2>
+    <p>
+      Программа перебирает все стратегии сборки и проверяет сервисы разом:
+      YouTube, Discord, остальное из списка целей.
+    </p>
+  </article>
+
+  <article>
+    <h2>Telegram через прокси</h2>
+    <p>
+      Клиент Telegram стратегии не чинят — его чинит отдельный локальный
+      MTProto-прокси. Ставится из программы, настроек не требует.
+    </p>
+  </article>
+
+  <article>
+    <h2>Профили приложений</h2>
+    <p>
+      Пропустить через обход отдельную игру или клиент: программа записывает,
+      куда он ходит, и строит из этого фильтр.
+    </p>
+  </article>
+
+  <article>
+    <h2>Диагностика</h2>
+    <p>
+      Полсотни проверок системы с объяснением на русском и кнопкой «починить».
+      Разбор нейросетью — по желанию, пакет для чат-бота выгружается без ключей.
+    </p>
+  </article>
+
+  <article>
+    <h2>Обновления</h2>
+    <p>
+      Ядро обновляется из официальных релизов Flowseal, с бэкапом и откатом.
+      Сама программа обновляет себя сама.
+    </p>
+  </article>
+</section>
+
+<section class="honest">
+  <h2>Чем подбор отличается от «нажал и работает»</h2>
+  <p>
+    Перебор <strong>всегда начинается с замера без обхода</strong>. У многих
+    провайдеров проверяемые адреса открываются и так — без точки отсчёта
+    «лучшей» оказалась бы стратегия, которая просто ничего не сломала.
+    Победителем считается только та, что превзошла этот замер.
+  </p>
+  <p>
+    Счёт идёт по сервисам, а не общей суммой проверок: стратегия, чинящая
+    десяток проверок YouTube и ломающая Discord, не должна обходить ту, после
+    которой работает и то, и другое. Если победитель что-то так и не починил,
+    об этом сказано прямо, а не спрятано в итоговой цифре.
+  </p>
+  <p class="aside">
+    Включённый VPN обесценивает любую проверку — через туннель открывается
+    всё подряд. Программа замечает туннель и не запускает подбор без согласия.
+  </p>
+</section>
+
+<section class="shot">
+  <img src="assets/diagnostics.png" alt="Экран диагностики с разбором нейросетью" loading="lazy">
+</section>
+
+<section class="install">
+  <h2>Установка</h2>
+  <ol>
+    <li>Скачайте <code>ZapretXmel.exe</code>.</li>
+    <li>Положите в отдельную папку — рядом появятся ядро и настройки. Папку можно выбрать свою.</li>
+    <li>Запустите. Права администратора программа запросит сама.</li>
+  </ol>
+  <p class="aside">
+    Ядро zapret внутрь не вшито: при первом запуске оно скачивается из
+    официальных релизов Flowseal, поэтому у вас всегда свежая сборка, а не та,
+    что была актуальна на момент нашей.
+  </p>
+</section>
+
+</main>
+
+<footer>
+  <p>
+    <a href="https://github.com/igorxmel/ZapretXmel">GitHub</a> ·
+    <a href="https://github.com/igorxmel/ZapretXmel/releases">Все версии</a> ·
+    <a href="https://github.com/igorxmel/ZapretXmel/blob/main/LICENSE">MIT</a>
+  </p>
+  <p class="aside">
+    Обход работает благодаря <a href="https://github.com/bol-van/zapret">zapret</a>
+    и сборке <a href="https://github.com/Flowseal/zapret-discord-youtube">Flowseal</a>.
+    ZapretXmel — только оболочка к ним.
+  </p>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>
