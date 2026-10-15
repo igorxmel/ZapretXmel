@@ -96,6 +96,13 @@ def build_stylesheet() -> str:
         border-right: 1px solid {c["border"]};
     }}
 
+    /* Шапка меню отделена от пунктов такой же линией, какими разделены
+       блоки по всему окну: логотип с версией — своя часть, и без неё он
+       сливался со списком разделов. */
+    #SidebarHeader {{
+        border-bottom: 1px solid {c["border"]};
+    }}
+
     #SidebarLogo {{
         color: {c["text"]};
         font-size: {FONT_SIZE["subtitle"]}px;

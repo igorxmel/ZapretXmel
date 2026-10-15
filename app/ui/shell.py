@@ -9,6 +9,7 @@ from PyQt6.QtGui import QCloseEvent
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -120,7 +121,8 @@ class MainWindow(FramelessWindow):
         # Название нарисовано прямо на баннере, поэтому отдельной подписи
         # рядом нет: иначе логотип и имя программы повторялись бы дважды —
         # здесь и в заголовке окна.
-        header = QWidget()
+        header = QFrame()
+        header.setObjectName("SidebarHeader")
         header_layout = QVBoxLayout(header)
         header_layout.setContentsMargins(SPACE["md"], SPACE["md"], SPACE["md"], SPACE["md"])
         header_layout.setSpacing(SPACE["xs"])
@@ -135,6 +137,7 @@ class MainWindow(FramelessWindow):
         version.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         header_layout.addWidget(version)
 
+        # Линия идёт от края до края меню, поэтому полей вокруг шапки нет.
         layout.addWidget(header)
 
         self._nav_group = QButtonGroup(self)

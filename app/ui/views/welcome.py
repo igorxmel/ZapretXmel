@@ -17,7 +17,6 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
-    QCheckBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -108,7 +107,7 @@ class WelcomeWindow(FramelessWindow):
         layout.addWidget(banner)
 
         subtitle = QLabel(
-            "Обход блокировок без батников и консоли. Осталось три шага — "
+            "Обход блокировок без батников и консоли. Ниже пять шагов — "
             "любой можно пропустить и вернуться к нему позже."
         )
         subtitle.setObjectName("Dim")
@@ -130,66 +129,25 @@ class WelcomeWindow(FramelessWindow):
         self._finish_button.clicked.connect(self._finish)
         layout.addWidget(self._finish_button)
 
-        layout.addWidget(self._build_shortcut())
-        layout.addWidget(self._build_location())
+    def _toggle_shortcut(self) -> None:
+        """Создаёт или убирает ярлык сразу по нажатию.
 
-    def _build_shortcut(self) -> QWidget:
-        """Предлагает ярлык: иначе программу потом негде искать.
-
-        Установщика нет, в меню «Пуск» её тоже нет — это один файл там, куда
-        его положили. Галочка стоит заранее: отказаться проще, чем вспомнить
-        о ней через неделю.
+        Установщика у программы нет, в меню «Пуск» её тоже нет — это один
+        файл там, куда его положили, и без ярлыка искать его потом негде.
         """
-        box = QCheckBox("Создать ярлык на рабочем столе")
-        box.setChecked(paths.is_frozen())
-        box.setEnabled(paths.is_frozen())
         if not paths.is_frozen():
-            box.setToolTip("Доступно в собранной версии: из исходников ярлык вёл бы на python")
-        box.toggled.connect(self._toggle_shortcut)
-
-        self._shortcut_box = box
-        return box
-
-    def _toggle_shortcut(self, wanted: bool) -> None:
-        # Ярлык создаётся сразу, а не по кнопке «Перейти к программе»: так
-        # видно результат, и окно можно закрыть любым способом.
-        if not paths.is_frozen():
+            self._say(
+                "Доступно в собранной версии: из исходников ярлык вёл бы на интерпретатор"
+            )
             return
-        if wanted:
-            self._say("Ярлык создан" if shortcut.create() else "Не удалось создать ярлык")
-        else:
+
+        if shortcut.exists():
             shortcut.remove()
+            self._say("Ярлык убран")
+        else:
+            self._say("Ярлык создан" if shortcut.create() else "Не удалось создать ярлык")
 
-    def _build_location(self) -> QWidget:
-        """Говорит, куда программа складывает ядро и настройки, и даёт сменить место.
-
-        Без этого человек не знает, где окажутся полсотни мегабайт: папка
-        берётся рядом с исполняемым файлом, и если его запустили из «Загрузок»,
-        всё приземлится туда же. До установки ядра сменить место дешевле всего —
-        переносить ещё нечего.
-        """
-        container = QWidget()
-        row = QHBoxLayout(container)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(SPACE["sm"])
-
-        self._location_label = QLabel()
-        self._location_label.setObjectName("Muted")
-        self._location_label.setWordWrap(True)
-        row.addWidget(self._location_label, 1)
-
-        change = QPushButton("Выбрать…")
-        change.setObjectName("Ghost")
-        change.setCursor(Qt.CursorShape.PointingHandCursor)
-        change.clicked.connect(self._choose_location)
-        row.addWidget(change)
-
-        self._show_location()
-        return container
-
-    def _show_location(self) -> None:
-        where = "рядом с программой" if paths.is_portable() else "в выбранной папке"
-        self._location_label.setText(f"Ядро и настройки лягут {where}: {paths.install_root()}")
+        self.refresh()
 
     def _choose_location(self) -> None:
         chosen = QFileDialog.getExistingDirectory(
@@ -213,7 +171,6 @@ class WelcomeWindow(FramelessWindow):
             self._say(str(error), COLORS["danger"])
             return
 
-        self._show_location()
         self._say(f"Папка установки: {result.target}", COLORS["success"])
 
         # Программа переехала вместе с данными — работающий файл остался по
@@ -259,6 +216,26 @@ class WelcomeWindow(FramelessWindow):
         )
         self._telegram_step.button.clicked.connect(lambda: self._go("telegram"))
         body.addWidget(self._telegram_step)
+        body.addWidget(Divider())
+
+        self._shortcut_step = Step(
+            4,
+            "Ярлык на рабочем столе",
+            "Установщика у программы нет: это один файл там, куда его положили.",
+            "Создать",
+        )
+        self._shortcut_step.button.clicked.connect(self._toggle_shortcut)
+        body.addWidget(self._shortcut_step)
+        body.addWidget(Divider())
+
+        self._location_step = Step(
+            5,
+            "Папка установки",
+            "Ядро и настройки лягут рядом с программой.",
+            "Выбрать…",
+        )
+        self._location_step.button.clicked.connect(self._choose_location)
+        body.addWidget(self._location_step)
 
         body.addStretch(1)
         return card
@@ -299,6 +276,30 @@ class WelcomeWindow(FramelessWindow):
                 else "Клиент Telegram чинится не стратегией, а отдельным локальным прокси."
             ),
             action="Открыть" if installed else "Настроить",
+        )
+
+        has_shortcut = shortcut.exists()
+        self._shortcut_step.set_state(
+            done=has_shortcut,
+            hint=(
+                f"Ярлык лежит на рабочем столе: {shortcut.path().name}"
+                if has_shortcut
+                else "Установщика у программы нет: это один файл там, куда его положили."
+            ),
+            action="Убрать" if has_shortcut else "Создать",
+            enabled=paths.is_frozen(),
+        )
+
+        # Место считается выбранным всегда: по умолчанию это папка рядом с
+        # программой. Менять его дешевле всего до установки ядра — переносить
+        # ещё нечего, о чём и говорит подсказка, пока ядра нет.
+        self._location_step.set_state(
+            done=True,
+            hint=(
+                f"{paths.install_root()}"
+                + ("" if core.present else " — сменить сейчас проще всего, переносить нечего")
+            ),
+            action="Сменить…" if core.present else "Выбрать…",
         )
 
     # --- действия --------------------------------------------------------
