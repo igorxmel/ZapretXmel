@@ -129,13 +129,83 @@ p { margin: 0 0 12px; color: var(--text-dim); }
 
 .aside { color: var(--text-muted); font-size: 14px; }
 
-.shot img {
+/* --- карусель --------------------------------------------------------- */
+
+/* Прокрутка с привязкой к кадрам: листается пальцем, колесом и кнопками
+   одинаково, и ни одна библиотека для этого не нужна. */
+.frames {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+  outline: none;
+}
+
+.frames::-webkit-scrollbar { display: none; }
+
+.frame {
+  flex: 0 0 100%;
+  margin: 0;
+  scroll-snap-align: center;
+}
+
+.frame img {
   width: 100%;
   height: auto;
+  display: block;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  display: block;
 }
+
+.frame figcaption {
+  margin-top: 12px;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+}
+
+.gallery-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.arrow {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.arrow:hover { background: var(--surface-hover); color: var(--text); }
+.arrow:disabled { opacity: 0.35; cursor: default; }
+.arrow:disabled:hover { background: var(--surface); color: var(--text-dim); }
+
+.dots { display: flex; gap: 8px; }
+
+.dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.dot:hover { background: var(--text-muted); }
+.dot[aria-current="true"] { background: var(--orange); }
 
 .features {
   display: grid;

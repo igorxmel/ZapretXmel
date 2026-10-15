@@ -38,8 +38,35 @@
 
 <main>
 
-<section class="shot">
-  <img src="assets/strategies.png" alt="Экран стратегий: разбор выбранной стратегии по секциям" loading="lazy">
+<section class="gallery" aria-roledescription="карусель" aria-label="Экраны приложения">
+  <div class="frames" id="frames" tabindex="0">
+    <figure class="frame">
+      <img src="assets/dashboard.png" alt="Главный экран с включённым обходом">
+      <figcaption>Обзор: одна кнопка, состояние обхода и быстрые действия</figcaption>
+    </figure>
+    <figure class="frame">
+      <img src="assets/autopick.png" alt="Экран подбора стратегии" loading="lazy">
+      <figcaption>Подбор: перебор стратегий по всем сервисам сразу</figcaption>
+    </figure>
+    <figure class="frame">
+      <img src="assets/strategies.png" alt="Экран стратегий" loading="lazy">
+      <figcaption>Стратегии: что именно делает выбранная — по секциям</figcaption>
+    </figure>
+    <figure class="frame">
+      <img src="assets/diagnostics.png" alt="Экран диагностики" loading="lazy">
+      <figcaption>Диагностика: проверки системы и разбор нейросетью</figcaption>
+    </figure>
+    <figure class="frame">
+      <img src="assets/updates.png" alt="Экран обновлений" loading="lazy">
+      <figcaption>Обновления: ядро из релизов Flowseal, с бэкапом и откатом</figcaption>
+    </figure>
+  </div>
+
+  <div class="gallery-nav">
+    <button class="arrow" id="prev" type="button" aria-label="Предыдущий экран">&lsaquo;</button>
+    <div class="dots" id="dots"></div>
+    <button class="arrow" id="next" type="button" aria-label="Следующий экран">&rsaquo;</button>
+  </div>
 </section>
 
 <section class="features">
@@ -110,10 +137,6 @@
     Включённый VPN обесценивает любую проверку — через туннель открывается
     всё подряд. Программа замечает туннель и не запускает подбор без согласия.
   </p>
-</section>
-
-<section class="shot">
-  <img src="assets/diagnostics.png" alt="Экран диагностики с разбором нейросетью" loading="lazy">
 </section>
 
 <section class="install">
