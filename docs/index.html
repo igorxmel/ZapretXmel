@@ -23,7 +23,7 @@
 <meta name="theme-color" content="#0b0b0c">
 
 <link rel="icon" href="assets/favicon.png" type="image/png">
-<link rel="stylesheet" href="style.css?v=2">
+<link rel="stylesheet" href="style.css?v=4">
 
 <!-- Класс ставится до отрисовки: по нему стили прячут блоки, которые
      потом проявит скрипт. Без скрипта всё остаётся видимым. -->
@@ -62,114 +62,113 @@
 
 <main>
 
-<section class="gallery reveal" aria-roledescription="карусель" aria-label="Экраны приложения">
-  <div class="frames" id="frames" tabindex="0">
-    <figure class="frame">
-      <img src="assets/dashboard.png" alt="Главный экран с включённым обходом">
-      <figcaption>Обзор: одна кнопка, состояние обхода и быстрые действия</figcaption>
-    </figure>
-    <figure class="frame">
-      <img src="assets/autopick.png" alt="Экран подбора стратегии" loading="lazy">
-      <figcaption>Подбор: перебор стратегий по всем сервисам сразу</figcaption>
-    </figure>
-    <figure class="frame">
-      <img src="assets/strategies.png" alt="Экран стратегий" loading="lazy">
-      <figcaption>Стратегии: что именно делает выбранная — по секциям</figcaption>
-    </figure>
-    <figure class="frame">
-      <img src="assets/diagnostics.png" alt="Экран диагностики" loading="lazy">
-      <figcaption>Диагностика: проверки системы и разбор нейросетью</figcaption>
-    </figure>
-    <figure class="frame">
-      <img src="assets/updates.png" alt="Экран обновлений" loading="lazy">
-      <figcaption>Обновления: ядро из релизов Flowseal, с бэкапом и откатом</figcaption>
-    </figure>
-  </div>
-
-  <div class="gallery-nav">
-    <button class="arrow" id="prev" type="button" aria-label="Предыдущий экран">&lsaquo;</button>
-    <div class="dots" id="dots"></div>
-    <button class="arrow" id="next" type="button" aria-label="Следующий экран">&rsaquo;</button>
+<section class="feature reveal">
+  <figure class="shot">
+    <img src="assets/dashboard.png" alt="Главный экран с кнопкой включения">
+  </figure>
+  <div class="feature-text">
+    <p class="step"><span>01</span> Включение</p>
+    <h2>Одна кнопка — и всё</h2>
+    <p>
+      Обход поднимается службой Windows или обычным процессом. Служба стартует
+      вместе с системой: до входа в учётную запись и без запущенного окна.
+      Рядом — кнопка Telegram: его чинят не стратегии, а отдельный локальный
+      прокси <a href="https://github.com/Flowseal/tg-ws-proxy">tg-ws-proxy</a>,
+      и программа ставит его сама.
+    </p>
   </div>
 </section>
 
-<section class="features-block reveal">
-  <h2 class="title"><span>01</span> Что внутри</h2>
+<section class="feature reveal">
+  <figure class="shot">
+    <img src="assets/autopick.png" alt="Экран подбора стратегии" loading="lazy">
+  </figure>
+  <div class="feature-text">
+    <p class="step"><span>02</span> Подбор</p>
+    <h2>Стратегия подбирается перебором</h2>
+    <p>
+      Программа поднимает каждую стратегию по очереди и проверяет на одних и
+      тех же сервисах: YouTube, Discord и всё, что вы добавите сами.
+    </p>
+    <blockquote>Победителем считается только та стратегия, что превзошла замер без обхода.</blockquote>
+    <p>
+      Перебор всегда начинается с замера без обхода. У многих провайдеров
+      проверяемые адреса открываются и так — без точки отсчёта «лучшей»
+      оказалась бы стратегия, которая просто ничего не сломала. Счёт идёт по
+      сервисам, а не общей суммой проверок, и если победитель что-то так и не
+      починил, об этом сказано прямо.
+    </p>
+    <p class="aside">
+      Включённый VPN обесценивает любую проверку — через туннель открывается всё
+      подряд. Программа замечает туннель и не запускает подбор без согласия.
+    </p>
+  </div>
 </section>
 
-<section class="features reveal">
-  <article>
-    <h3>Одна кнопка</h3>
+<section class="feature reveal">
+  <figure class="shot">
+    <img src="assets/diagnostics.png" alt="Экран диагностики" loading="lazy">
+  </figure>
+  <div class="feature-text">
+    <p class="step"><span>03</span> Когда не работает</p>
+    <h2>Диагностика объясняет, в чём дело</h2>
     <p>
-      Обход включается службой Windows или обычным процессом. Служба стартует
-      вместе с системой — даже до входа в неё и без запущенного окна.
+      Полсотни проверок системы: выключенные службы, конфликтующие программы,
+      неудачное расположение папки, чужая установка zapret. У каждой находки —
+      объяснение на русском, а у части ещё и кнопка «починить».
     </p>
-  </article>
-
-  <article>
-    <h3>Стратегия подбирается сама</h3>
     <p>
-      Программа перебирает все стратегии сборки и проверяет сервисы разом:
-      YouTube, Discord, остальное из списка целей.
+      Нейросеть подключается по желанию и только дополняет правила. Из снимка
+      вычищаются имя пользователя и публичные адреса, а сам снимок можно просто
+      выгрузить файлом и отнести в любой чат-бот.
     </p>
-  </article>
-
-  <article>
-    <h3>Telegram через прокси</h3>
-    <p>
-      Клиент Telegram стратегии не чинят — его чинит отдельный локальный
-      прокси <a href="https://github.com/Flowseal/tg-ws-proxy">tg-ws-proxy</a>.
-      Программа ставит и обновляет его сама, настроек он не требует.
-    </p>
-  </article>
-
-  <article>
-    <h3>Профили приложений</h3>
-    <p>
-      Пропустить через обход отдельную игру или клиент: программа записывает,
-      куда он ходит, и строит из этого фильтр.
-    </p>
-  </article>
-
-  <article>
-    <h3>Диагностика</h3>
-    <p>
-      Полсотни проверок системы с объяснением на русском и кнопкой «починить».
-      Разбор нейросетью — по желанию, пакет для чат-бота выгружается без ключей.
-    </p>
-  </article>
-
-  <article>
-    <h3>Обновления</h3>
-    <p>
-      Ядро обновляется из официальных релизов Flowseal, с бэкапом и откатом.
-      Сама программа обновляет себя сама.
-    </p>
-  </article>
+  </div>
 </section>
 
-<section class="honest reveal">
-  <h2 class="title"><span>02</span> Чем подбор отличается от «нажал и работает»</h2>
-  <blockquote>Победителем считается только та стратегия, что превзошла замер без обхода.</blockquote>
-  <p>
-    Перебор всегда начинается с замера без обхода. У многих
-    провайдеров проверяемые адреса открываются и так — без точки отсчёта
-    «лучшей» оказалась бы стратегия, которая просто ничего не сломала.
-  </p>
-  <p>
-    Счёт идёт по сервисам, а не общей суммой проверок: стратегия, чинящая
-    десяток проверок YouTube и ломающая Discord, не должна обходить ту, после
-    которой работает и то, и другое. Если победитель что-то так и не починил,
-    об этом сказано прямо, а не спрятано в итоговой цифре.
-  </p>
-  <p class="aside">
-    Включённый VPN обесценивает любую проверку — через туннель открывается
-    всё подряд. Программа замечает туннель и не запускает подбор без согласия.
-  </p>
+<section class="feature reveal">
+  <figure class="shot">
+    <img src="assets/updates.png" alt="Экран обновлений" loading="lazy">
+  </figure>
+  <div class="feature-text">
+    <p class="step"><span>04</span> Дальше</p>
+    <h2>Обновляется без вашего участия</h2>
+    <p>
+      Ядро берётся из официальных релизов Flowseal — с бэкапом и откатом, а ваши
+      списки доменов переносятся в новую версию сами. Прокси и сама программа
+      обновляются там же. Всё скачанное сверяется с хешем, который GitHub
+      публикует рядом с файлом.
+    </p>
+  </div>
+</section>
+
+<section class="extras reveal">
+  <h2 class="title"><span>05</span> И ещё</h2>
+  <div class="extras-grid">
+    <article>
+      <h3>Профили приложений</h3>
+      <p>Пропустить через обход отдельную игру или клиент: программа записывает,
+        куда он ходит, и строит из этого фильтр.</p>
+    </article>
+    <article>
+      <h3>Свои стратегии</h3>
+      <p>Готовый <code>.bat</code> можно добавить, а любую стратегию — скопировать
+        под своим именем и править. Обновление ядра их не затирает.</p>
+    </article>
+    <article>
+      <h3>Свои списки и цели</h3>
+      <p>Свои домены для обхода и свои адреса для проверок — они переживают
+        обновление сборки.</p>
+    </article>
+    <article>
+      <h3>Слежение за апстримом</h3>
+      <p>Программа следит за релизами Flowseal и сообщает, если в сборке появилось
+        то, чего интерфейс ещё не умеет.</p>
+    </article>
+  </div>
 </section>
 
 <section class="install reveal">
-  <h2 class="title"><span>03</span> Установка</h2>
+  <h2 class="title"><span>06</span> Установка</h2>
   <ol>
     <li>Скачайте <code>ZapretXmel.exe</code>.</li>
     <li>Положите в отдельную папку — рядом появятся ядро и настройки. Папку можно выбрать свою.</li>
@@ -206,6 +205,6 @@
   <img id="lightbox-image" alt="">
 </div>
 
-<script src="site.js?v=2"></script>
+<script src="site.js?v=4"></script>
 </body>
 </html>

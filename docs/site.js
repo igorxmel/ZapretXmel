@@ -42,84 +42,6 @@ async function showVersion() {
   }
 }
 
-// --- карусель ---------------------------------------------------------
-
-// Листание сделано прокруткой с привязкой: пальцем и колесом карусель
-// работает сама по себе, а кнопкам и точкам остаётся только попросить
-// браузер прокрутить к нужному кадру.
-function setupGallery() {
-  const frames = document.getElementById("frames");
-  if (!frames) return;
-
-  const dots = document.getElementById("dots");
-  const previous = document.getElementById("prev");
-  const next = document.getElementById("next");
-
-  const slides = () => [...frames.querySelectorAll(".frame")];
-
-  function current() {
-    const middle = frames.scrollLeft + frames.clientWidth / 2;
-    return slides().findIndex(
-      (frame) => frame.offsetLeft <= middle && middle < frame.offsetLeft + frame.offsetWidth
-    );
-  }
-
-  function show(index) {
-    const frame = slides()[index];
-    if (frame) frames.scrollTo({ left: frame.offsetLeft, behavior: "smooth" });
-  }
-
-  function draw() {
-    const all = slides();
-    const index = Math.max(current(), 0);
-
-    dots.replaceChildren(
-      ...all.map((frame, position) => {
-        const dot = document.createElement("button");
-        dot.className = "dot";
-        dot.type = "button";
-        dot.setAttribute("aria-label", `Экран ${position + 1}`);
-        if (position === index) dot.setAttribute("aria-current", "true");
-        dot.addEventListener("click", () => show(position));
-        return dot;
-      })
-    );
-
-    previous.disabled = index <= 0;
-    next.disabled = index >= all.length - 1;
-  }
-
-  // Кадр, картинка которого не загрузилась, убираем целиком: лучше карусель
-  // из четырёх экранов, чем из пяти с дырой посередине. Снимки обзора и
-  // подбора готовятся только при выключенном VPN и могут отсутствовать.
-  function drop(image) {
-    image.closest(".frame").remove();
-    draw();
-  }
-
-  for (const image of frames.querySelectorAll("img")) {
-    image.addEventListener("error", () => drop(image));
-    // Картинка могла не загрузиться ещё до того, как выполнился скрипт, —
-    // тогда события error уже не будет, и проверять приходится самим.
-    if (image.complete && image.naturalWidth === 0) drop(image);
-  }
-
-  previous.addEventListener("click", () => show(current() - 1));
-  next.addEventListener("click", () => show(current() + 1));
-
-  frames.addEventListener("scroll", () => {
-    clearTimeout(frames.dataset.timer);
-    frames.dataset.timer = setTimeout(draw, 80);
-  });
-
-  frames.addEventListener("keydown", (event) => {
-    if (event.key === "ArrowLeft") show(current() - 1);
-    if (event.key === "ArrowRight") show(current() + 1);
-  });
-
-  draw();
-}
-
 // --- появление и верхняя панель ---------------------------------------
 
 // Блоки проявляются при подходе к ним. Если браузер не умеет наблюдать за
@@ -185,7 +107,7 @@ function setupLightbox() {
     full.removeAttribute("src");
   }
 
-  for (const image of document.querySelectorAll(".frame img")) {
+  for (const image of document.querySelectorAll(".shot img")) {
     image.addEventListener("click", () => open(image));
   }
 
@@ -197,7 +119,6 @@ function setupLightbox() {
 
 showBoosty();
 showVersion();
-setupGallery();
 setupReveal();
 setupBar();
 setupLightbox();

@@ -243,28 +243,22 @@ h2 {
 p { margin: 0 0 12px; color: var(--text-dim); }
 .aside { color: var(--text-muted); font-size: 14px; }
 
-/* --- карусель ---------------------------------------------------------- */
+/* --- возможности ------------------------------------------------------ */
 
-/* Прокрутка с привязкой к кадрам: листается пальцем, колесом и кнопками
-   одинаково, и ни одна библиотека для этого не нужна. */
-.frames {
-  display: flex;
-  gap: 18px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: none;
-  outline: none;
+.feature {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  gap: 48px;
+  align-items: center;
 }
 
-.frames::-webkit-scrollbar { display: none; }
+/* Чётные секции зеркалим: ровный строй из одинаковых блоков читается
+   как таблица, а не как рассказ. */
+.feature:nth-of-type(even) .shot { order: 2; }
 
-.frame {
-  flex: 0 0 100%;
-  margin: 0;
-  scroll-snap-align: center;
-}
+.shot { margin: 0; }
 
-.frame img {
+.shot img {
   width: 100%;
   height: auto;
   display: block;
@@ -274,143 +268,57 @@ p { margin: 0 0 12px; color: var(--text-dim); }
   cursor: zoom-in;
 }
 
-.frame figcaption {
-  margin-top: 20px;
+.feature h2 {
+  margin: 0 0 14px;
+  font-size: 28px;
+}
+
+.feature p { font-size: 16px; }
+
+.step {
+  margin: 0 0 10px;
   color: var(--text-muted);
   font-family: var(--mono);
   font-size: 13px;
-  text-align: center;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
-.gallery-nav {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  margin-top: 26px;
-}
+.step span { color: var(--orange); margin-right: 6px; }
 
-.arrow {
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border: 1px solid var(--border-strong);
-  border-radius: 50%;
-  background: var(--surface);
-  color: var(--text-dim);
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-
-.arrow:hover { background: var(--surface-hover); color: var(--text); border-color: var(--text-muted); }
-.arrow:disabled { opacity: 0.3; cursor: default; }
-.arrow:disabled:hover { background: var(--surface); color: var(--text-dim); border-color: var(--border-strong); }
-
-.dots { display: flex; gap: 9px; }
-
-.dot {
-  width: 8px;
-  height: 8px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  background: var(--border-strong);
-  cursor: pointer;
-  transition: background 0.15s, transform 0.15s;
-}
-
-.dot:hover { background: var(--text-muted); }
-.dot[aria-current="true"] { background: var(--orange); transform: scale(1.3); }
-
-/* --- карточки ---------------------------------------------------------- */
-
-/* Заголовок раздела живёт отдельной секцией, чтобы сетка карточек осталась
-   сеткой, — но разрывать их полным отступом не нужно. */
-.features-block + .features { margin-top: 22px; }
-
-.features {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
-}
-
-/* Оранжевая черта зажигается сверху при наведении — единственное место,
-   где акцент появляется сам, без нажатия. */
-.features article {
-  position: relative;
-  padding: 22px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  overflow: hidden;
-  transition: border-color 0.2s, transform 0.2s, background 0.2s;
-}
-
-.features article::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto;
-  height: 2px;
-  background: var(--orange);
-  transform: scaleX(0);
-  transform-origin: left;
-  transition: transform 0.25s ease;
-}
-
-.features article:hover {
-  background: var(--surface-hover);
-  border-color: var(--border-strong);
-  transform: translateY(-2px);
-}
-
-.features article:hover::before { transform: scaleX(1); }
-.features p { margin: 0; font-size: 15px; }
-
-.honest, .install {
-  padding: 32px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-}
-
-/* Цитата-врезка про честный замер: это главное отличие программы, и оно
-   заслуживает отдельного веса на странице. */
-.honest blockquote {
-  margin: 0 0 16px;
+.feature blockquote {
+  margin: 18px 0;
   padding-left: 18px;
   border-left: 2px solid var(--orange);
   color: var(--text);
   font-family: var(--display);
-  font-size: 20px;
+  font-size: 19px;
   line-height: 1.45;
 }
 
-.install ol {
-  margin: 0 0 16px;
-  padding: 0;
-  list-style: none;
-  counter-reset: step;
+/* Ровно две колонки: при автоподборе четвёртая карточка оставалась
+   одна в ряду и выглядела забытой. */
+.extras-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
 }
 
-.install li {
-  position: relative;
-  margin-bottom: 12px;
-  padding-left: 38px;
-  color: var(--text-dim);
-  counter-increment: step;
+.extras-grid article {
+  padding: 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
 
-.install li::before {
-  content: counter(step, decimal-leading-zero);
-  position: absolute;
-  left: 0;
-  top: 1px;
-  color: var(--orange);
-  font-family: var(--mono);
-  font-size: 13px;
+.extras-grid h3 {
+  margin: 0 0 8px;
+  font-family: var(--display);
+  font-size: 18px;
+  font-weight: 600;
 }
+
+.extras-grid p { margin: 0; font-size: 15px; }
 
 footer {
   max-width: var(--width);
@@ -448,6 +356,12 @@ footer p { margin: 0 0 10px; }
 
 /* --- узкий экран ------------------------------------------------------- */
 
+@media (max-width: 860px) {
+  .feature { grid-template-columns: 1fr; gap: 24px; }
+  .extras-grid { grid-template-columns: 1fr; }
+  .feature:nth-of-type(even) .shot { order: 0; }
+}
+
 @media (max-width: 640px) {
   body { padding: 0 16px 56px; }
   .hero { padding: 64px 0 40px; }
@@ -456,8 +370,9 @@ footer p { margin: 0 0 10px; }
   .button { flex: 1 1 100%; text-align: center; }
   .bar { padding: 8px 16px; }
   .bar .button { flex: 0 0 auto; }
-  .honest, .install { padding: 22px; }
-  .honest blockquote { font-size: 18px; }
+  .install { padding: 22px; }
+  .feature h2 { font-size: 22px; }
+  .feature blockquote { font-size: 17px; }
   section { margin-top: 64px; }
   h2 { font-size: 22px; }
 }
@@ -506,6 +421,12 @@ footer p { margin: 0 0 10px; }
 }
 
 .lightbox-close:hover { color: var(--text); border-color: var(--text-muted); }
+
+@media (max-width: 860px) {
+  .feature { grid-template-columns: 1fr; gap: 24px; }
+  .extras-grid { grid-template-columns: 1fr; }
+  .feature:nth-of-type(even) .shot { order: 0; }
+}
 
 @media (max-width: 640px) {
   .lightbox { padding: 16px; }
