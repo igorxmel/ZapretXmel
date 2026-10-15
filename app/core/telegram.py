@@ -142,8 +142,12 @@ def latest_release(timeout: int = 20) -> github.Release:
     return github.latest_release(REPO, timeout=timeout)
 
 
-def install(release: github.Release | None = None, progress=None) -> str:
-    """Скачивает официальный релиз прокси рядом с приложением."""
+def install(release: github.Release | None = None, progress=None, on_bytes=None) -> str:
+    """Скачивает официальный релиз прокси рядом с приложением.
+
+    `on_bytes` получает пару «скачано, всего»: файл весит два десятка
+    мегабайт, и без счётчика установка выглядит зависшей.
+    """
     release = release or latest_release()
     asset = next((a for a in release.assets if a.name == EXECUTABLE), None)
     if asset is None:
@@ -151,9 +155,18 @@ def install(release: github.Release | None = None, progress=None) -> str:
 
     home().mkdir(parents=True, exist_ok=True)
     if progress:
-        progress(f"Скачиваю {asset.name}…")
+        progress(f"Скачиваю {asset.name} ({asset.size // 1048576} МБ)…")
 
-    github.download(asset, executable())
+    try:
+        github.download(asset, executable(), progress=on_bytes)
+    except Exception as error:
+        # Файл лежит на GitHub, а его у части провайдеров и режут — о чём
+        # стоит сказать прямо, иначе человек будет искать причину в программе.
+        raise TelegramError(
+            f"не удалось скачать прокси: {error}. "
+            "Если обход сейчас выключен, включите его и попробуйте снова — "
+            "файл качается с GitHub, а он доступен не у всех провайдеров."
+        ) from error
     ensure_config()
     log.info("tg-ws-proxy %s установлен", release.version)
     return release.version

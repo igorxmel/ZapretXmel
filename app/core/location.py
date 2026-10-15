@@ -15,12 +15,15 @@ Telegram. Сам исполняемый файл остаётся на мест�
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app import logging_setup
 from app.core import paths
 
 log = logging.getLogger(__name__)
@@ -28,6 +31,10 @@ log = logging.getLogger(__name__)
 # Папки, которые составляют установку. Имена совпадают с теми, что отдаёт
 # `paths`, — переносим их целиком, не разбирая содержимое.
 MOVABLE: tuple[str, ...] = ("core", "data", "tgproxy")
+
+# Список того, что не удалось убрать сразу: запущенный .exe на другом
+# диске удалить нельзя, пока он работает.
+CLEANUP_FILE = "cleanup.json"
 
 
 @dataclass
@@ -37,12 +44,16 @@ class Relocation:
     target: Path
     moved: list[str] = field(default_factory=list)
     kept: list[str] = field(default_factory=list)
+    # Новый путь к программе, если она переехала следом за данными.
+    executable: Path | None = None
 
     @property
     def summary(self) -> str:
         parts = []
         if self.moved:
             parts.append("перенесено: " + ", ".join(self.moved))
+        if self.executable:
+            parts.append("программа тоже переехала")
         if self.kept:
             parts.append("уже было на месте: " + ", ".join(self.kept))
         return "; ".join(parts) or "переносить было нечего"
@@ -152,20 +163,166 @@ def relocate(target: Path) -> Relocation:
     destination = Path(target).expanduser().resolve()
     destination.mkdir(parents=True, exist_ok=True)
 
-    result = Relocation(target=destination)
-    for name in MOVABLE:
-        origin = source / name
-        if not origin.exists():
-            continue
-        if (destination / name).exists():
-            result.kept.append(name)
-            continue
-        shutil.move(str(origin), str(destination / name))
-        result.moved.append(name)
-        log.info("Перенесено %s → %s", origin, destination / name)
+    # Журнал пишется в переносимую папку, а Windows не даёт удалить открытый
+    # файл: переезд на другой диск падал ровно на нём — копия уже лежала на
+    # новом месте, а старая папка оставалась на прежнем.
+    logging_setup.release_file()
 
-    # Портативный режим обозначается отсутствием указателя — так папку с
-    # программой можно перенести куда угодно, и она останется работоспособной.
-    paths.set_install_root(None if destination == paths.app_root() else destination)
-    paths.ensure_dirs()
+    result = Relocation(target=destination)
+    try:
+        for name in MOVABLE:
+            origin = source / name
+            if not origin.exists():
+                continue
+            if (destination / name).exists():
+                result.kept.append(name)
+                continue
+            _move_tree(origin, destination / name, destination)
+            result.moved.append(name)
+
+        # Указатель на старом месте больше не нужен ни в одном из случаев:
+        # либо программа переедет следом и всё окажется рядом с ней, либо он
+        # будет записан заново уже под новое место.
+        paths.set_install_root(None)
+
+        result.executable = _move_executable(destination)
+        if result.executable is None:
+            # Программа осталась на месте (так бывает при запуске из
+            # исходников) — значит без указателя не обойтись.
+            paths.set_install_root(None if destination == paths.app_root() else destination)
+    finally:
+        # Журнал поднимаем в любом случае, в том числе после сбоя: без него
+        # не останется следов о том, где именно переезд оборвался.
+        paths.reset_cache()
+        paths.ensure_dirs()
+        logging_setup.setup()
+
+    for name in result.moved:
+        log.info("Перенесено %s → %s", source / name, destination / name)
+    if result.executable:
+        log.info("Программа переехала в %s", result.executable)
+
     return result
+
+
+def _move_tree(origin: Path, target: Path, destination: Path) -> None:
+    """Переносит папку, переживая и другой диск, и занятые файлы.
+
+    `shutil.move` между дисками копирует и удаляет оригинал, а удаление
+    спотыкается на любом открытом файле — и тогда исключение прерывает
+    переезд на середине. Здесь остаток не считается провалом: данные уже
+    на новом месте, а то, что не удалось стереть, уберётся при следующем
+    запуске.
+    """
+    try:
+        os.replace(origin, target)
+        return
+    except OSError:
+        log.info("Папка %s переезжает на другой диск — копирую", origin.name)
+
+    shutil.copytree(origin, target, dirs_exist_ok=True)
+    shutil.rmtree(origin, ignore_errors=True)
+
+    if origin.exists():
+        log.info("Папку %s сейчас удалить нельзя, уберём при следующем запуске", origin)
+        schedule_cleanup(origin, data_dir=destination / "data")
+
+
+def _move_executable(destination: Path) -> Path | None:
+    """Переносит сам .exe следом за данными.
+
+    Переносим, а не оставляем на месте: иначе в старой папке остаётся
+    программа без данных, рядом с ней — указатель, и всё это выглядит как
+    мусор, который человек должен убрать сам.
+
+    Запущенный файл Windows разрешает переименовать, но не удалить. Поэтому
+    в пределах диска он переезжает сразу, а на другой диск копируется, и
+    старый экземпляр заносится в список на удаление: его снимут при
+    следующем запуске, когда он уже никем не занят.
+    """
+    if not paths.is_frozen():
+        return None
+
+    current = paths.executable()
+    moved = destination / current.name
+    if moved == current:
+        return None
+
+    try:
+        os.replace(current, moved)
+        log.info("Программа переехала: %s → %s", current, moved)
+        return moved
+    except OSError:
+        log.info("Переезд на другой диск — копирую %s", current.name)
+
+    try:
+        shutil.copy2(current, moved)
+    except OSError as error:
+        raise RuntimeError(f"не удалось перенести программу: {error}") from error
+
+    schedule_cleanup(current, data_dir=destination / "data")
+    return moved
+
+
+def restart(executable: Path) -> None:
+    """Запускает программу с нового места и просит текущую закрыться.
+
+    Сам вызов только поднимает новый процесс: выйти текущему должен
+    интерфейс, иначе окно закроется раньше, чем человек поймёт, что
+    произошло.
+    """
+    try:
+        subprocess.Popen([str(executable)], close_fds=True)  # noqa: S603 — собственный файл
+    except OSError as error:
+        raise RuntimeError(f"не удалось запустить программу из новой папки: {error}") from error
+
+
+def schedule_cleanup(leftover: Path, data_dir: Path) -> None:
+    """Запоминает файл, который нужно удалить при следующем запуске."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    note = data_dir / CLEANUP_FILE
+
+    try:
+        pending = set(json.loads(note.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        pending = set()
+
+    pending.add(str(leftover))
+    try:
+        note.write_text(json.dumps(sorted(pending), ensure_ascii=False), encoding="utf-8")
+    except OSError:
+        log.warning("Не удалось записать список на уборку")
+
+
+def cleanup() -> int:
+    """Удаляет то, что осталось от прошлого места. Вызывается при запуске."""
+    note = paths.data_dir() / CLEANUP_FILE
+    try:
+        pending = json.loads(note.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0
+
+    removed = 0
+    survivors: list[str] = []
+    for item in pending:
+        leftover = Path(item)
+        try:
+            if leftover.is_dir():
+                shutil.rmtree(leftover)
+            else:
+                leftover.unlink(missing_ok=True)
+            removed += 1
+            log.info("Убрано после переезда: %s", leftover)
+        except OSError:
+            # Файл ещё занят — попробуем в следующий раз.
+            survivors.append(item)
+
+    try:
+        if survivors:
+            note.write_text(json.dumps(survivors, ensure_ascii=False), encoding="utf-8")
+        else:
+            note.unlink(missing_ok=True)
+    except OSError:
+        log.debug("Не удалось обновить список на уборку")
+
+    return removed

@@ -81,6 +81,15 @@ jobs:
             exit 1
           fi
 
+      # Описание берётся из CHANGELOG.md: автоматические заметки GitHub — это
+      # перечень коммитов, написанный для того, кто правит код, а не для того,
+      # кто программой пользуется. Нет раздела про версию — сборка падает, и
+      # релиз без описания не выйдет.
+      - name: Собрать описание релиза
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: python tools/release_notes.py "${GITHUB_REF_NAME#v}" -o release-notes.md
+
       - name: Выложить релиз
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
@@ -88,4 +97,4 @@ jobs:
           files: |
             dist/ZapretXmel.exe
             dist/ZapretXmel.exe.sha256
-          generate_release_notes: true
+          body_path: release-notes.md

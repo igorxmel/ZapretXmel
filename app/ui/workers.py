@@ -89,6 +89,41 @@ class AutoPickWorker(QThread):
         self.strategy_done.emit(score)
 
 
+class TelegramInstallWorker(QThread):
+    """Скачивание прокси для Telegram.
+
+    Отдельный поток с прогрессом, а не простая задача: файл весит два десятка
+    мегабайт, и качается он с GitHub — ровно с того сайта, который у части
+    провайдеров открывается с трудом. Без цифр на экране это выглядит так,
+    будто программа ничего не делает.
+    """
+
+    progress = pyqtSignal(str)
+    percent = pyqtSignal(int)
+    done = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def run(self) -> None:
+        from app.core import telegram
+
+        try:
+            version = telegram.install(
+                progress=self.progress.emit, on_bytes=self._on_download
+            )
+            self.done.emit(version)
+        except Exception as error:  # noqa: BLE001 — причину показываем пользователю
+            log.exception("Установка прокси для Telegram не удалась")
+            self.failed.emit(str(error))
+
+    def _on_download(self, downloaded: int, total: int) -> None:
+        if total <= 0:
+            return
+        self.percent.emit(int(downloaded * 100 / total))
+        self.progress.emit(
+            f"Скачиваю прокси: {downloaded // 1048576} из {total // 1048576} МБ"
+        )
+
+
 class CoreUpdateWorker(QThread):
     """Скачивание и установка релиза ядра."""
 

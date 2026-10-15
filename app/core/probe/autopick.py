@@ -45,6 +45,11 @@ Mode = Literal["services", "dpi"]
 
 BASELINE_NAME = "без обхода"
 
+# Сколько прогонов держим в истории. Подбор запускают помногу раз подряд, а
+# каждый прогон — отдельный файл; старые отчёты не с чем сравнивать, потому
+# что сборка за это время обновляется.
+HISTORY_LIMIT = 30
+
 # Сколько хостов из набора DPI проверять. Набор большой, а стратегий два
 # десятка: брать его целиком — это часы прогона без выигрыша в точности.
 DPI_TARGET_LIMIT = 10
@@ -460,7 +465,34 @@ def save_report(report: Report) -> Path:
         ],
     }
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    prune_history()
     return path
+
+
+def prune_history(keep: int = HISTORY_LIMIT) -> int:
+    """Оставляет только последние прогоны. Возвращает число удалённых.
+
+    Каждый прогон — отдельный файл, и подбор запускают помногу раз подряд,
+    подбирая стратегию. Без прополки папка растёт бесконечно, а смысла в
+    отчётах полугодовой давности нет: сборка за это время обновится, и
+    сравнивать будет не с чем.
+    """
+    directory = paths.history_dir()
+    if not directory.is_dir():
+        return 0
+
+    reports = sorted(directory.glob("autopick-*.json"), reverse=True)
+    removed = 0
+    for stale in reports[keep:]:
+        try:
+            stale.unlink()
+            removed += 1
+        except OSError:
+            log.debug("Не удалось удалить старый отчёт %s", stale.name)
+
+    if removed:
+        log.info("Из истории подбора удалено отчётов: %s", removed)
+    return removed
 
 
 def load_history(limit: int = 20) -> list[dict]:

@@ -9,7 +9,8 @@
 
   <p>
     <a href="https://igorxmel.github.io/ZapretXmel/"><strong>Страница проекта</strong></a> ·
-    <a href="https://github.com/igorxmel/ZapretXmel/releases/latest"><strong>Скачать</strong></a>
+    <a href="https://github.com/igorxmel/ZapretXmel/releases/latest"><strong>Скачать</strong></a> ·
+    <a href="CHANGELOG.md"><strong>Что менялось</strong></a>
   </p>
 
   <p>

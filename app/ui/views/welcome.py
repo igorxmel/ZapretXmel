@@ -16,6 +16,8 @@ from pathlib import Path
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QApplication,
+    QCheckBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -24,7 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import coreinfo, location, paths, strategies, telegram
+from app.core import coreinfo, location, paths, shortcut, strategies, telegram
 from app.core.updater import github
 from app.ui.frameless import FramelessWindow
 from app.ui.theme.tokens import COLORS, SPACE
@@ -128,7 +130,35 @@ class WelcomeWindow(FramelessWindow):
         self._finish_button.clicked.connect(self._finish)
         layout.addWidget(self._finish_button)
 
+        layout.addWidget(self._build_shortcut())
         layout.addWidget(self._build_location())
+
+    def _build_shortcut(self) -> QWidget:
+        """Предлагает ярлык: иначе программу потом негде искать.
+
+        Установщика нет, в меню «Пуск» её тоже нет — это один файл там, куда
+        его положили. Галочка стоит заранее: отказаться проще, чем вспомнить
+        о ней через неделю.
+        """
+        box = QCheckBox("Создать ярлык на рабочем столе")
+        box.setChecked(paths.is_frozen())
+        box.setEnabled(paths.is_frozen())
+        if not paths.is_frozen():
+            box.setToolTip("Доступно в собранной версии: из исходников ярлык вёл бы на python")
+        box.toggled.connect(self._toggle_shortcut)
+
+        self._shortcut_box = box
+        return box
+
+    def _toggle_shortcut(self, wanted: bool) -> None:
+        # Ярлык создаётся сразу, а не по кнопке «Перейти к программе»: так
+        # видно результат, и окно можно закрыть любым способом.
+        if not paths.is_frozen():
+            return
+        if wanted:
+            self._say("Ярлык создан" if shortcut.create() else "Не удалось создать ярлык")
+        else:
+            shortcut.remove()
 
     def _build_location(self) -> QWidget:
         """Говорит, куда программа складывает ядро и настройки, и даёт сменить место.
@@ -185,6 +215,15 @@ class WelcomeWindow(FramelessWindow):
 
         self._show_location()
         self._say(f"Папка установки: {result.target}", COLORS["success"])
+
+        # Программа переехала вместе с данными — работающий файл остался по
+        # прежнему пути, и продолжать в нём нельзя.
+        if result.executable:
+            shortcut.retarget(result.executable)
+            location.restart(result.executable)
+            QApplication.quit()
+            return
+
         self.controller.refresh()
         self.refresh()
 

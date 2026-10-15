@@ -15,6 +15,11 @@ import pytest
 from app.core import location, paths
 
 
+def _refuse(*_args, **_kwargs):
+    """Изображает попытку переноса между дисками."""
+    raise OSError(17, "Системе не удается переместить файл на другой диск")
+
+
 @pytest.fixture
 def fake_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Подменяет корень приложения, чтобы не трогать настоящий location.txt."""
@@ -166,6 +171,52 @@ def test_relocation_back_to_the_program_folder_removes_the_pointer(
     assert paths.is_portable()
     assert not paths.location_file().exists()
     assert (fake_root / "data").exists()
+
+
+def test_busy_file_does_not_break_the_move(
+    fake_root: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Переезд на другой диск спотыкался об открытый файл журнала.
+
+    `shutil.move` между дисками копирует папку и удаляет оригинал, а удаление
+    падает на любом занятом файле. Данные при этом уже лежат на новом месте,
+    поэтому обрывать переезд нельзя: остаток убирается позже.
+    """
+    (fake_root / "data" / "logs").mkdir(parents=True)
+    (fake_root / "data" / "logs" / "app.log").write_text("занят", encoding="utf-8")
+    target = tmp_path / "chosen"
+
+    # Другой диск: os.replace отказывает, а удалить оригинал не выходит.
+    monkeypatch.setattr(location.os, "replace", _refuse)
+    monkeypatch.setattr(location.shutil, "rmtree", lambda *args, **kwargs: None)
+
+    result = location.relocate(target)
+
+    assert result.moved == ["data"]
+    assert (target / "data" / "logs" / "app.log").exists()
+    assert paths.data_dir() == target.resolve() / "data"
+
+
+def test_leftovers_are_removed_on_the_next_start(
+    fake_root: Path, tmp_path: Path
+) -> None:
+    """То, что не удалось стереть при переезде, убирается при запуске."""
+    leftover = tmp_path / "старое" / "data"
+    leftover.mkdir(parents=True)
+    (leftover / "config.json").write_text("{}", encoding="utf-8")
+    paths.ensure_dirs()
+
+    location.schedule_cleanup(leftover, data_dir=paths.data_dir())
+
+    assert location.cleanup() == 1
+    assert not leftover.exists()
+    assert not (paths.data_dir() / location.CLEANUP_FILE).exists()
+
+
+def test_cleanup_without_a_list_does_nothing(fake_root: Path) -> None:
+    paths.ensure_dirs()
+
+    assert location.cleanup() == 0
 
 
 def test_relocation_refuses_an_unsuitable_folder(fake_root: Path) -> None:

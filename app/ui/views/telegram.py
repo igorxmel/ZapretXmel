@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
+    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -22,7 +23,7 @@ from app.core import telegram
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, KeyValueRow, StatusPill, view_header
-from app.ui.workers import Task
+from app.ui.workers import Task, TelegramInstallWorker
 
 
 class TelegramView(QWidget):
@@ -32,6 +33,7 @@ class TelegramView(QWidget):
         super().__init__(parent)
         self.controller = controller
         self._task: Task | None = None
+        self._worker: TelegramInstallWorker | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -82,6 +84,11 @@ class TelegramView(QWidget):
         self._status.setObjectName("Muted")
         self._status.setWordWrap(True)
         body.addWidget(self._status)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 100)
+        self._progress.hide()
+        body.addWidget(self._progress)
 
         body.addStretch(1)
         return card
@@ -158,14 +165,19 @@ class TelegramView(QWidget):
     def _install(self) -> None:
         self._install_button.setEnabled(False)
         self._status.setStyleSheet(f"color: {COLORS['text_muted']};")
-        self._status.setText("Скачиваю последний релиз tg-ws-proxy…")
+        self._status.setText("Спрашиваю GitHub о последнем релизе tg-ws-proxy…")
+        self._progress.setValue(0)
+        self._progress.show()
 
-        self._task = Task(telegram.install)
-        self._task.done.connect(self._installed)
-        self._task.failed.connect(self._fail)
-        self._task.start()
+        self._worker = TelegramInstallWorker()
+        self._worker.progress.connect(self._status.setText)
+        self._worker.percent.connect(self._progress.setValue)
+        self._worker.done.connect(self._installed)
+        self._worker.failed.connect(self._fail)
+        self._worker.start()
 
     def _installed(self, version: str) -> None:
+        self._progress.hide()
         self._install_button.setEnabled(True)
         self._status.setStyleSheet(f"color: {COLORS['success']};")
         self._status.setText(f"Установлена версия {version}")
@@ -207,6 +219,7 @@ class TelegramView(QWidget):
         self.controller.message.emit("Ссылка скопирована — откройте её в Telegram")
 
     def _fail(self, message: str) -> None:
+        self._progress.hide()
         self._install_button.setEnabled(True)
         self._status.setStyleSheet(f"color: {COLORS['danger']};")
         self._status.setText(message)

@@ -11,6 +11,7 @@ from pathlib import Path
 from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -24,7 +25,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import fakes, gamefilter, ipset, location, paths
+from app.core import fakes, gamefilter, ipset, location, paths, shortcut
 from app.core.gamefilter import GameFilter
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
@@ -182,6 +183,12 @@ class SettingsView(QWidget):
 
         body.addLayout(folder_buttons)
 
+        # Ярлык — единственный способ найти программу потом: установщика нет,
+        # в меню «Пуск» её тоже нет, а файл лежит там, куда его положили.
+        self._shortcut = QCheckBox("Ярлык на рабочем столе")
+        self._shortcut.toggled.connect(self._toggle_shortcut)
+        body.addWidget(self._shortcut)
+
         welcome = QPushButton("Показать окно знакомства")
         welcome.setToolTip("То самое окно с шагами настройки, что открывается при первом запуске")
         welcome.clicked.connect(self._show_welcome)
@@ -261,6 +268,13 @@ class SettingsView(QWidget):
             self._start_minimized.setChecked(settings.start_minimized)
             self._minimize_to_tray.setChecked(settings.minimize_to_tray)
             self._folder_row.set_value(str(paths.install_root()))
+            self._shortcut.setChecked(shortcut.exists())
+            self._shortcut.setEnabled(paths.is_frozen())
+            self._shortcut.setToolTip(
+                ""
+                if paths.is_frozen()
+                else "Доступно в собранной версии: из исходников ярлык вёл бы на интерпретатор"
+            )
             self._folder_hint.setText(
                 "Здесь лежат ядро zapret, настройки, логи и бэкапы."
                 + (
@@ -329,10 +343,45 @@ class SettingsView(QWidget):
             return
 
         self._relocate_task = Task(self.controller.relocate, target)
-        self._relocate_task.done.connect(lambda _: self.reload())
+        self._relocate_task.done.connect(self._relocated)
         self._relocate_task.failed.connect(self.controller.error.emit)
         self._relocate_task.start()
         self._folder_hint.setText(f"Переношу установку в {target}…")
+
+    def _relocated(self, moved_to) -> None:
+        """Завершает переезд: обновляет ярлык и перезапускает программу.
+
+        Перезапуск не предлагается, а выполняется: файл .exe уже лежит в
+        новой папке, а работающий процесс помнит прежний путь и писал бы
+        данные туда, где программы больше нет.
+        """
+        self.reload()
+        if not moved_to:
+            return
+
+        shortcut.retarget(moved_to)
+        self._folder_hint.setText(f"Программа переехала в {moved_to.parent}, перезапускаю…")
+
+        try:
+            location.restart(moved_to)
+        except Exception as error:  # noqa: BLE001 — причину показываем пользователю
+            self.controller.error.emit(str(error))
+            return
+
+        QApplication.quit()
+
+    def _toggle_shortcut(self, wanted: bool) -> None:
+        if self._loading:
+            return
+
+        if wanted:
+            ok = shortcut.create()
+            self.controller.message.emit(
+                "Ярлык создан на рабочем столе" if ok else "Не удалось создать ярлык"
+            )
+        else:
+            shortcut.remove()
+            self.controller.message.emit("Ярлык удалён")
 
     def _refuse_folder(self, reason: str) -> None:
         refusal = QMessageBox(self)
@@ -353,6 +402,8 @@ class SettingsView(QWidget):
         question.setText(f"Перенести ядро и настройки в {target}?")
         details = [
             f"Переносится {size} МБ, на диске свободно {free} МБ.",
+            "Программа переедет вместе с данными и перезапустится оттуда — "
+            "в прежней папке не останется ничего.",
             "Обход выключится на время переноса и включится заново: служба "
             "помнит полный путь к winws.exe, и после переезда её нужно поставить снова.",
         ]

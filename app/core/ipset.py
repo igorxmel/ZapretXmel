@@ -14,6 +14,8 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Literal
 
@@ -94,6 +96,44 @@ def set_mode(mode: Mode) -> None:
 def next_mode(current: Mode) -> Mode:
     """Порядок переключения по кругу, как в меню service.bat."""
     return {"loaded": "none", "none": "any", "any": "loaded"}[current]  # type: ignore[return-value]
+
+
+@dataclass(frozen=True)
+class ListInfo:
+    """Что сейчас лежит в скачанном списке адресов."""
+
+    entries: int = 0
+    updated: datetime | None = None
+    file: Path | None = None
+
+    @property
+    def present(self) -> bool:
+        return self.entries > 0
+
+    @property
+    def label(self) -> str:
+        if not self.present:
+            return "не скачан"
+        when = self.updated.strftime("%d.%m.%Y") if self.updated else "дата неизвестна"
+        return f"{self.entries} адресов, обновлён {when}"
+
+
+def describe_list() -> ListInfo:
+    """Сведения о скачанном списке — для экрана обновлений.
+
+    Файл берётся тот, в котором список действительно лежит: в режиме «по
+    списку» это рабочий `ipset-all.txt`, в остальных — бэкап, куда загрузка
+    складывает его, не трогая выбранный режим.
+    """
+    source = list_file() if status() == "loaded" else backup_file()
+    try:
+        text = source.read_text(encoding="utf-8", errors="replace")
+        stamp = datetime.fromtimestamp(source.stat().st_mtime)
+    except OSError:
+        return ListInfo()
+
+    entries = sum(1 for line in text.splitlines() if line.strip())
+    return ListInfo(entries=entries, updated=stamp, file=source)
 
 
 def update_list(timeout: int = 30) -> int:

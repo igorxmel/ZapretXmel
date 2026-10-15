@@ -323,11 +323,8 @@ class MainWindow(FramelessWindow):
         # мьютексом, из-за которого следующий запуск молча ничего не делал.
         QApplication.quit()
 
-    def changeEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
-        super().changeEvent(event)
-        if (
-            event.type() == event.Type.WindowStateChange
-            and self.isMinimized()
-            and self.settings.minimize_to_tray
-        ):
-            QTimer.singleShot(0, self.hide)
+    # Свёрнутое окно остаётся на панели задач — там ему и место. Раньше оно
+    # пряталось в трей при любом сворачивании, хотя настройка обещает это
+    # только взамен закрытия: кнопка «свернуть» переставала работать так,
+    # как работает везде в Windows.
+

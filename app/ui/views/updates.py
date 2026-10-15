@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from PyQt6.QtCore import QUrl
+from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -200,13 +202,28 @@ class UpdatesView(QWidget):
         self._row_ipset = KeyValueRow("Режим IP-набора")
         body.addWidget(self._row_ipset)
 
+        # Что это за список и есть ли он вообще — вопрос, который возникал у
+        # каждого, кто видел кнопку «Обновить список IP-адресов».
+        self._row_ipset_list = KeyValueRow("Скачанный список")
+        body.addWidget(self._row_ipset_list)
+
+        ipset_buttons = QHBoxLayout()
+        ipset_buttons.setSpacing(SPACE["sm"])
+
         ipset_button = QPushButton("Обновить список IP-адресов")
         ipset_button.clicked.connect(self._update_ipset)
-        body.addWidget(ipset_button)
+        ipset_buttons.addWidget(ipset_button)
+
+        self._ipset_show = QPushButton("Показать файл")
+        self._ipset_show.clicked.connect(self._show_ipset_file)
+        ipset_buttons.addWidget(self._ipset_show)
+        body.addLayout(ipset_buttons)
 
         note = QLabel(
-            "Список адресов нужен режиму «по списку»: обход применяется только "
-            "к адресам из него, а не ко всему трафику."
+            "Это адреса YouTube, Discord и прочих сервисов — их собирает и "
+            "выкладывает сам Flowseal, мы только скачиваем файл в папку ядра. "
+            "Он нужен режиму «по списку» из настроек: тогда обход применяется "
+            "к адресам из этого файла, а не ко всему трафику на отобранных портах."
         )
         note.setObjectName("Muted")
         note.setWordWrap(True)
@@ -245,6 +262,9 @@ class UpdatesView(QWidget):
         info = coreinfo.describe()
         self._row_installed.set_value(info.version_label)
         self._row_ipset.set_value(ipset.LABELS[ipset.status()])
+        ipset_list = ipset.describe_list()
+        self._row_ipset_list.set_value(ipset_list.label)
+        self._ipset_show.setEnabled(ipset_list.present)
 
         state = hosts.status()
         self._row_hosts.set_value(
@@ -352,6 +372,13 @@ class UpdatesView(QWidget):
         self._task.done.connect(self._ipset_updated)
         self._task.failed.connect(self._fail)
         self._task.start()
+
+    def _show_ipset_file(self) -> None:
+        """Открывает папку со списком и подсвечивает сам файл."""
+        info = ipset.describe_list()
+        if info.file is None:
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(info.file.parent)))
 
     def _ipset_updated(self, count: int) -> None:
         self._status.setStyleSheet(f"color: {COLORS['success']};")

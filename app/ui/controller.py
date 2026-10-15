@@ -308,8 +308,11 @@ class Controller(QObject):
         finally:
             self.refresh()
 
-    def relocate(self, target) -> None:
-        """Переносит установку в другую папку.
+    def relocate(self, target):
+        """Переносит установку в другую папку и возвращает новый путь к программе.
+
+        Путь нужен интерфейсу: после переезда .exe работает ещё старый файл,
+        и программу надо перезапустить с нового места.
 
         Обход гасится до переноса: файлы ядра заняты запущенным winws, а служба
         помнит абсолютный путь к нему. После переезда обход поднимается заново
@@ -334,15 +337,16 @@ class Controller(QObject):
         except Exception as error:  # noqa: BLE001 — причину показываем пользователю
             log.exception("Не удалось перенести установку")
             self.error.emit(str(error))
-            return
+            return None
         finally:
             self._set_busy(False)
 
         if was_active:
-            self.start()
+            self.start(replace_foreign=True)
         if telegram_was_running and telegram.is_installed():
             self.toggle_telegram()
         self.refresh()
+        return result.executable
 
     def restart(self) -> None:
         """Перезапуск нужен после смены стратегии, списков или игрового фильтра."""

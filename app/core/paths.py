@@ -29,6 +29,19 @@ def app_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def executable() -> Path:
+    """Файл, которым запущена программа.
+
+    В сборке это сам ZapretXmel.exe, в исходниках — интерпретатор. На него
+    ссылается ярлык и его же переносит смена папки.
+    """
+    return Path(sys.executable).resolve()
+
+
+def is_frozen() -> bool:
+    return bool(getattr(sys, "frozen", False))
+
+
 @cache
 def assets_dir() -> Path:
     """Картинки приложения.

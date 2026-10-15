@@ -16,7 +16,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
 from app import logging_setup
-from app.core import elevation, paths, singleton
+from app.core import elevation, location, paths, singleton
 from app.core.config import Settings
 from app.core.updater import selfupdate
 from app.ui.theme import build_stylesheet
@@ -147,8 +147,10 @@ def main() -> int:
     log.info("Запуск ZapretXmel (admin=%s)", elevation.is_admin())
 
     # Файл прошлой версии удаляется здесь: пока программа работала,
-    # сделать это было нельзя.
+    # сделать это было нельзя. По той же причине здесь убирается и то, что
+    # осталось от прошлой папки после переезда на другой диск.
     selfupdate.cleanup()
+    location.cleanup()
 
     # Флаг для разработки: позволяет открыть интерфейс без запроса UAC.
     # Управление обходом в таком режиме не работает — это ожидаемо.

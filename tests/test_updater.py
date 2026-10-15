@@ -167,3 +167,40 @@ def test_list_backups_sorted_newest_first(tmp_path: Path, monkeypatch: pytest.Mo
     backups = install.list_backups()
 
     assert [backup.version for backup in backups] == ["1.10.3", "1.10.2", "1.10.1"]
+
+
+# --- описание релиза ----------------------------------------------------
+
+
+def test_release_notes_are_taken_from_the_changelog() -> None:
+    """Описание релиза пишется словами в CHANGELOG.md, а не собирается из коммитов."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
+    from release_notes import section
+
+    text = (
+        "# Что менялось\n\n"
+        "## 0.2.0\n\nНовое и прекрасное.\n\n"
+        "## 0.1.6\n\n### Исправлено\n\n- перенос папки\n\n"
+        "## 0.1.5\n\nстарое\n"
+    )
+
+    assert section(text, "0.1.6") == "### Исправлено\n\n- перенос папки"
+    assert section(text, "0.2.0") == "Новое и прекрасное."
+    assert section(text, "9.9.9") == ""
+
+
+def test_every_released_version_is_described() -> None:
+    """Выпущенная версия без записи в CHANGELOG.md — недосмотр, а не норма."""
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    sys.path.insert(0, str(root / "tools"))
+    from release_notes import section
+
+    from app import __version__
+
+    changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+
+    assert section(changelog, __version__), f"в CHANGELOG.md нет раздела про {__version__}"

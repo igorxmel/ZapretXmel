@@ -104,3 +104,41 @@ def test_unsupported_tls_version_is_marked_separately() -> None:
 def test_ssl_wins_over_unsupported() -> None:
     """Подмена сертификата важнее для вердикта, чем неподдержанный протокол."""
     assert _classify(35, "SSL certificate problem") is Outcome.SSL
+
+
+# --- история прогонов ---------------------------------------------------
+
+
+def test_history_keeps_only_recent_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Подбор запускают помногу раз, и каждый прогон — отдельный файл.
+
+    Без прополки папка растёт бесконечно, а отчёты полугодовой давности не с
+    чем сравнивать: сборка за это время обновляется.
+    """
+    from app.core import paths
+    from app.core.probe import autopick
+
+    history = tmp_path / "history"
+    history.mkdir()
+    for number in range(40):
+        (history / f"autopick-2026010{number % 10}-00000{number}.json").write_text(
+            "{}", encoding="utf-8"
+        )
+
+    monkeypatch.setattr(paths, "history_dir", lambda: history)
+
+    removed = autopick.prune_history(keep=5)
+
+    assert removed == 35
+    assert len(list(history.glob("autopick-*.json"))) == 5
+
+
+def test_history_pruning_survives_an_empty_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.core import paths
+    from app.core.probe import autopick
+
+    monkeypatch.setattr(paths, "history_dir", lambda: tmp_path / "нет такой")
+
+    assert autopick.prune_history() == 0
