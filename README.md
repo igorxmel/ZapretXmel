@@ -28,6 +28,26 @@
   </p>
 </div>
 
+<details>
+<summary><b>In English</b></summary>
+
+**ZapretXmel** is a Windows GUI for [zapret](https://github.com/bol-van/zapret) — a DPI
+circumvention tool used in Russia to reach YouTube, Discord and other services that local
+ISPs throttle or block. It wraps [Flowseal's bundle](https://github.com/Flowseal/zapret-discord-youtube),
+installs and updates it for you, and finds a working strategy by trying them one by one.
+
+What it adds on top of the bundle: an honest strategy picker (it always measures the
+baseline **without** circumvention first, otherwise the "winner" is whatever didn't break
+anything), per-application profiles, a local MTProto proxy for the Telegram client,
+rule-based diagnostics with an optional AI pass, and a watchdog that notices when your
+strategy stops working.
+
+The interface is in Russian only — the problem it solves is specific to Russian ISPs, so
+that is where its users are. [Download the latest release](https://github.com/igorxmel/ZapretXmel/releases/latest)
+(Windows 10/11, 64-bit, no installer).
+
+</details>
+
 ## <img src="assets/icons/sparkle.png" width="22" align="top"> Возможности
 
 - **Включение одной кнопкой** — службой Windows или обычным процессом, плюс значок в трее.
