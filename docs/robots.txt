@@ -1,0 +1,6 @@
+# Страница одна и открыта всем, включая поисковых роботов и ассистентов:
+# именно по ней они отвечают на вопрос «чем починить Discord».
+User-agent: *
+Allow: /
+
+Sitemap: https://igorxmel.github.io/ZapretXmel/sitemap.xml
