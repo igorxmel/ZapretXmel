@@ -31,6 +31,7 @@ class UpdatesView(QWidget):
         self._latest: github.Release | None = None
         self._worker: CoreUpdateWorker | None = None
         self._task: Task | None = None
+        self._install_after_check = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -257,6 +258,21 @@ class UpdatesView(QWidget):
         self._backups.setEnabled(bool(backups))
         self._rollback_button.setEnabled(bool(backups))
 
+    def install_core(self) -> None:
+        """Ставит ядро сразу, без лишних нажатий.
+
+        Так приходят с дашборда: там главная кнопка при отсутствии ядра
+        предлагает его поставить, и человеку нужен обход, а не экскурсия по
+        разделам. Если о последнем релизе ещё не спрашивали, сперва спросим —
+        установка начнётся, как только придёт ответ.
+        """
+        if self._latest is not None:
+            self._install()
+            return
+
+        self._install_after_check = True
+        self.check_updates()
+
     def check_updates(self) -> None:
         self._check_button.setEnabled(False)
         self._status.setText("Спрашиваю GitHub о последнем релизе…")
@@ -278,7 +294,11 @@ class UpdatesView(QWidget):
             self._install_button.setEnabled(True)
             self._status.setStyleSheet(f"color: {COLORS['warning']};")
             self._status.setText(f"Доступно обновление до {release.version}")
+            if self._install_after_check:
+                self._install_after_check = False
+                self._install()
         else:
+            self._install_after_check = False
             self._install_button.setEnabled(False)
             self._status.setStyleSheet(f"color: {COLORS['success']};")
             self._status.setText("Установлена последняя версия")

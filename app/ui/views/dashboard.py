@@ -49,6 +49,7 @@ class DashboardView(QWidget):
     """Две кнопки и ответ на вопрос «работает ли сейчас обход»."""
 
     navigate = pyqtSignal(str)
+    install_core_requested = pyqtSignal()
 
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
@@ -90,7 +91,7 @@ class DashboardView(QWidget):
         tiles.addStretch(1)
 
         self._bypass = PowerTile("Обход блокировок")
-        self._bypass.toggled.connect(self.controller.toggle)
+        self._bypass.toggled.connect(self._toggle_bypass)
         tiles.addWidget(self._bypass)
 
         self._telegram = PowerTile("Telegram")
@@ -144,6 +145,15 @@ class DashboardView(QWidget):
 
     # --- обновление состояния -------------------------------------------
 
+    def _toggle_bypass(self) -> None:
+        # Без ядра включать нечего, но и гасить кнопку неправильно: человек
+        # жмёт главную кнопку программы и не получает ничего, даже объяснения.
+        # Поэтому первое нажатие ставит ядро — ровно как у кнопки Telegram.
+        if not self.controller.status.core_present:
+            self.install_core_requested.emit()
+            return
+        self.controller.toggle()
+
     def _toggle_telegram(self) -> None:
         if not self.controller.status.telegram_installed:
             self.navigate.emit("telegram")
@@ -163,7 +173,7 @@ class DashboardView(QWidget):
 
         self._bypass.apply(
             active=status.is_active,
-            enabled=status.core_present,
+            enabled=True,
             state=self._bypass_state(status),
         )
 
@@ -196,7 +206,7 @@ class DashboardView(QWidget):
     @staticmethod
     def _bypass_state(status: Status) -> str:
         if not status.core_present:
-            return "ядро не установлено"
+            return "нажмите, чтобы установить ядро"
         if status.active_strategy:
             return f"стратегия «{status.active_strategy}»"
         if status.selected_strategy:

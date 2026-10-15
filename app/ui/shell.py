@@ -183,6 +183,7 @@ class MainWindow(FramelessWindow):
         self.controller.error.connect(lambda text: self._show_toast(text, COLORS["danger"]))
         self.controller.status_changed.connect(self._apply_status)
         self.views["dashboard"].navigate.connect(self.navigate)
+        self.views["dashboard"].install_core_requested.connect(self._install_core)
 
     # --- поведение ------------------------------------------------------
 
@@ -201,6 +202,11 @@ class MainWindow(FramelessWindow):
             reload_method()
         if key == "logs":
             view.load_tail(self.controller.status.log_tail)
+
+    def _install_core(self) -> None:
+        """Ставит ядро по нажатию главной кнопки, когда его ещё нет."""
+        self.navigate("updates")
+        self.views["updates"].install_core()
 
     def _first_run(self) -> None:
         status = self.controller.refresh()

@@ -15,7 +15,7 @@ import sys
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QMessageBox
 
-from app import logging_setup
+from app import __version__, logging_setup
 from app.core import elevation, paths, singleton
 from app.core.config import Settings
 from app.core.updater import selfupdate
@@ -130,6 +130,14 @@ def revive_stuck_instance() -> bool:
 
 
 def main() -> int:
+    # Проверка собранной версии: никакого интерфейса, только убедиться, что
+    # программа вообще запускается и все модули внутри .exe на месте. Иначе
+    # сломанную сборку обнаруживает уже пользователь — окно просто не
+    # открывается, а причина остаётся в диалоге, которого никто не видел.
+    if "--version" in sys.argv:
+        print(__version__)
+        return 0
+
     paths.ensure_dirs()
     logging_setup.setup()
     install_crash_handler()
