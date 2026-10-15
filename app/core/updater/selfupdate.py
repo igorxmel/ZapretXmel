@@ -23,6 +23,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from app import __version__
+from app.core import process
 from app.core.updater import github
 
 log = logging.getLogger(__name__)
@@ -124,9 +125,18 @@ def apply(downloaded: Path, progress: Progress | None = None) -> None:
 
 
 def restart() -> None:
-    """Запускает обновлённую программу и просит текущую закрыться."""
+    """Запускает обновлённую программу и просит текущую закрыться.
+
+    Окружение чистим обязательно: без этого новая версия подхватывает
+    временную папку старой и не находит ни одного плагина Qt.
+    """
     try:
-        subprocess.Popen([str(executable())], close_fds=True)  # noqa: S603 — собственный файл
+        subprocess.Popen(  # noqa: S603 — собственный файл
+            [str(executable())],
+            close_fds=True,
+            cwd=str(executable().parent),
+            env=process.child_environment(),
+        )
     except OSError as error:
         raise SelfUpdateError(f"не удалось перезапустить программу: {error}") from error
 

@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app import logging_setup
-from app.core import paths
+from app.core import paths, process
 
 log = logging.getLogger(__name__)
 
@@ -272,7 +272,12 @@ def restart(executable: Path) -> None:
     произошло.
     """
     try:
-        subprocess.Popen([str(executable)], close_fds=True)  # noqa: S603 — собственный файл
+        subprocess.Popen(  # noqa: S603 — собственный файл
+            [str(executable)],
+            close_fds=True,
+            cwd=str(executable.parent),
+            env=process.child_environment(),
+        )
     except OSError as error:
         raise RuntimeError(f"не удалось запустить программу из новой папки: {error}") from error
 

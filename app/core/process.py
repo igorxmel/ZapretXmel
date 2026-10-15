@@ -11,7 +11,9 @@ from __future__ import annotations
 import contextlib
 import ctypes
 import logging
+import os
 import subprocess
+import sys
 import threading
 from collections import deque
 from collections.abc import Callable
@@ -105,6 +107,53 @@ def close_job(job: int | None) -> None:
             ctypes.windll.kernel32.CloseHandle(job)
 
 
+def child_environment() -> dict[str, str]:
+    """Окружение для запуска другой программы из собранной версии.
+
+    Собранная одним файлом программа распаковывает себя во временную папку и
+    оставляет её путь в переменной `_MEIPASS2`. Дочерний процесс, увидев эту
+    переменную, решает, что распаковывать нечего, и работает с чужой папкой —
+    а она исчезает, как только закроется родитель. Так обновление и ломалось:
+    новая версия падала с «no Qt platform plugin could be initialized», а
+    старая не могла убрать за собой `_MEI…`.
+
+    Заодно вычищаем из путей саму временную папку: туда же прописан поиск
+    библиотек и плагинов Qt.
+    """
+    environment = dict(os.environ)
+    temporary = getattr(sys, "_MEIPASS", "")
+
+    environment.pop("_MEIPASS2", None)
+    environment.pop("_PYI_APPLICATION_HOME_DIR", None)
+    environment.pop("_PYI_ARCHIVE_FILE", None)
+
+    # Значения, которые сборка подменила, она же сохранила рядом с суффиксом.
+    for key in list(environment):
+        if not key.endswith("_ORIG"):
+            continue
+        original = environment.pop(key)
+        if original:
+            environment[key[: -len("_ORIG")]] = original
+        else:
+            environment.pop(key[: -len("_ORIG")], None)
+
+    if not temporary:
+        return environment
+
+    for key, value in list(environment.items()):
+        if temporary.lower() not in value.lower():
+            continue
+        kept = [
+            part for part in value.split(os.pathsep) if temporary.lower() not in part.lower()
+        ]
+        if kept:
+            environment[key] = os.pathsep.join(kept)
+        else:
+            environment.pop(key, None)
+
+    return environment
+
+
 class ManagedProcess:
     """Дочерний процесс без консольного окна, с перехватом вывода."""
 
@@ -138,6 +187,7 @@ class ManagedProcess:
             errors="replace",
             bufsize=1,
             creationflags=CREATE_NO_WINDOW,
+            env=child_environment(),
         )
 
         if self._job:
