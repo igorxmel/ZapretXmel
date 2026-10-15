@@ -9,6 +9,7 @@ from app.core import service
 from app.ui.controller import Controller, Status
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, KeyValueRow, PowerButton, StatusPill, view_header
+from app.ui.workers import QuickCheckWorker
 
 
 class PowerTile(QWidget):
@@ -54,6 +55,7 @@ class DashboardView(QWidget):
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
         self.controller = controller
+        self._quick: QuickCheckWorker | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -137,6 +139,18 @@ class DashboardView(QWidget):
         card = Card("Быстрые действия")
         body = card.body()
 
+        # Главный вопрос человека, включившего обход, — «ну и работает ли?».
+        # Подбор отвечает на него за минуты, диагностика проверяет систему, а
+        # не сервисы; здесь — ответ за несколько секунд.
+        self._check_button = QPushButton("Проверить, работает ли сейчас")
+        self._check_button.clicked.connect(self._run_quick_check)
+        body.addWidget(self._check_button)
+
+        self._check_result = QLabel("")
+        self._check_result.setObjectName("Dim")
+        self._check_result.setWordWrap(True)
+        body.addWidget(self._check_result)
+
         actions = (
             ("Подобрать стратегию автоматически", "autopick"),
             ("Выбрать стратегию вручную", "strategies"),
@@ -152,6 +166,36 @@ class DashboardView(QWidget):
         return card
 
     # --- обновление состояния -------------------------------------------
+
+    def _run_quick_check(self) -> None:
+        if self._quick is not None and self._quick.isRunning():
+            return
+
+        self._check_button.setEnabled(False)
+        self._say_check("Проверяю сервисы…", COLORS["text_muted"])
+
+        settings = self.controller.settings
+        self._quick = QuickCheckWorker(
+            timeout=settings.probe_timeout, parallel=settings.probe_parallel
+        )
+        self._quick.done.connect(self._quick_done)
+        self._quick.failed.connect(lambda text: self._say_check(text, COLORS["danger"]))
+        self._quick.finished.connect(lambda: self._check_button.setEnabled(True))
+        self._quick.start()
+
+    def _quick_done(self, check) -> None:
+        if check.everything_works:
+            colour = COLORS["success"]
+        elif check.working:
+            colour = COLORS["warning"]
+        else:
+            colour = COLORS["danger"]
+
+        self._say_check(check.verdict[:1].upper() + check.verdict[1:], colour)
+
+    def _say_check(self, text: str, colour: str) -> None:
+        self._check_result.setStyleSheet(f"color: {colour};")
+        self._check_result.setText(text)
 
     def _toggle_bypass(self) -> None:
         # Без ядра включать нечего, но и гасить кнопку неправильно: человек

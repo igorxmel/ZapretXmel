@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -143,8 +144,14 @@ def discover(include_discord_steps: bool = True) -> list[Service]:
     return services
 
 
-def check(service: Service, timeout: int = 6) -> ServiceResult:
-    """Выполняет проверки сервиса."""
+def check(service: Service, timeout: int = 6, parallel: int = 1) -> ServiceResult:
+    """Выполняет проверки сервиса.
+
+    По умолчанию цели проверяются по очереди: в подборе стратегий это
+    принципиально, иначе проверки мешают друг другу и время перестаёт быть
+    сравнимым между стратегиями. Быстрая проверка ничего не сравнивает,
+    поэтому может попросить несколько потоков и уложиться в пару секунд.
+    """
     if service.kind == "discord":
         return ServiceResult(
             service=service.name,
@@ -154,10 +161,14 @@ def check(service: Service, timeout: int = 6) -> ServiceResult:
             ],
         )
 
-    checks: list[CheckResult] = []
-    for target in service.targets:
-        result = check_target(target, timeout=timeout)
+    if parallel > 1 and len(service.targets) > 1:
+        with ThreadPoolExecutor(max_workers=min(parallel, len(service.targets))) as pool:
+            outcomes = list(pool.map(lambda t: check_target(t, timeout=timeout), service.targets))
+    else:
+        outcomes = [check_target(target, timeout=timeout) for target in service.targets]
 
+    checks: list[CheckResult] = []
+    for target, result in zip(service.targets, outcomes, strict=True):
         if not result.probes:
             # Цель только для пинга: другого признака работоспособности нет.
             checks.append(

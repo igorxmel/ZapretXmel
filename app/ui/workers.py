@@ -89,6 +89,27 @@ class AutoPickWorker(QThread):
         self.strategy_done.emit(score)
 
 
+class QuickCheckWorker(QThread):
+    """Быстрая проверка «работает ли сейчас»."""
+
+    done = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+    def __init__(self, timeout: int = 5, parallel: int = 8):
+        super().__init__()
+        self._timeout = timeout
+        self._parallel = parallel
+
+    def run(self) -> None:
+        from app.core.probe import quick
+
+        try:
+            self.done.emit(quick.run(timeout=self._timeout, parallel=self._parallel))
+        except Exception as error:  # noqa: BLE001 — причину показываем пользователю
+            log.exception("Быстрая проверка не удалась")
+            self.failed.emit(str(error))
+
+
 class TelegramInstallWorker(QThread):
     """Скачивание прокси для Telegram.
 
