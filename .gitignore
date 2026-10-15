@@ -5,15 +5,20 @@ __pycache__/
 .ruff_cache/
 
 # Управляемая копия ядра и всё, что приложение создаёт во время работы.
-core/
-data/
-tgproxy/
-location.txt
-build/
-dist/
-*.spec
-*.egg-info/
+#
+# Пути начинаются со слеша не для красоты: без него правило совпадает с
+# папкой такого имени на любом уровне. Правило `core/` выбрасывало из
+# репозитория и `app/core/` — весь слой логики, — а заметить это удалось
+# только по собранному .exe, который падал при первом же импорте.
+/core/
+/data/
+/tgproxy/
+/location.txt
+/build/
+/dist/
+/*.spec
+/*.egg-info/
 
 # Снимки экранов и отчёты, которые делаются локально.
-data/screenshots/
-upstream/reports/
+/data/screenshots/
+/upstream/reports/

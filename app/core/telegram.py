@@ -1,0 +1,205 @@
+"""Telegram через локальный MTProto-прокси.
+
+Telegram Desktop не ходит по TLS с SNI, поэтому обычные стратегии zapret его не
+чинят — отсюда и впечатление, будто «запрет так не умеет». Лечится отдельным
+сайдкаром [tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) от тех же
+авторов: он поднимает локальный MTProto-прокси, читает номер дата-центра из
+обфусцированного init-пакета и гонит трафик до нужного ДЦ через WebSocket
+поверх TLS.
+
+Программу не форкаем и не вкладываем внутрь — скачиваем официальный релиз и
+держим его в портативном режиме рядом с собой. Благодаря этому собственная
+установка tg-ws-proxy у пользователя, если она есть, остаётся нетронутой:
+портативный режим включается папкой `TgWsProxy_data` рядом с исполняемым файлом
+и уводит настройки туда из `%APPDATA%`.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import secrets
+import socket
+from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import urlencode
+
+from app.core import paths
+from app.core.process import ManagedProcess
+from app.core.updater import github
+
+log = logging.getLogger(__name__)
+
+REPO = github.TG_PROXY_REPO
+EXECUTABLE = "TgWsProxy_windows.exe"
+PORTABLE_DIR = "TgWsProxy_data"
+CONFIG_NAME = "config.json"
+
+DEFAULT_HOST = "127.0.0.1"
+DEFAULT_PORT = 1443
+SECRET_BYTES = 16
+
+
+class TelegramError(Exception):
+    """Прокси не установлен или его не удалось запустить."""
+
+
+@dataclass(frozen=True)
+class ProxyState:
+    installed: bool
+    running: bool
+    host: str = DEFAULT_HOST
+    port: int = DEFAULT_PORT
+    secret: str = ""
+
+    @property
+    def link(self) -> str:
+        """Ссылка `tg://`, по которой Telegram сам пропишет прокси в настройках."""
+        if not self.secret:
+            return ""
+        query = urlencode({"server": self.host, "port": self.port, "secret": self.secret})
+        return f"tg://proxy?{query}"
+
+    @property
+    def label(self) -> str:
+        if not self.installed:
+            return "не установлен"
+        return "работает" if self.running else "остановлен"
+
+
+def home() -> Path:
+    return paths.install_root() / "tgproxy"
+
+
+def executable() -> Path:
+    return home() / EXECUTABLE
+
+
+def data_dir() -> Path:
+    """Папка портативного режима: её наличие уводит настройки из %APPDATA%."""
+    return home() / PORTABLE_DIR
+
+
+def config_file() -> Path:
+    return data_dir() / CONFIG_NAME
+
+
+def is_installed() -> bool:
+    return executable().exists()
+
+
+def generate_secret() -> str:
+    """Секрет MTProto — 16 случайных байт в шестнадцатеричном виде."""
+    return secrets.token_bytes(SECRET_BYTES).hex()
+
+
+def read_config() -> dict:
+    path = config_file()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        log.warning("Не удалось прочитать %s", path)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_config(values: dict) -> None:
+    data_dir().mkdir(parents=True, exist_ok=True)
+    config_file().write_text(
+        json.dumps(values, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def ensure_config(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> dict:
+    """Готовит конфигурацию прокси, сохраняя уже выбранный секрет.
+
+    Секрет прописан в настройках Telegram у пользователя, поэтому перегенерировать
+    его при каждом запуске нельзя — иначе связь отвалится после перезапуска.
+    """
+    config = read_config()
+    config.setdefault("secret", generate_secret())
+    config["host"] = host
+    config["port"] = port
+    # Обновлениями занимаемся мы, второй проверяющий тут лишний.
+    config["check_updates"] = False
+    write_config(config)
+    return config
+
+
+def port_is_free(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> bool:
+    """Проверяет, не занят ли порт — чаще всего это уже запущенный экземпляр."""
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        probe.settimeout(0.3)
+        return probe.connect_ex((host, port)) != 0
+    finally:
+        probe.close()
+
+
+def latest_release(timeout: int = 20) -> github.Release:
+    return github.latest_release(REPO, timeout=timeout)
+
+
+def install(release: github.Release | None = None, progress=None) -> str:
+    """Скачивает официальный релиз прокси рядом с приложением."""
+    release = release or latest_release()
+    asset = next((a for a in release.assets if a.name == EXECUTABLE), None)
+    if asset is None:
+        raise TelegramError(f"в релизе {release.tag} нет файла {EXECUTABLE}")
+
+    home().mkdir(parents=True, exist_ok=True)
+    if progress:
+        progress(f"Скачиваю {asset.name}…")
+
+    github.download(asset, executable())
+    ensure_config()
+    log.info("tg-ws-proxy %s установлен", release.version)
+    return release.version
+
+
+class TelegramProxy:
+    """Управляемый экземпляр tg-ws-proxy."""
+
+    def __init__(self, on_output=None):
+        self._process = ManagedProcess(on_output=on_output)
+
+    @property
+    def output(self):
+        return self._process.output
+
+    def is_running(self) -> bool:
+        return self._process.is_alive()
+
+    def start(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> ProxyState:
+        if not is_installed():
+            raise TelegramError("прокси не установлен")
+        if self.is_running():
+            return self.state()
+
+        config = ensure_config(host, port)
+        # Флаг портативного режима передаём явно: папку рядом с exe прокси
+        # создаёт сам, но полагаться на её наличие до первого запуска нельзя.
+        self._process.start([str(executable()), "--portable"], cwd=home())
+        log.info("tg-ws-proxy запущен на %s:%s", host, port)
+        return ProxyState(
+            installed=True,
+            running=True,
+            host=config.get("host", host),
+            port=int(config.get("port", port)),
+            secret=config.get("secret", ""),
+        )
+
+    def stop(self) -> None:
+        self._process.stop()
+
+    def state(self) -> ProxyState:
+        config = read_config()
+        return ProxyState(
+            installed=is_installed(),
+            running=self.is_running(),
+            host=config.get("host", DEFAULT_HOST),
+            port=int(config.get("port", DEFAULT_PORT)),
+            secret=config.get("secret", ""),
+        )

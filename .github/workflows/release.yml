@@ -37,33 +37,14 @@ jobs:
           pip install ".[ai,dev]"
           pip install pyinstaller
 
-      - name: Проверить перед сборкой
-        run: |
-          python -m pytest tests/ -q
-          python -m ruff check app/ tests/ tools/
+      # Каждая проверка — отдельным шагом. В одном шаге PowerShell отдаёт код
+      # возврата только последней команды: упавший pytest оставался зелёным,
+      # потому что следом отрабатывал линтер.
+      - name: Тесты
+        run: python -m pytest tests/ -q
 
-      - name: Диагностика окружения
-        shell: bash
-        run: |
-          python - <<'PY'
-          import sys
-          from PyInstaller import isolated
-
-          import app, app.core, app.ui.theme
-          print("обычный импорт:", app.__file__, app.core.__file__)
-          print("пути:", sys.path[:5])
-
-          @isolated.decorate
-          def probe():
-              import sys
-              try:
-                  import app.ui.theme as theme
-                  return ("ok", theme.__file__, sys.path[:5])
-              except Exception as error:
-                  return ("fail", repr(error), sys.path[:6])
-
-          print("изолированный импорт:", probe())
-          PY
+      - name: Линтер
+        run: python -m ruff check app/ tests/ tools/
 
       - name: Собрать
         run: python tools/build_release.py
