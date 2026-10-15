@@ -40,12 +40,24 @@
 
 <div align="center">
   <img src="docs/assets/dashboard.png" width="860" alt="Главный экран">
-  <p><sub>Главный экран: обход включается одной кнопкой</sub></p>
-  <img src="docs/assets/autopick.png" width="860" alt="Подбор стратегии">
-  <p><sub>Подбор перебирает стратегии и проверяет сервисы, начиная с замера без обхода</sub></p>
-  <img src="docs/assets/diagnostics.png" width="860" alt="Диагностика">
-  <p><sub>Диагностика: проверки системы и разбор нейросетью</sub></p>
+  <p><sub>Обход включается одной кнопкой · <a href="https://igorxmel.github.io/ZapretXmel/">все экраны на странице проекта</a></sub></p>
 </div>
+
+<details>
+<summary><b>Ещё экраны</b> — подбор стратегии, диагностика, стратегии, обновления</summary>
+
+<div align="center">
+  <img src="docs/assets/autopick.png" width="860" alt="Подбор стратегии">
+  <p><sub>Подбор перебирает стратегии по всем сервисам сразу и начинает с замера без обхода</sub></p>
+  <img src="docs/assets/diagnostics.png" width="860" alt="Диагностика">
+  <p><sub>Диагностика: проверки системы по правилам и разбор нейросетью</sub></p>
+  <img src="docs/assets/strategies.png" width="860" alt="Стратегии">
+  <p><sub>Стратегии: что именно делает выбранная — по секциям</sub></p>
+  <img src="docs/assets/updates.png" width="860" alt="Обновления">
+  <p><sub>Обновления: ядро, прокси для Telegram и сама программа</sub></p>
+</div>
+
+</details>
 
 ## <img src="assets/icons/download.png" width="22" align="top"> Установка
 
