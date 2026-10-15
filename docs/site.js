@@ -51,16 +51,6 @@ function setupGallery() {
   const frames = document.getElementById("frames");
   if (!frames) return;
 
-  // Кадр, картинка которого не загрузилась, убираем целиком: лучше карусель
-  // из четырёх экранов, чем из пяти с дырой посередине. Снимки обзора и
-  // подбора готовятся только при выключенном VPN и могут отсутствовать.
-  for (const image of frames.querySelectorAll("img")) {
-    image.addEventListener("error", () => {
-      image.closest(".frame").remove();
-      draw();
-    });
-  }
-
   const dots = document.getElementById("dots");
   const previous = document.getElementById("prev");
   const next = document.getElementById("next");
@@ -99,6 +89,21 @@ function setupGallery() {
     next.disabled = index >= all.length - 1;
   }
 
+  // Кадр, картинка которого не загрузилась, убираем целиком: лучше карусель
+  // из четырёх экранов, чем из пяти с дырой посередине. Снимки обзора и
+  // подбора готовятся только при выключенном VPN и могут отсутствовать.
+  function drop(image) {
+    image.closest(".frame").remove();
+    draw();
+  }
+
+  for (const image of frames.querySelectorAll("img")) {
+    image.addEventListener("error", () => drop(image));
+    // Картинка могла не загрузиться ещё до того, как выполнился скрипт, —
+    // тогда события error уже не будет, и проверять приходится самим.
+    if (image.complete && image.naturalWidth === 0) drop(image);
+  }
+
   previous.addEventListener("click", () => show(current() - 1));
   next.addEventListener("click", () => show(current() + 1));
 
@@ -115,6 +120,52 @@ function setupGallery() {
   draw();
 }
 
+// --- появление и верхняя панель ---------------------------------------
+
+// Блоки проявляются при подходе к ним. Если браузер не умеет наблюдать за
+// пересечениями или человек выключил анимацию в системе, всё показывается
+// сразу: страница обязана читаться в любом случае.
+function setupReveal() {
+  const blocks = [...document.querySelectorAll(".reveal")];
+  const motionOff = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  if (motionOff || !("IntersectionObserver" in window)) {
+    blocks.forEach((block) => block.classList.add("seen"));
+    return;
+  }
+
+  // Шапку показываем сразу — она уже перед глазами, ждать прокрутки нечего.
+  document.querySelectorAll(".hero .reveal").forEach((block) => block.classList.add("seen"));
+
+  const watcher = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        entry.target.classList.add("seen");
+        watcher.unobserve(entry.target);
+      }
+    },
+    { rootMargin: "0px 0px -12% 0px" }
+  );
+
+  blocks.filter((block) => !block.closest(".hero")).forEach((block) => watcher.observe(block));
+}
+
+function setupBar() {
+  const bar = document.getElementById("bar");
+  const hero = document.querySelector(".hero");
+  if (!bar || !hero) return;
+
+  const toggle = () => {
+    bar.classList.toggle("shown", window.scrollY > hero.offsetHeight - 80);
+  };
+
+  addEventListener("scroll", toggle, { passive: true });
+  toggle();
+}
+
 showBoosty();
 showVersion();
 setupGallery();
+setupReveal();
+setupBar();
