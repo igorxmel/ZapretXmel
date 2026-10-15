@@ -46,6 +46,12 @@ jobs:
           TITLE="Апстрим обновился: интерфейс отстал"
           BODY_FILE=report.md
 
+          # Метку создаём сами: в чистом репозитории её нет, и gh отказывался
+          # заводить задачу целиком из-за несуществующего ярлыка.
+          gh label create upstream \
+            --description "Расхождение со сборкой Flowseal" \
+            --color f5a000 --force
+
           # Одна задача на все накопившиеся расхождения: плодить по штуке на
           # каждую сверку незачем, читать их всё равно разом.
           EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number')

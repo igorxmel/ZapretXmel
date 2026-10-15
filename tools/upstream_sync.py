@@ -22,6 +22,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+# В отчёте есть стрелки и тире, которых нет в однобайтовых кодировках
+# консоли Windows. Без этого скрипт доходил до самого конца и падал на
+# печати готового отчёта — ровно в тот момент, когда работа уже сделана.
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+
 from app.core import paths, upstream  # noqa: E402
 from app.core.updater import github, install  # noqa: E402
 
@@ -48,7 +55,12 @@ def collect_ideas(previous: dict[str, str]) -> dict[str, str]:
         try:
             release = github.latest_release(repo)
         except Exception as error:  # noqa: BLE001 — недоступный репозиторий не повод падать
-            print(f"  {repo}: не удалось прочитать релизы ({error})")
+            # Отсутствие релизов — обычное дело: проект может выкладываться
+            # одними коммитами. Писать об этом как о сбое незачем, иначе
+            # отчёт выглядит сломанным там, где всё в порядке.
+            missing = "404" in str(error)
+            reason = "релизов пока нет" if missing else f"не удалось прочитать релизы ({error})"
+            print(f"  {repo}: {reason}")
             continue
 
         marker = f"{release.tag} от {release.published_date}"

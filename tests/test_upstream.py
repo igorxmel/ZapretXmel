@@ -52,6 +52,24 @@ def test_fingerprint_hashes_every_file() -> None:
     assert all(len(digest) == 64 for digest in fingerprint.files.values())
 
 
+def test_user_lists_stay_out_of_the_fingerprint(tmp_path: Path) -> None:
+    """Файлы пользователя не принадлежат апстриму и сверку волновать не должны.
+
+    Снимок снимается с рабочей установки, где они есть, а сверяется со свежим
+    релизом, где их нет и быть не может. Пока они попадали в отпечаток, каждая
+    сверка объявляла их пропажу ломающим изменением.
+    """
+    lists = tmp_path / "lists"
+    lists.mkdir()
+    (lists / "list-general.txt").write_text("youtube.com\n", encoding="utf-8")
+    (lists / "list-general-user.txt").write_text("example.com\n", encoding="utf-8")
+
+    fingerprint = upstream.build(tmp_path)
+
+    assert fingerprint.lists == ["list-general.txt"]
+    assert not any(name.endswith("-user.txt") for name in fingerprint.files)
+
+
 def test_flags_are_collected_from_all_strategies() -> None:
     flags = collect_flags(BUNDLE_NEW)
 

@@ -1,6 +1,6 @@
 {
   "version": "1.10.3",
-  "checked_at": "2026-10-14T22:22:47",
+  "checked_at": "2026-10-15T16:06:33",
   "files": {
     "bin/ACTIVE_DISCORD_UDP.bin": "2fe18b3bd20807d36704d0b072092ee49ae84edca907a4420ab9a0f0f28fddcf",
     "bin/ACTIVE_GAME_UDP.bin": "e065870cb0d13152e6132807bbf42218a9e7cd8d96f5602b61674cc540f3a56e",
@@ -46,16 +46,12 @@
     "general.bat": "2c0723be1d3539a70392607b9cf2ef590efcceec8e6139b1a0d2984ea1da1947",
     "lists/ipset-all.txt": "19123a22bf1108815c07bda3cda8df282b30bd63e4939949928969c0fd195873",
     "lists/ipset-all.txt.backup": "a8ebbb68f074225b7a989e6228a12290260541b1dd614aafc906bad206cdf818",
-    "lists/ipset-exclude-user.txt": "cd7fdf661f82ff71ea5ff6aee7074b743b5acbecfce6c082d5b45f834423cbf2",
     "lists/ipset-exclude.txt": "96c03954012765ce4ab03b9c30f29ab1ca1b698c6752224d03828e6d182eb0fc",
-    "lists/list-exclude-user.txt": "def3087141dd3bb22d07dff0f912ca93cf0686502dde3e7f2cb85bd579b981cf",
     "lists/list-exclude.txt": "c5eaabb284d9e5c11340454c0d11776f8b62f519e4d71e41254f757de7bbc0d0",
-    "lists/list-general-user.txt": "def3087141dd3bb22d07dff0f912ca93cf0686502dde3e7f2cb85bd579b981cf",
     "lists/list-general.txt": "9ff3ae9e4bf0edbcf8fecb1bba7aac951aace2036cdb732ec3ef65dfc6db443b",
     "lists/list-google.txt": "4104b8f5119f76a3642e3176987bbcf817d98daa4899a7ecf9ee2c254958e33b",
     "service.bat": "3a4a22f8e8d6f337e22f17d0dd5bec38a99ba268843643f6400851fc41f823b3",
     "utils/check_updates.enabled": "c823a2779ca11474ada5ece9c37cc825f71c54fbc1525d9b0cf3dbc7879abb09",
-    "utils/targets-user.txt": "0558c1ef58ffcf50f58715a10979a04384d45d48dbe7554f16208212b3d036d6",
     "utils/targets.txt": "c27af6e8ba0a91e772b5b4a8da5f4cde6903b6eb6ab3a5a02b13afe7695d0f31",
     "utils/test zapret.ps1": "13ce2b57b35b9a0223b0ea2782752bd2e20f550e2b7f0e9de8ae8d3999bfd402"
   },
@@ -173,11 +169,8 @@
   ],
   "lists": [
     "ipset-all.txt",
-    "ipset-exclude-user.txt",
     "ipset-exclude.txt",
-    "list-exclude-user.txt",
     "list-exclude.txt",
-    "list-general-user.txt",
     "list-general.txt",
     "list-google.txt"
   ],
@@ -220,7 +213,7 @@
   "seen_releases": {
     "medvedeff-true/Zapret-GUI": "3.0.0",
     "larrriiin/zapret-ui": "v26.10.1",
-    "m0xvi/zapret-gui": "v1.32.4",
+    "m0xvi/zapret-gui": "v1.32.5",
     "Taxousq/Zapret-GUI": "1.0.3",
     "gaboter/SimpleZapretGUI": "v1.1.0",
     "Noktomezo/ZapretInteractive": "v2.1.3",

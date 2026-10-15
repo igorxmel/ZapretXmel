@@ -130,6 +130,18 @@ def collect_flags(root: Path) -> list[str]:
     return sorted(found)
 
 
+def is_user_file(name: str) -> bool:
+    """Файл заведён пользователем или нами, а не апстримом.
+
+    Такие файлы (`list-general-user.txt` и прочие из `lists.USER_LISTS`)
+    создаются при установке и живут только на машине. В отпечатке им не
+    место: снимок снимается с работающей установки, а сверяется со свежим
+    релизом, где их нет и быть не может, — и каждая сверка объявляла бы
+    пропажу этих файлов ломающим изменением.
+    """
+    return name.endswith("-user.txt")
+
+
 def build(root: Path) -> Fingerprint:
     """Снимает отпечаток с распакованной сборки."""
     service_bat = root / "service.bat"
@@ -141,7 +153,7 @@ def build(root: Path) -> Fingerprint:
     files = {
         str(path.relative_to(root)).replace("\\", "/"): _sha256(path)
         for path in sorted(root.rglob("*"))
-        if path.is_file()
+        if path.is_file() and not is_user_file(path.name)
     }
 
     return Fingerprint(
@@ -152,7 +164,9 @@ def build(root: Path) -> Fingerprint:
         winws_flags=collect_flags(root),
         service_labels=sorted(set(_LABEL_RE.findall(service_text))),
         service_menu=sorted({item.strip() for item in _MENU_RE.findall(service_text)}),
-        lists=sorted(path.name for path in (root / "lists").glob("*.txt"))
+        lists=sorted(
+            path.name for path in (root / "lists").glob("*.txt") if not is_user_file(path.name)
+        )
         if (root / "lists").is_dir()
         else [],
         fakes=sorted(path.name for path in (root / "bin").glob("*.bin"))
