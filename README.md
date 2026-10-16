@@ -15,21 +15,18 @@
   </p>
 
   <p>
-    <!--
-      Три источника на три бейджа, и у каждого своя причина.
-
-      Версия и звёзды — badgen, а не shields: shields ходит в API GitHub
-      через пул токенов, общий на всех пользователей сервиса, и когда тот
-      выбирает лимит, вместо числа появляется «Unable to select next GitHub
-      token from pool».
-
-      Скачивания не умеет считать и badgen — он показывает одну последнюю
-      версию, а она обнуляется при каждом релизе. Сумму по всем релизам
-      считает .github/workflows/badges.yml своим токеном и кладёт её в
-      ветку badges; shields оттуда только рисует, в API не ходит.
-
-      Бейджи ниже статичные: там API не нужен, и падать нечему.
-    -->
+    <!-- Три источника на три бейджа, и у каждого своя причина.
+      Версия и звёзды — badgen, а не shields: shields ходит в API GitHub через
+      пул токенов, общий на всех пользователей сервиса, и когда тот выбирает
+      лимит, вместо числа появляется «Unable to select next GitHub token from
+      pool». Скачивания не умеет считать и badgen — он показывает одну
+      последнюю версию, а она обнуляется при каждом релизе. Сумму по всем
+      релизам считает .github/workflows/badges.yml своим токеном и кладёт её
+      в ветку badges; shields оттуда только рисует, в API не ходит. Бейджи
+      ниже статичные: там API не нужен, и падать нечему.
+      Пустых строк здесь быть не должно: в markdown пустая строка закрывает
+      HTML-блок, <div> оборвался бы прямо посреди комментария, и всё, что
+      ниже, из README пропало бы. -->
     <a href="https://github.com/igorxmel/ZapretXmel/releases/latest"><img alt="Версия" src="https://badgen.net/github/release/igorxmel/ZapretXmel?label=%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F&labelColor=141416&color=f5a000&icon=github"></a>
     <a href="https://github.com/igorxmel/ZapretXmel/stargazers"><img alt="Звёзды" src="https://badgen.net/github/stars/igorxmel/ZapretXmel?label=%D0%B7%D0%B2%D1%91%D0%B7%D0%B4%D1%8B&labelColor=141416&color=8ebe3f&icon=github"></a>
     <a href="https://github.com/igorxmel/ZapretXmel/releases"><img alt="Скачивания" src="https://img.shields.io/endpoint?url=https%3A%2F%2Fraw.githubusercontent.com%2Figorxmel%2FZapretXmel%2Fbadges%2Fdownloads.json"></a>
