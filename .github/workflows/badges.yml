@@ -1,0 +1,92 @@
+name: Счётчик скачиваний
+
+# Считает, сколько раз скачали файлы из всех релизов, и кладёт число туда,
+# откуда его возьмёт бейдж в README.
+#
+# Зачем своими руками. Бейджи shields.io ходят в API GitHub через пул
+# токенов, общий на всех пользователей сервиса; когда он выбирает лимит,
+# вместо числа показывается «Unable to select next GitHub token from pool».
+# Чаще всего это ловил именно счётчик скачиваний: чтобы сложить сумму, надо
+# перебрать все релизы, а их становится только больше. У badgen общий счёт
+# не умеет считаться вовсе — он показывает одну последнюю версию, и число
+# обнуляется при каждом релизе.
+#
+# Здесь считает сам GitHub Actions своим токеном: лимит 5000 запросов в час
+# и ни с кем не делится. Результат — JSON в формате shields endpoint, из
+# которого бейдж рисуется без единого обращения к API.
+
+on:
+  schedule:
+    # Раз в сутки: счётчик растёт между релизами, и ждать следующего нельзя.
+    - cron: '17 4 * * *'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# Токену нужно писать только в свою ветку с бейджами.
+permissions:
+  contents: write
+
+# Ветка badges живёт отдельно и без истории main: число меняется каждый
+# день, и засорять этим общую историю незачем.
+env:
+  BRANCH: badges
+
+jobs:
+  count:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Сложить скачивания по всем релизам
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          total=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+            -q '[.[].assets[].download_count] | add // 0')
+          echo "Всего скачиваний: $total"
+
+          mkdir -p out
+          # Формат shields endpoint: сервису остаётся только нарисовать.
+          cat > out/downloads.json <<JSON
+          {
+            "schemaVersion": 1,
+            "label": "скачивания",
+            "message": "$total",
+            "color": "9f9fa6",
+            "labelColor": "141416",
+            "namedLogo": "github",
+            "logoColor": "white"
+          }
+          JSON
+          cat out/downloads.json
+
+      - name: Положить в ветку badges
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git clone --depth 1 --branch "$BRANCH" \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" branch 2>/dev/null \
+            || {
+              # Ветки ещё нет — заводим пустую, без истории main.
+              git init branch
+              cd branch
+              git checkout --orphan "$BRANCH"
+              git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+              cd ..
+            }
+
+          cp out/downloads.json branch/downloads.json
+          cd branch
+
+          # Коммит только когда число изменилось: ежедневный пустой коммит
+          # ничего не сообщает, а ветка растёт.
+          if git diff --quiet HEAD -- downloads.json 2>/dev/null; then
+            echo "Число не изменилось, коммит не нужен"
+            exit 0
+          fi
+
+          git add downloads.json
+          git commit -m "Скачиваний: $(jq -r .message downloads.json)"
+          git push origin "$BRANCH"
