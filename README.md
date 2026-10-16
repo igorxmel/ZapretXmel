@@ -15,9 +15,16 @@
   </p>
 
   <p>
-    <a href="https://github.com/igorxmel/ZapretXmel/releases/latest"><img alt="Версия" src="https://img.shields.io/github/v/release/igorxmel/ZapretXmel?style=flat&logo=github&label=%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F&labelColor=141416&color=f5a000&logoColor=white"></a>
-    <a href="https://github.com/igorxmel/ZapretXmel/stargazers"><img alt="Звёзды" src="https://img.shields.io/github/stars/igorxmel/ZapretXmel?style=flat&logo=github&label=%D0%B7%D0%B2%D1%91%D0%B7%D0%B4%D1%8B&labelColor=141416&color=8ebe3f&logoColor=white"></a>
-    <a href="https://github.com/igorxmel/ZapretXmel/releases"><img alt="Скачивания" src="https://img.shields.io/github/downloads/igorxmel/ZapretXmel/total?style=flat&logo=github&label=%D1%81%D0%BA%D0%B0%D1%87%D0%B8%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F&labelColor=141416&color=9f9fa6&logoColor=white"></a>
+    <!--
+      Живые счётчики берутся у badgen, а не у shields: shields ходит в API
+      GitHub через пул токенов, общий на всех пользователей сервиса, и когда
+      тот выбирает лимит, вместо числа показывается «Unable to select next
+      GitHub token from pool». Бейджи ниже статичные — там API не нужен, и
+      shields для них надёжен.
+    -->
+    <a href="https://github.com/igorxmel/ZapretXmel/releases/latest"><img alt="Версия" src="https://badgen.net/github/release/igorxmel/ZapretXmel?label=%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F&labelColor=141416&color=f5a000&icon=github"></a>
+    <a href="https://github.com/igorxmel/ZapretXmel/stargazers"><img alt="Звёзды" src="https://badgen.net/github/stars/igorxmel/ZapretXmel?label=%D0%B7%D0%B2%D1%91%D0%B7%D0%B4%D1%8B&labelColor=141416&color=8ebe3f&icon=github"></a>
+    <a href="https://github.com/igorxmel/ZapretXmel/releases"><img alt="Скачивания" src="https://badgen.net/github/assets-dl/igorxmel/ZapretXmel?label=%D1%81%D0%BA%D0%B0%D1%87%D0%B8%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F&labelColor=141416&color=9f9fa6&icon=github"></a>
   </p>
 
   <p>
