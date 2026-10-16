@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from app.core import lists
+from app.core import lists, paths
+from app.core.batfile import StrategySpec
 from app.core.lists import PLACEHOLDER_DOMAIN, UserList, is_valid_domain, is_valid_ip, read, write
 
 
@@ -134,3 +135,39 @@ def test_ensure_user_lists_creates_missing(tmp_path: Path, monkeypatch: pytest.M
     for user_list in lists.USER_LISTS:
         assert user_list.path.exists(), user_list.filename
         assert read(user_list).entries == [user_list.placeholder]
+
+
+# --- условие запуска winws ----------------------------------------------
+
+
+def test_user_lists_are_created_before_winws_starts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Без этих файлов winws падает сразу, и обход гаснет через миг.
+
+    Стратегии Flowseal ссылаются на `*-user.txt`, но в его архиве таких
+    файлов нет: их создаёт первый запуск консольного меню. Поэтому после
+    установки ядра из программы обход не включался, а подбор показывал, что
+    ни одна стратегия ничего не меняет.
+    """
+    from app.core import lists, winws
+
+    core = tmp_path / "core"
+    (core / "bin").mkdir(parents=True)
+    (core / "lists").mkdir()
+    exe = core / "bin" / "winws.exe"
+    exe.write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(paths, "core_dir", lambda: core)
+
+    started: list[list[str]] = []
+    monkeypatch.setattr(
+        winws.ManagedProcess, "start", lambda self, command, cwd=None: started.append(command)
+    )
+
+    spec = StrategySpec(name="general", path=core / "general.bat", argv=["--wf-tcp=80"])
+    winws.WinwsProcess().start(spec, exe=exe)
+
+    created = {path.name for path in (core / "lists").glob("*-user.txt")}
+    assert created == {item.filename for item in lists.USER_LISTS}
+    assert started, "запуск должен был состояться"

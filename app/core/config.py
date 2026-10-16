@@ -41,6 +41,9 @@ class Settings:
     # Включать обход сразу при запуске приложения. Нужно в режиме обычного
     # процесса: служба и так стартует вместе с Windows.
     start_bypass_on_launch: bool = False
+    # То же для прокси Telegram: он живёт дочерним процессом и сам по
+    # себе с Windows не стартует.
+    start_proxy_on_launch: bool = False
     autostart_with_windows: bool = False
     start_minimized: bool = False
     minimize_to_tray: bool = True

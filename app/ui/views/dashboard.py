@@ -227,25 +227,49 @@ class DashboardView(QWidget):
             self._watch_line.setStyleSheet(f"color: {COLORS['danger']};")
 
     def _fill_strategies(self) -> None:
-        """Заполняет список: избранные наверх, выбранная — текущей."""
+        """Заполняет список: избранные наверх, выбранная — текущей.
+
+        Показывается именно выбранная программой стратегия, а не та, что
+        осталась в списке с прошлого раза: подбор меняет выбор на своём
+        экране, и на обзоре должна быть видна она же.
+        """
         names = [spec.name for spec in strategies.load_all()]
         favorites = self.controller.settings.favorites
         names.sort(key=lambda name: name not in favorites)
-
-        current = self._strategy_box.currentText()
-        wanted = current or self.controller.settings.selected_strategy
 
         self._strategy_box.blockSignals(True)
         self._strategy_box.clear()
         for name in names:
             self._strategy_box.addItem(("★ " if name in favorites else "") + name, name)
 
-        index = self._strategy_box.findData(wanted)
+        index = self._strategy_box.findData(self.controller.settings.selected_strategy)
         if index >= 0:
             self._strategy_box.setCurrentIndex(index)
         self._strategy_box.blockSignals(False)
 
         self._apply_button.setEnabled(bool(names))
+
+    def _sync_strategy_box(self) -> None:
+        """Подхватывает смену стратегии, сделанную на другом экране.
+
+        Пока список раскрыт или в фокусе, не трогаем: человек выбирает, и
+        подменять выбор под рукой нельзя.
+        """
+        if self._strategy_box.hasFocus() or self._strategy_box.view().isVisible():
+            return
+
+        wanted = self.controller.settings.selected_strategy
+        if not wanted or self._strategy_box.currentData() == wanted:
+            return
+
+        index = self._strategy_box.findData(wanted)
+        if index < 0:
+            self._fill_strategies()
+            return
+
+        self._strategy_box.blockSignals(True)
+        self._strategy_box.setCurrentIndex(index)
+        self._strategy_box.blockSignals(False)
 
     def _apply_strategy(self) -> None:
         name = self._strategy_box.currentData()
@@ -311,6 +335,7 @@ class DashboardView(QWidget):
 
     def apply_status(self, status: Status) -> None:
         self._say_watch()
+        self._sync_strategy_box()
         if status.active_vpn:
             self._vpn_banner.setText(
                 f"Трафик идёт через {status.active_vpn}. Пока туннель включён, обход ни на что "

@@ -12,7 +12,7 @@ from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
 from app.ui.controller import Controller, Status
-from app.ui.theme.tokens import COLORS
+from app.ui.theme.tokens import BRAND, COLORS
 from app.ui.widgets import logo_pixmap
 
 
@@ -22,11 +22,13 @@ def app_icon() -> QIcon:
     return QIcon(pixmap) if not pixmap.isNull() else QIcon()
 
 
-def build_icon(active: bool) -> QIcon:
-    """Значок для трея: логотип с точкой состояния в углу.
+def build_icon(active: bool, proxy: bool = False) -> QIcon:
+    """Значок для трея: логотип и две точки состояния в углу.
 
-    Выключенный обход показывается приглушённым логотипом — так значок
-    остаётся узнаваемым, но не притворяется работающим.
+    Точек две, потому что и работает две разные вещи: обход (зелёная) и
+    прокси для Telegram (голубая). Выключенное показывается серым, а когда
+    не работает ничего — ещё и приглушённым логотипом: так значок остаётся
+    узнаваемым, но не притворяется работающим.
     """
     size = 64
     pixmap = QPixmap(size, size)
@@ -41,15 +43,23 @@ def build_icon(active: bool) -> QIcon:
         painter.setPen(QPen(QColor(COLORS["text_dim"]), 6))
         painter.drawEllipse(QRectF(10, 10, size - 20, size - 20))
     else:
-        if not active:
+        if not (active or proxy):
             painter.setOpacity(0.45)
         painter.drawPixmap(0, 0, logo)
         painter.setOpacity(1.0)
 
-    dot = 18.0
+    dot = 16.0
     painter.setPen(QPen(QColor(COLORS["bg"]), 3))
+
+    # Обход — правая точка, прокси — левее: порядок тот же, что у кнопок на
+    # главном экране, чтобы значок читался без подсказки.
     painter.setBrush(QColor(COLORS["success"] if active else COLORS["text_muted"]))
     painter.drawEllipse(QRectF(size - dot - 2, size - dot - 2, dot, dot))
+
+    if proxy:
+        painter.setBrush(QColor(BRAND["telegram"]))
+        painter.drawEllipse(QRectF(size - dot * 2 - 6, size - dot - 2, dot, dot))
+
     painter.end()
 
     return QIcon(pixmap)
@@ -77,6 +87,11 @@ class Tray(QSystemTrayIcon):
         self._status_action.setEnabled(False)
         menu.addAction(self._status_action)
 
+        self._proxy_status_action = QAction("", menu)
+        self._proxy_status_action.setEnabled(False)
+        self._proxy_status_action.setVisible(False)
+        menu.addAction(self._proxy_status_action)
+
         self._strategy_action = QAction("", menu)
         self._strategy_action.setEnabled(False)
         self._strategy_action.setVisible(False)
@@ -87,6 +102,10 @@ class Tray(QSystemTrayIcon):
         self._toggle_action = QAction("Включить обход", menu)
         self._toggle_action.triggered.connect(controller.toggle)
         menu.addAction(self._toggle_action)
+
+        self._proxy_action = QAction("Включить прокси для Telegram", menu)
+        self._proxy_action.triggered.connect(controller.toggle_telegram)
+        menu.addAction(self._proxy_action)
 
         # Избранные стратегии — чтобы переключиться, не открывая окно.
         self._favorites_menu = menu.addMenu("Стратегия")
@@ -134,11 +153,22 @@ class Tray(QSystemTrayIcon):
             self.controller.restart()
 
     def apply_status(self, status: Status) -> None:
-        self.setIcon(build_icon(status.is_active))
+        self.setIcon(build_icon(status.is_active, status.telegram_running))
         self._toggle_action.setText("Выключить обход" if status.is_active else "Включить обход")
         self._toggle_action.setEnabled(status.core_present)
 
         self._status_action.setText(status.state_label.capitalize())
+
+        self._proxy_status_action.setVisible(status.telegram_installed)
+        self._proxy_status_action.setText(
+            "Прокси Telegram: работает" if status.telegram_running else "Прокси Telegram: выключен"
+        )
+        self._proxy_action.setEnabled(status.telegram_installed)
+        self._proxy_action.setText(
+            "Выключить прокси для Telegram"
+            if status.telegram_running
+            else "Включить прокси для Telegram"
+        )
 
         strategy = status.active_strategy or status.selected_strategy
         self._strategy_action.setVisible(bool(strategy))

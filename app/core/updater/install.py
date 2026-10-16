@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from app.core import coreinfo, paths, strategies
+from app.core import coreinfo, lists, paths, strategies
 
 log = logging.getLogger(__name__)
 
@@ -174,6 +174,10 @@ def install_core(
 
     if staging_root.exists():
         shutil.rmtree(staging_root, ignore_errors=True)
+
+    # Стратегии ссылаются на пользовательские списки, а в архиве Flowseal
+    # их нет: у него их создаёт первый запуск консольного меню.
+    lists.ensure_user_lists()
 
     _prune_backups(keep_backups)
     log.info("Ядро обновлено до версии %s", new_version or "неизвестной")

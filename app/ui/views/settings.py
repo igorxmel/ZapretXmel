@@ -20,12 +20,13 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
-from app.core import fakes, gamefilter, ipset, location, paths, shortcut
+from app.core import fakes, gamefilter, ipset, location, paths, shortcut, uninstall
 from app.core.gamefilter import GameFilter
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
@@ -101,11 +102,36 @@ class SettingsView(QWidget):
             )
         )
 
+        right = QVBoxLayout()
+        right.setSpacing(SPACE["lg"])
+        right.addWidget(self._build_bundle_card())
+        right.addWidget(self._build_uninstall_card())
+        right.addStretch(1)
+
+        left = QVBoxLayout()
+        left.setSpacing(SPACE["lg"])
+        left.addWidget(self._build_app_card())
+        left.addWidget(self._build_checks_card())
+        left.addStretch(1)
+
         columns = QHBoxLayout()
         columns.setSpacing(SPACE["lg"])
-        columns.addWidget(self._build_app_card(), 1)
-        columns.addWidget(self._build_bundle_card(), 1)
-        layout.addLayout(columns, 1)
+        columns.addLayout(left, 1)
+        columns.addLayout(right, 1)
+
+        # Настроек больше, чем влезает в невысокое окно, и без прокрутки Qt
+        # сжимает карточки ниже их собственной высоты: подписи наползают на
+        # галочки, а нижняя кнопка обрезается рамкой.
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+        page_layout.addLayout(columns)
+        page_layout.addStretch(1)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(page)
+        layout.addWidget(scroll, 1)
 
     def _build_app_card(self) -> Card:
         card = Card("Приложение")
@@ -135,6 +161,14 @@ class SettingsView(QWidget):
         self._autostart_hint.setWordWrap(True)
         body.addWidget(self._autostart_hint)
 
+        self._start_proxy = QCheckBox("Включать прокси для Telegram при запуске")
+        self._start_proxy.setToolTip(
+            "Прокси работает дочерним процессом программы: своей службы у него "
+            "нет, и сам с Windows он не стартует"
+        )
+        self._start_proxy.toggled.connect(self._save_flags)
+        body.addWidget(self._start_proxy)
+
         self._start_minimized = QCheckBox("Запускать свёрнутым в трей")
         self._start_minimized.toggled.connect(self._save_flags)
         body.addWidget(self._start_minimized)
@@ -143,37 +177,6 @@ class SettingsView(QWidget):
         self._minimize_to_tray.toggled.connect(self._save_flags)
         body.addWidget(self._minimize_to_tray)
 
-        # Проверка идёт один раз, через минуту после запуска, и молчит, если
-        # всё свежее. Но и это кому-то лишнее — пусть выключается.
-        # Сторож гоняет те же проверки, что и кнопка на главном экране,
-        # только сам и по таймеру.
-        self._watch = QCheckBox("Следить, работает ли обход")
-        self._watch.setToolTip(
-            "Раз в несколько минут проверяет те же сервисы и сообщает, если "
-            "что-то перестало открываться"
-        )
-        self._watch.toggled.connect(self._save_flags)
-        body.addWidget(self._watch)
-
-        watch_row = QHBoxLayout()
-        watch_row.setSpacing(SPACE["sm"])
-        watch_row.addWidget(QLabel("Проверять раз в, минут"))
-
-        self._watch_interval = QSpinBox()
-        self._watch_interval.setRange(1, 240)
-        self._watch_interval.valueChanged.connect(self._save_flags)
-        watch_row.addWidget(self._watch_interval)
-        watch_row.addStretch(1)
-        body.addLayout(watch_row)
-
-        self._watch_autoswitch = QCheckBox("Переключать на следующую избранную стратегию")
-        self._watch_autoswitch.setToolTip(
-            "Если обход сломался, сторож попробует другую стратегию из избранного. "
-            "Перебирать все подряд он не станет — для этого есть подбор."
-        )
-        self._watch_autoswitch.toggled.connect(self._save_flags)
-        body.addWidget(self._watch_autoswitch)
-
         self._notify_updates = QCheckBox("Сообщать о новых версиях")
         self._notify_updates.setToolTip(
             "Программа, ядро zapret и прокси для Telegram проверяются один раз "
@@ -181,18 +184,6 @@ class SettingsView(QWidget):
         )
         self._notify_updates.toggled.connect(self._save_flags)
         body.addWidget(self._notify_updates)
-
-        body.addWidget(QLabel("Таймаут одной проверки, секунд"))
-        self._timeout = QSpinBox()
-        self._timeout.setRange(2, 30)
-        self._timeout.valueChanged.connect(self._save_flags)
-        body.addWidget(self._timeout)
-
-        body.addWidget(QLabel("Сколько целей проверять одновременно"))
-        self._parallel = QSpinBox()
-        self._parallel.setRange(1, 32)
-        self._parallel.valueChanged.connect(self._save_flags)
-        body.addWidget(self._parallel)
 
         body.addWidget(Divider())
 
@@ -228,12 +219,105 @@ class SettingsView(QWidget):
         self._shortcut.toggled.connect(self._toggle_shortcut)
         body.addWidget(self._shortcut)
 
+        body.addWidget(Divider())
+
         welcome = QPushButton("Показать окно знакомства")
         welcome.setToolTip("То самое окно с шагами настройки, что открывается при первом запуске")
         welcome.clicked.connect(self._show_welcome)
         body.addWidget(welcome)
 
         body.addStretch(1)
+        return card
+
+    def _build_checks_card(self) -> Card:
+        """Сторож и то, с какими сроками идут проверки.
+
+        Отдельной карточкой, а не вперемешку с запуском и папкой: это
+        настройки одного занятия — проверки сервисов, — и теми же числами
+        пользуется кнопка «Проверить, работает ли сейчас».
+        """
+        card = Card("Проверки")
+        body = card.body()
+
+        # Проверка идёт один раз, через минуту после запуска, и молчит, если
+        # всё свежее. Но и это кому-то лишнее — пусть выключается.
+        # Сторож гоняет те же проверки, что и кнопка на главном экране,
+        # только сам и по таймеру.
+        self._watch = QCheckBox("Следить, работает ли обход")
+        self._watch.setToolTip(
+            "Раз в несколько минут проверяет те же сервисы и сообщает, если "
+            "что-то перестало открываться"
+        )
+        self._watch.toggled.connect(self._save_flags)
+        body.addWidget(self._watch)
+
+        watch_row = QHBoxLayout()
+        watch_row.setSpacing(SPACE["sm"])
+        watch_row.addWidget(QLabel("Проверять раз в, минут"))
+
+        self._watch_interval = QSpinBox()
+        self._watch_interval.setRange(1, 240)
+        self._watch_interval.valueChanged.connect(self._save_flags)
+        watch_row.addWidget(self._watch_interval)
+        watch_row.addStretch(1)
+        body.addLayout(watch_row)
+
+        self._watch_autoswitch = QCheckBox("Переключать на следующую избранную стратегию")
+        self._watch_autoswitch.setToolTip(
+            "Если обход сломался, сторож попробует другую стратегию из избранного. "
+            "Перебирать все подряд он не станет — для этого есть подбор."
+        )
+        self._watch_autoswitch.toggled.connect(self._save_flags)
+        body.addWidget(self._watch_autoswitch)
+
+        body.addWidget(QLabel("Таймаут одной проверки, секунд"))
+        self._timeout = QSpinBox()
+        self._timeout.setRange(2, 30)
+        self._timeout.valueChanged.connect(self._save_flags)
+        body.addWidget(self._timeout)
+
+        body.addWidget(QLabel("Сколько целей проверять одновременно"))
+        self._parallel = QSpinBox()
+        self._parallel.setRange(1, 32)
+        self._parallel.valueChanged.connect(self._save_flags)
+        body.addWidget(self._parallel)
+
+        return card
+
+    def _build_uninstall_card(self) -> Card:
+        """Удаление того, что программа принесла на компьютер.
+
+        Установщика у неё нет, в «Программах и компонентах» её не найти —
+        значит, убирать за собой она должна сама, иначе после стирания .exe
+        в системе остаются служба, драйвер и сотня мегабайт ядра.
+        """
+        card = Card("Удаление")
+        body = card.body()
+
+        note = QLabel(
+            "Удаление идёт сразу и без корзины. Ядро и прокси потом "
+            "ставятся заново из программы."
+        )
+        note.setObjectName("Muted")
+        note.setWordWrap(True)
+        body.addWidget(note)
+
+        remove_core = QPushButton("Удалить ядро zapret")
+        remove_core.setToolTip("Служба Windows, процессы winws, папка ядра и бэкапы")
+        remove_core.clicked.connect(lambda: self._remove("core"))
+        body.addWidget(remove_core)
+
+        remove_proxy = QPushButton("Удалить прокси для Telegram")
+        remove_proxy.setToolTip("Папка tgproxy вместе с настройками прокси")
+        remove_proxy.clicked.connect(lambda: self._remove("proxy"))
+        body.addWidget(remove_proxy)
+
+        remove_all = QPushButton("Удалить все данные программы")
+        remove_all.setObjectName("Danger")
+        remove_all.setToolTip("Ядро, прокси, настройки, журналы и ярлык")
+        remove_all.clicked.connect(lambda: self._remove("all"))
+        body.addWidget(remove_all)
+
         return card
 
     def _build_bundle_card(self) -> Card:
@@ -304,6 +388,7 @@ class SettingsView(QWidget):
             self._autostart_hint.setText(AUTOSTART_HINTS[settings.run_mode])
             self._autostart.setChecked(autostart_enabled())
             self._start_bypass.setChecked(settings.start_bypass_on_launch)
+            self._start_proxy.setChecked(settings.start_proxy_on_launch)
             self._start_minimized.setChecked(settings.start_minimized)
             self._minimize_to_tray.setChecked(settings.minimize_to_tray)
             self._notify_updates.setChecked(settings.notify_updates)
@@ -462,6 +547,75 @@ class SettingsView(QWidget):
 
         return question.clickedButton() is move
 
+    # --- удаление --------------------------------------------------------
+
+    def _remove(self, what: str) -> None:
+        """Убирает ядро, прокси или всё сразу — после прямого подтверждения."""
+        titles = {
+            "core": ("ядро zapret", "Будут сняты служба и процессы winws, удалены папка "
+                     "ядра и бэкапы. Стратегии и свои списки тоже исчезнут."),
+            "proxy": ("прокси для Telegram", "Прокси будет остановлен, его папка удалена. "
+                      "В настройках самого Telegram он останется прописанным — "
+                      "уберите его там вручную."),
+            "all": ("все данные программы", "Будет удалено всё: ядро, прокси, настройки, "
+                    "журналы и ярлык."),
+        }
+        title, details = titles[what]
+
+        question = QMessageBox(self)
+        question.setWindowTitle("Удаление")
+        question.setIcon(QMessageBox.Icon.Warning)
+        question.setText(f"Удалить {title}?")
+
+        if what == "all":
+            details += "\n\nОстанется: " + ", ".join(uninstall.leftovers()) + "."
+        question.setInformativeText(details + "\n\nОтменить это нельзя.")
+
+        confirm = question.addButton("Удалить", QMessageBox.ButtonRole.DestructiveRole)
+        question.addButton("Отмена", QMessageBox.ButtonRole.RejectRole)
+        question.exec()
+
+        if question.clickedButton() is not confirm:
+            return
+
+        actions = {
+            "core": uninstall.remove_core,
+            "proxy": uninstall.remove_proxy,
+            "all": uninstall.remove_everything,
+        }
+        # Снятие службы ходит в `sc`, а папка ядра — это сотня мегабайт:
+        # в потоке интерфейса окно замерло бы до конца удаления.
+        self._remove_task = Task(actions[what])
+        self._remove_task.done.connect(lambda result: self._removed(what, result))
+        self._remove_task.failed.connect(self.controller.error.emit)
+        self._remove_task.start()
+        self.controller.message.emit(f"Удаляю {title}…")
+
+    def _removed(self, what: str, result: uninstall.Removed) -> None:
+        self.controller.message.emit(f"Удаление: {result.summary}")
+        self.controller.refresh()
+        self.reload()
+
+        if what == "all":
+            self._say_goodbye()
+
+    def _say_goodbye(self) -> None:
+        """Объясняет, что осталось сделать руками, и закрывает программу."""
+        farewell = QMessageBox(self)
+        farewell.setWindowTitle("Готово")
+        farewell.setIcon(QMessageBox.Icon.Information)
+        farewell.setText("Данные программы удалены.")
+        farewell.setInformativeText(
+            f"Осталось стереть сам файл {paths.executable().name} — работающую "
+            "программу Windows удалить не даёт, а делать это за вас после выхода "
+            "мы не станем: так ведут себя ровно те программы, от которых защищают "
+            "антивирусы.\n\nСейчас программа закроется."
+        )
+        farewell.addButton("Закрыть", QMessageBox.ButtonRole.AcceptRole)
+        farewell.exec()
+
+        QApplication.quit()
+
     def _show_welcome(self) -> None:
         # Окно знакомства живёт в главном окне: оно модальное и должно
         # перекрывать всё приложение, а не один экран настроек.
@@ -484,6 +638,7 @@ class SettingsView(QWidget):
             return
         settings = self.controller.settings
         settings.start_bypass_on_launch = self._start_bypass.isChecked()
+        settings.start_proxy_on_launch = self._start_proxy.isChecked()
         settings.start_minimized = self._start_minimized.isChecked()
         settings.minimize_to_tray = self._minimize_to_tray.isChecked()
         settings.notify_updates = self._notify_updates.isChecked()

@@ -87,6 +87,8 @@ FONT_SIZE: Final[dict[str, int]] = {
 # превратить его при этом в разноцветный.
 BRAND: Final[dict[str, str]] = {
     "orange": "#f5a000",
+    # Точка прокси в трее и подпись о нём: цвет самого Telegram.
+    "telegram": "#2aabee",
     "green": "#8ebe3f",
 }
 

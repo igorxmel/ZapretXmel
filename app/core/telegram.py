@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlencode
 
+import psutil
+
 from app.core import paths
 from app.core.process import ManagedProcess
 from app.core.updater import github
@@ -153,6 +155,29 @@ def installed_version() -> str:
         return version_file().read_text(encoding="utf-8").strip()
     except OSError:
         return ""
+
+
+def has_clients(port: int = DEFAULT_PORT) -> bool:
+    """Подключился ли к прокси хоть кто-нибудь.
+
+    Прямо спросить Telegram, прописан ли у него прокси, нельзя: настройки он
+    держит в своём формате, и лезть туда мы не станем. Зато видно обратное —
+    установленное соединение с нашим портом. Если оно есть, значит клиент
+    прокси нашёл и пользуется им; если нет — человек, скорее всего, не нажал
+    «Открыть в Telegram».
+    """
+    try:
+        connections = psutil.net_connections(kind="tcp")
+    except (psutil.AccessDenied, OSError):
+        log.debug("Список соединений недоступен")
+        return False
+
+    return any(
+        connection.status == "ESTABLISHED"
+        and connection.laddr
+        and connection.laddr.port == port
+        for connection in connections
+    )
 
 
 def latest_release(timeout: int = 20) -> github.Release:

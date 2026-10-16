@@ -24,7 +24,7 @@ from app.core import foreground, updates
 from app.core.config import Settings
 from app.ui.controller import Controller, Status
 from app.ui.frameless import FramelessWindow
-from app.ui.theme.tokens import COLORS, SIZE, SPACE
+from app.ui.theme.tokens import BRAND, COLORS, SIZE, SPACE
 from app.ui.tray import Tray, app_icon, build_icon
 from app.ui.views import whatsnew
 from app.ui.views.autopick import AutoPickView
@@ -219,6 +219,13 @@ class MainWindow(FramelessWindow):
         self._sidebar_state.setWordWrap(True)
         layout.addWidget(self._sidebar_state)
 
+        # Прокси — вторая включаемая вещь в программе, и состояние у него
+        # своё: обход может работать, а Telegram при этом молчать.
+        self._sidebar_proxy = QLabel("")
+        self._sidebar_proxy.setObjectName("SidebarVersion")
+        self._sidebar_proxy.setWordWrap(True)
+        layout.addWidget(self._sidebar_proxy)
+
         return sidebar
 
     def _build_tray(self) -> None:
@@ -321,6 +328,14 @@ class MainWindow(FramelessWindow):
         if self.settings.start_bypass_on_launch and status.core_present and not status.is_active:
             self._show_toast("Включаю обход…", COLORS["text_dim"])
             QTimer.singleShot(0, self.controller.start)
+
+        # Прокси — дочерний процесс программы, своей службы у него нет.
+        if (
+            self.settings.start_proxy_on_launch
+            and status.telegram_installed
+            and not status.telegram_running
+        ):
+            QTimer.singleShot(0, self.controller.toggle_telegram)
 
         self._look_for_updates()
 
@@ -451,6 +466,18 @@ class MainWindow(FramelessWindow):
             f"color: {COLORS['success'] if status.is_active else COLORS['text_muted']};"
             f"padding: 0 {SPACE['lg']}px;"
         )
+
+        if not status.telegram_installed:
+            self._sidebar_proxy.setText("прокси Telegram не установлен")
+            colour = COLORS["text_muted"]
+        elif status.telegram_running:
+            self._sidebar_proxy.setText("прокси Telegram работает")
+            colour = BRAND["telegram"]
+        else:
+            self._sidebar_proxy.setText("прокси Telegram выключен")
+            colour = COLORS["text_muted"]
+
+        self._sidebar_proxy.setStyleSheet(f"color: {colour}; padding: 0 {SPACE['lg']}px;")
 
     def _show_toast(self, text: str, color: str) -> None:
         self._toast.setText(text)

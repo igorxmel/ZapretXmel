@@ -16,7 +16,7 @@ from pathlib import Path
 
 import psutil
 
-from app.core import paths
+from app.core import lists, paths
 from app.core.batfile import StrategySpec
 from app.core.process import CREATE_NO_WINDOW, ManagedProcess
 
@@ -145,6 +145,13 @@ class WinwsProcess(ManagedProcess):
         exe = exe or paths.winws_exe()
         if not exe.exists():
             raise FileNotFoundError(f"не найден {exe}")
+
+        # Без пользовательских списков winws падает сразу: стратегии
+        # ссылаются на них, а в архиве Flowseal их нет — их создаёт первый
+        # запуск консольного меню. Создаём сами, иначе обход включается и
+        # мгновенно гаснет, а подбор показывает, что ни одна стратегия ничего
+        # не меняет.
+        lists.ensure_user_lists()
 
         log.info("Запуск winws: стратегия %s, %d аргументов", spec.name, len(spec.argv))
         # Рабочая папка — корень сборки: относительные пути в стратегиях

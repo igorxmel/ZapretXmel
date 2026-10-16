@@ -90,6 +90,12 @@ class TelegramView(QWidget):
         self._progress.hide()
         body.addWidget(self._progress)
 
+        # Главное, чего не хватало: видно, дошло ли дело до самого Telegram.
+        self._connection = QLabel("")
+        self._connection.setWordWrap(True)
+        self._connection.setVisible(False)
+        body.addWidget(self._connection)
+
         body.addStretch(1)
         return card
 
@@ -161,6 +167,31 @@ class TelegramView(QWidget):
                 "Прокси ещё не скачан. Он берётся из официальных релизов Flowseal "
                 "и кладётся в папку приложения, не трогая вашу установку, если она есть."
             )
+
+        self._show_connection(state)
+
+    def _show_connection(self, state) -> None:
+        """Говорит, дошло ли дело до самого Telegram.
+
+        Запущенный прокси сам по себе ничего не чинит: пока человек не
+        добавит его в настройки Telegram, трафик идёт мимо. Прямо спросить
+        клиент нельзя, зато видно установленное соединение с нашим портом.
+        """
+        if not state.running:
+            self._connection.setVisible(False)
+            return
+
+        self._connection.setVisible(True)
+        if telegram.has_clients(state.port):
+            self._connection.setText("Telegram подключён к прокси — всё на месте")
+            self._connection.setStyleSheet(f"color: {COLORS['success']};")
+            return
+
+        self._connection.setText(
+            "Прокси запущен, но Telegram к нему ещё не подключился. "
+            "Нажмите «Открыть в Telegram» — клиент пропишет прокси сам."
+        )
+        self._connection.setStyleSheet(f"color: {COLORS['warning']};")
 
     def _install(self) -> None:
         self._install_button.setEnabled(False)

@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-from app.core import paths
+from app.core import lists, paths
 from app.core.batfile import StrategySpec, to_service_binpath
 
 log = logging.getLogger(__name__)
@@ -216,6 +216,11 @@ def install(spec: StrategySpec, exe: Path | None = None, autostart: bool = True)
         raise ServiceError(f"не найден {exe}")
     if spec.is_empty:
         raise ServiceError(f"стратегия {spec.name} не содержит аргументов")
+
+    # Та же причина, что и у обычного запуска: без пользовательских списков
+    # winws не стартует, а служба падает молча — в окне видно только, что
+    # она «запускается» и тут же останавливается.
+    lists.ensure_user_lists()
 
     binpath = to_service_binpath(exe, spec.argv)
     if len(binpath) > MAX_COMMAND_LINE:
