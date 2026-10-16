@@ -72,6 +72,25 @@ def test_current_version_is_described() -> None:
     assert changelog.read(__version__), f"нет раздела про {__version__}"
 
 
+def test_version_is_the_same_in_both_places() -> None:
+    """Номер версии записан дважды, и разойтись им нельзя.
+
+    `app/__init__.py` читает самообновление, `pyproject.toml` — сборка.
+    Разошлись — релиз падает на сборочной машине проверкой тега, а до неё
+    об этом ничто не напоминает.
+    """
+    import tomllib
+
+    from app import __version__
+    from app.core import paths
+
+    pyproject = tomllib.loads(
+        (paths.app_root() / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    assert pyproject["project"]["version"] == __version__
+
+
 # --- когда показывать окно ----------------------------------------------
 
 
