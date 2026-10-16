@@ -25,7 +25,7 @@
 <link rel="canonical" href="https://igorxmel.github.io/ZapretXmel/">
 <link rel="sitemap" type="application/xml" href="sitemap.xml">
 <link rel="icon" href="assets/favicon.png" type="image/png">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 
 <!-- Класс ставится до отрисовки: по нему стили прячут блоки, которые
      потом проявит скрипт. Без скрипта всё остаётся видимым. -->
@@ -181,6 +181,25 @@
     официальных релизов Flowseal, поэтому у вас всегда свежая сборка, а не та,
     что была актуальна на момент нашей.
   </p>
+
+  <div class="warning">
+    <span class="warning-mark" aria-hidden="true">!</span>
+    <div>
+      <p class="warning-title">Только из официальных источников</p>
+      <p>
+        Источников два, и других нет: эта страница и
+        <a href="https://github.com/igorxmel/ZapretXmel/releases/latest">страница релизов</a>
+        на GitHub. Программа просит права администратора и загружает драйвер в
+        ядро Windows — в перезаливе с файлопомойки или из чужого
+        телеграм-канала можно спрятать что угодно.
+      </p>
+      <p>
+        Скачанное можно проверить: рядом с <code>ZapretXmel.exe</code> в релизе
+        лежит файл с его хешем, а <code>certutil -hashfile ZapretXmel.exe
+        SHA256</code> покажет хеш того, что скачалось.
+      </p>
+    </div>
+  </div>
 </section>
 
 </main>
@@ -207,6 +226,6 @@
   <img id="lightbox-image" alt="">
 </div>
 
-<script src="site.js?v=4"></script>
+<script src="site.js?v=5"></script>
 </body>
 </html>

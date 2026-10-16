@@ -17,6 +17,10 @@
   --text-dim: #9f9fa6;
   --text-muted: #68686f;
   --orange: #f5a000;
+  /* Цвет предупреждения из tokens.py. Это не второй акцент: оранжевый
+     остаётся за кнопкой скачивания, а этот — за состоянием, ровно как в
+     приложении. Поэтому он живёт в полоске и слове, а не в заливке. */
+  --warning: #d9a441;
   --radius: 10px;
   --width: 980px;
 
@@ -242,6 +246,50 @@ h2 {
 
 p { margin: 0 0 12px; color: var(--text-dim); }
 .aside { color: var(--text-muted); font-size: 14px; }
+
+/* --- предупреждение ---------------------------------------------------- */
+
+/* Программа просит права администратора и грузит драйвер в ядро, поэтому
+   перезалив с чужого сайта — удобное место спрятать что угодно. Сказать об
+   этом надо там, где нажимают «Скачать», а не в документации. */
+.warning {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 14px;
+  margin-top: 28px;
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--radius);
+}
+
+.warning-mark {
+  color: var(--warning);
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.warning-title {
+  margin: 0 0 6px;
+  color: var(--warning);
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.warning p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 15px;
+}
+
+.warning p + p { margin-top: 10px; }
+.warning a { color: var(--text); }
 
 /* --- возможности ------------------------------------------------------ */
 
