@@ -26,6 +26,7 @@ from app.ui.controller import Controller, Status
 from app.ui.frameless import FramelessWindow
 from app.ui.theme.tokens import COLORS, SIZE, SPACE
 from app.ui.tray import Tray, app_icon, build_icon
+from app.ui.views import whatsnew
 from app.ui.views.autopick import AutoPickView
 from app.ui.views.dashboard import DashboardView
 from app.ui.views.diagnostics import DiagnosticsView
@@ -43,8 +44,13 @@ from app.ui.workers import Task
 
 log = logging.getLogger(__name__)
 
-# Пауза перед проверкой обновлений: см. `_look_for_updates`.
+# Пауза перед первой проверкой обновлений: см. `_look_for_updates`.
 UPDATE_CHECK_DELAY_MS = 60_000
+
+# Дальше — раз в шесть часов: программа живёт в трее неделями, и одной
+# проверки на запуск ей мало. Стоит это четырёх запросов к GitHub в сутки,
+# то есть ничего.
+UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000
 
 TOAST_MS = 6000
 
@@ -62,6 +68,9 @@ class MainWindow(FramelessWindow):
         self.controller = Controller(settings, self)
         self._quitting = False
         self._updates_task: Task | None = None
+        self._updates_manual = False
+        self._updates_timer = QTimer(self)
+        self._updates_timer.timeout.connect(self._check_updates_now)
 
         self.setWindowIcon(app_icon())
         self.setMinimumSize(SIZE["window_min_width"], SIZE["window_min_height"])
@@ -88,6 +97,8 @@ class MainWindow(FramelessWindow):
         content_layout.setContentsMargins(SPACE["xl"], SPACE["xl"], SPACE["xl"], SPACE["lg"])
         content_layout.setSpacing(SPACE["md"])
 
+        content_layout.addWidget(self._build_update_banner())
+
         self._stack = QStackedWidget()
         self.views = {
             "dashboard": DashboardView(self.controller),
@@ -113,6 +124,35 @@ class MainWindow(FramelessWindow):
         content_layout.addWidget(self._toast)
 
         root.addWidget(content, 1)
+
+    def _build_update_banner(self) -> QWidget:
+        """Полоса о новой версии: висит, пока не обновились или не закрыли."""
+        banner = QFrame()
+        banner.setObjectName("UpdateBanner")
+        banner.hide()
+
+        row = QHBoxLayout(banner)
+        row.setContentsMargins(SPACE["lg"], SPACE["sm"], SPACE["sm"], SPACE["sm"])
+        row.setSpacing(SPACE["md"])
+
+        self._update_text = QLabel("")
+        self._update_text.setObjectName("UpdateBannerText")
+        self._update_text.setWordWrap(True)
+        row.addWidget(self._update_text, 1)
+
+        open_updates = QPushButton("Перейти к обновлениям")
+        open_updates.setObjectName("Primary")
+        open_updates.clicked.connect(lambda: self.navigate("updates"))
+        row.addWidget(open_updates)
+
+        hide_banner = QPushButton("✕")
+        hide_banner.setObjectName("BannerClose")
+        hide_banner.setToolTip("Скрыть до следующей проверки")
+        hide_banner.clicked.connect(banner.hide)
+        row.addWidget(hide_banner)
+
+        self._update_banner = banner
+        return banner
 
     def _build_sidebar(self) -> QWidget:
         sidebar = QWidget()
@@ -193,6 +233,7 @@ class MainWindow(FramelessWindow):
         self.controller.status_changed.connect(self._apply_status)
         self.views["dashboard"].navigate.connect(self.navigate)
         self.views["dashboard"].install_core_requested.connect(self._install_core)
+        self.views["dashboard"].check_updates_requested.connect(self._check_updates_manually)
         self.controller.foreign_conflict.connect(self._ask_about_foreign)
         self.controller.watch_alert.connect(self._watch_alert)
 
@@ -272,6 +313,8 @@ class MainWindow(FramelessWindow):
             self.show_welcome()
             return
 
+        self._show_whats_new()
+
         # Служба стартует вместе с Windows сама, поэтому включать нечего —
         # это нужно только режиму обычного процесса.
         if self.settings.start_bypass_on_launch and status.core_present and not status.is_active:
@@ -291,25 +334,90 @@ class MainWindow(FramelessWindow):
         if not self.settings.notify_updates:
             return
 
-        def start() -> None:
-            self._updates_task = Task(updates.check_all)
-            self._updates_task.done.connect(self._updates_found)
-            self._updates_task.start()
+        QTimer.singleShot(UPDATE_CHECK_DELAY_MS, self._check_updates_now)
+        self._updates_timer.start(UPDATE_CHECK_INTERVAL_MS)
 
-        QTimer.singleShot(UPDATE_CHECK_DELAY_MS, start)
+    def _check_updates_manually(self) -> None:
+        """Проверка по кнопке: идёт даже с выключенными напоминаниями.
+
+        Человек нажал сам — значит хочет ответа, в том числе «всё свежее»,
+        которое при фоновой проверке мы намеренно не показываем.
+        """
+        self._updates_manual = True
+        self._show_toast("Спрашиваю GitHub о новых версиях…", COLORS["text_dim"])
+        self._start_update_check()
+
+    def _check_updates_now(self) -> None:
+        if not self.settings.notify_updates:
+            return
+        self._start_update_check()
+
+    def _start_update_check(self) -> None:
+        if self._updates_task is not None and self._updates_task.isRunning():
+            return
+
+        self._updates_task = Task(updates.check_all)
+        self._updates_task.done.connect(self._updates_found)
+        self._updates_task.failed.connect(self._updates_failed)
+        self._updates_task.start()
+
+    def _updates_failed(self, message: str) -> None:
+        if self._updates_manual:
+            self._updates_manual = False
+            self._show_toast(f"Не удалось проверить: {message}", COLORS["danger"])
 
     def _updates_found(self, found: list) -> None:
+        manual, self._updates_manual = self._updates_manual, False
+
         if not found:
+            # При фоновой проверке молчим: «всё свежее» — не новость.
+            if manual:
+                self._show_toast("Установлены последние версии", COLORS["success"])
             return
 
         text = updates.summary(found)
-        self._show_toast(f"{text} — загляните в «Обновления»", COLORS["warning"])
+
+        self._update_text.setText(text)
+        self._update_banner.show()
+
+        # Пункт меню подсвечивается: человек может закрыть полосу, но
+        # напоминание должно остаться там, куда он за обновлением пойдёт.
+        if button := self._nav_buttons.get("updates"):
+            button.setProperty("alert", True)
+            button.style().unpolish(button)
+            button.style().polish(button)
+
         self._tray.showMessage(
             "ZapretXmel",
             text,
             build_icon(self.controller.status.is_active),
             6000,
         )
+
+    def _show_whats_new(self) -> None:
+        """Рассказывает об изменениях — один раз после обновления.
+
+        При первом запуске молчим: человеку нечего сравнивать, а окно
+        знакомства важнее.
+        """
+        seen = self.settings.last_seen_version
+        if seen == __version__:
+            return
+
+        self.settings.last_seen_version = __version__
+        self.settings.save()
+
+        if not seen:
+            return
+
+        notes = whatsnew.notes_for_current_version()
+        if not notes:
+            log.info("Нет описания изменений для версии %s", __version__)
+            return
+
+        self._whats_new = whatsnew.WhatsNewWindow(notes, self)
+        self._whats_new.show()
+        foreground.force(int(self._whats_new.winId()))
 
     def show_welcome(self) -> None:
         """Открывает знакомство — при первом запуске и по кнопке из настроек."""

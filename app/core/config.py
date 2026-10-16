@@ -31,6 +31,8 @@ class AiSettings:
 @dataclass
 class Settings:
     first_run_done: bool = False
+    # Версия, про которую уже показали «что нового».
+    last_seen_version: str = ""
     run_mode: RunMode = "service"
     selected_strategy: str = ""
     # Стратегии, помеченные звёздочкой: они поднимаются в начало списка и

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
@@ -78,6 +79,8 @@ class Controller(QObject):
     foreign_conflict = pyqtSignal(str)
     # Сообщение сторожа и признак того, что он сам переключил стратегию.
     watch_alert = pyqtSignal(str, bool)
+    # Результат любой быстрой проверки — своей или сторожевой.
+    check_done = pyqtSignal(object)
 
     def __init__(self, settings: Settings, parent: QObject | None = None):
         super().__init__(parent)
@@ -104,6 +107,8 @@ class Controller(QObject):
         # секунды, поэтому опрос состояния её ждать не должен.
         self._watch_worker = None
         self._watch_tried: list[str] = []
+        self.last_check: object | None = None
+        self.last_check_at: datetime | None = None
         self._watch_timer = QTimer(self)
         self._watch_timer.timeout.connect(self.watch_now)
 
@@ -145,8 +150,15 @@ class Controller(QObject):
         self._watch_worker.done.connect(self._watch_result)
         self._watch_worker.start()
 
+    def remember_check(self, check) -> None:
+        """Запоминает результат проверки, откуда бы он ни пришёл."""
+        self.last_check = check
+        self.last_check_at = datetime.now()
+        self.check_done.emit(check)
+
     def _watch_result(self, check) -> None:
         """Решает, что делать с результатом проверки."""
+        self.remember_check(check)
         status = self.status
         decision = watch.decide(
             check.broken,

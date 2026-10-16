@@ -89,6 +89,31 @@ def build_stylesheet() -> str:
         color: {c["text"]};
     }}
 
+    /* Полоса о новой версии. Единственное место, кроме активного пункта
+       меню, где появляется оранжевый: это и есть сигнал «обрати внимание». */
+    #UpdateBanner {{
+        background: {c["surface"]};
+        border: 1px solid {BRAND["orange"]};
+        border-radius: {r["md"]}px;
+    }}
+
+    #UpdateBannerText {{
+        background: transparent;
+        color: {c["text"]};
+        font-weight: 600;
+    }}
+
+    QPushButton#BannerClose {{
+        background: transparent;
+        border: none;
+        color: {c["text_muted"]};
+        font-family: {FONTS["icons"]};
+        font-size: {FONT_SIZE["caption"]}px;
+        padding: {s["xs"]}px {s["sm"]}px;
+    }}
+
+    QPushButton#BannerClose:hover {{ color: {c["text"]}; }}
+
     /* --- боковое меню --- */
 
     #Sidebar {{
@@ -152,6 +177,12 @@ def build_stylesheet() -> str:
     QPushButton#NavButton:hover {{
         background: {c["surface"]};
         color: {c["text"]};
+    }}
+
+    /* Пункт с непрочитанной новостью: человек мог закрыть полосу, но
+       напоминание должно остаться там, куда он за обновлением пойдёт. */
+    QPushButton#NavButton[alert="true"] {{
+        color: {BRAND["orange"]};
     }}
 
     QPushButton#NavButton:checked {{

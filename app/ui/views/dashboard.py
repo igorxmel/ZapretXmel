@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from datetime import datetime
 
-from app.core import service
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import (
+    QComboBox,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from app.core import service, strategies
 from app.ui.controller import Controller, Status
 from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, KeyValueRow, PowerButton, StatusPill, view_header
+from app.ui.widgets import Card, Divider, KeyValueRow, PowerButton, StatusPill, view_header
 from app.ui.workers import QuickCheckWorker
 
 
@@ -51,6 +60,7 @@ class DashboardView(QWidget):
 
     navigate = pyqtSignal(str)
     install_core_requested = pyqtSignal()
+    check_updates_requested = pyqtSignal()
 
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
@@ -151,19 +161,102 @@ class DashboardView(QWidget):
         self._check_result.setWordWrap(True)
         body.addWidget(self._check_result)
 
-        actions = (
-            ("Подобрать стратегию автоматически", "autopick"),
-            ("Выбрать стратегию вручную", "strategies"),
-            ("Проверить систему", "diagnostics"),
-            ("Обновить ядро", "updates"),
+        # Сторож проверяет сам, и об этом стоит знать, не нажимая ничего.
+        self._watch_line = QLabel("")
+        self._watch_line.setWordWrap(True)
+        body.addWidget(self._watch_line)
+
+        body.addWidget(Divider())
+
+        # Смена стратегии — единственное, за чем сюда возвращаются чаще
+        # всего. Раньше ради неё приходилось уходить на другой экран, хотя
+        # всё, что нужно, — выбрать из списка и нажать.
+        body.addWidget(QLabel("Стратегия обхода"))
+
+        self._strategy_box = QComboBox()
+        body.addWidget(self._strategy_box)
+
+        self._apply_button = QPushButton("Применить")
+        self._apply_button.clicked.connect(self._apply_strategy)
+        body.addWidget(self._apply_button)
+
+        body.addWidget(Divider())
+
+        # Единственная оставшаяся ссылка: подбор — это не действие на один
+        # щелчок, у него свой экран с выбором сервисов и таблицей.
+        autopick = QPushButton("Подобрать стратегию автоматически")
+        autopick.clicked.connect(lambda: self.navigate.emit("autopick"))
+        body.addWidget(autopick)
+
+        updates_button = QPushButton("Проверить обновления")
+        updates_button.setToolTip(
+            "Программа, ядро zapret и прокси для Telegram. Сама она спрашивает "
+            "об этом раз в шесть часов"
         )
-        for title, destination in actions:
-            button = QPushButton(title)
-            button.clicked.connect(lambda _, target=destination: self.navigate.emit(target))
-            body.addWidget(button)
+        updates_button.clicked.connect(self.check_updates_requested.emit)
+        body.addWidget(updates_button)
 
         body.addStretch(1)
         return card
+
+    def _say_watch(self) -> None:
+        """Строка о последней проверке — своей или сторожевой."""
+        when = self.controller.last_check_at
+        check = self.controller.last_check
+        if when is None or check is None:
+            self._watch_line.setText("Проверки ещё не было")
+            self._watch_line.setStyleSheet(f"color: {COLORS['text_muted']};")
+            return
+
+        minutes = int((datetime.now() - when).total_seconds() // 60)
+        if minutes < 1:
+            ago = "только что"
+        elif minutes < 60:
+            ago = f"{minutes} мин назад"
+        else:
+            ago = f"{minutes // 60} ч назад"
+
+        if check.everything_works:
+            self._watch_line.setText(f"Проверено {ago}: всё работало")
+            self._watch_line.setStyleSheet(f"color: {COLORS['success']};")
+        elif check.working:
+            self._watch_line.setText(f"Проверено {ago}: не работает {", ".join(check.broken)}")
+            self._watch_line.setStyleSheet(f"color: {COLORS['warning']};")
+        else:
+            self._watch_line.setText(f"Проверено {ago}: не работало ничего")
+            self._watch_line.setStyleSheet(f"color: {COLORS['danger']};")
+
+    def _fill_strategies(self) -> None:
+        """Заполняет список: избранные наверх, выбранная — текущей."""
+        names = [spec.name for spec in strategies.load_all()]
+        favorites = self.controller.settings.favorites
+        names.sort(key=lambda name: name not in favorites)
+
+        current = self._strategy_box.currentText()
+        wanted = current or self.controller.settings.selected_strategy
+
+        self._strategy_box.blockSignals(True)
+        self._strategy_box.clear()
+        for name in names:
+            self._strategy_box.addItem(("★ " if name in favorites else "") + name, name)
+
+        index = self._strategy_box.findData(wanted)
+        if index >= 0:
+            self._strategy_box.setCurrentIndex(index)
+        self._strategy_box.blockSignals(False)
+
+        self._apply_button.setEnabled(bool(names))
+
+    def _apply_strategy(self) -> None:
+        name = self._strategy_box.currentData()
+        if not name:
+            return
+
+        self.controller.select_strategy(name)
+        if self.controller.status.is_active:
+            self.controller.restart()
+        else:
+            self.controller.start()
 
     # --- обновление состояния -------------------------------------------
 
@@ -184,6 +277,7 @@ class DashboardView(QWidget):
         self._quick.start()
 
     def _quick_done(self, check) -> None:
+        self.controller.remember_check(check)
         if check.everything_works:
             colour = COLORS["success"]
         elif check.working:
@@ -212,7 +306,11 @@ class DashboardView(QWidget):
             return
         self.controller.toggle_telegram()
 
+    def reload(self) -> None:
+        self._fill_strategies()
+
     def apply_status(self, status: Status) -> None:
+        self._say_watch()
         if status.active_vpn:
             self._vpn_banner.setText(
                 f"Трафик идёт через {status.active_vpn}. Пока туннель включён, обход ни на что "

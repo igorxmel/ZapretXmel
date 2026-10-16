@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from pathlib import Path
 
@@ -27,14 +26,9 @@ for stream in (sys.stdout, sys.stderr):
 CHANGELOG = ROOT / "CHANGELOG.md"
 
 
-def section(text: str, version: str) -> str:
-    """Возвращает содержимое раздела `## <версия>` без заголовка."""
-    pattern = re.compile(
-        rf"^##\s+v?{re.escape(version)}\s*$(.*?)(?=^##\s|\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
-    found = pattern.search(text)
-    return found.group(1).strip() if found else ""
+# Разбор один на всех: программа показывает тот же раздел в окне
+# «что нового», и расходиться им незачем.
+from app.core.changelog import section  # noqa: E402
 
 
 def main() -> int:
