@@ -33,6 +33,10 @@ class Available:
     current: str
     latest: str
     section: str
+    # Тот самый релиз, который мы уже спросили у GitHub. Нужен экрану
+    # обновлений: без него он ничего не знает о находке и заставляет нажать
+    # «Проверить» второй раз, хотя ответ получен минуту назад.
+    release: github.Release | None = None
 
     @property
     def label(self) -> str:
@@ -47,7 +51,7 @@ def check_app() -> Available | None:
     release = selfupdate.check()
     if release is None:
         return None
-    return Available(APP, selfupdate.current_version(), release.version, "updates")
+    return Available(APP, selfupdate.current_version(), release.version, "updates", release)
 
 
 def check_core() -> Available | None:
@@ -58,7 +62,7 @@ def check_core() -> Available | None:
     release = github.latest_release(github.CORE_REPO)
     if not github.is_newer(release.version, info.version):
         return None
-    return Available(CORE, info.version, release.version, "updates")
+    return Available(CORE, info.version, release.version, "updates", release)
 
 
 def check_proxy() -> Available | None:
@@ -73,7 +77,7 @@ def check_proxy() -> Available | None:
     # хуже, чем не предложить его один раз.
     if not installed or not github.is_newer(release.version, installed):
         return None
-    return Available(PROXY, installed, release.version, "telegram")
+    return Available(PROXY, installed, release.version, "telegram", release)
 
 
 def check_all() -> list[Available]:

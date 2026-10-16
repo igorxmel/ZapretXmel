@@ -69,6 +69,9 @@ class MainWindow(FramelessWindow):
         self._quitting = False
         self._updates_task: Task | None = None
         self._updates_manual = False
+        # Последняя находка: её отдают экранам, чтобы те не спрашивали
+        # GitHub о том же самом второй раз.
+        self._found_updates: list = []
         self._updates_timer = QTimer(self)
         self._updates_timer.timeout.connect(self._check_updates_now)
 
@@ -153,6 +156,19 @@ class MainWindow(FramelessWindow):
 
         self._update_banner = banner
         return banner
+
+    def _hide_update_banner(self) -> None:
+        """Убирает полосу вместе с подсветкой пункта меню.
+
+        Кнопка «✕» на полосе этого не делает нарочно: человек отложил
+        обновление, а не сделал его. Здесь другое — обновляться больше не
+        на что.
+        """
+        self._update_banner.hide()
+        if button := self._nav_buttons.get("updates"):
+            button.setProperty("alert", False)
+            button.style().unpolish(button)
+            button.style().polish(button)
 
     def _build_sidebar(self) -> QWidget:
         sidebar = QWidget()
@@ -242,6 +258,7 @@ class MainWindow(FramelessWindow):
         self.views["dashboard"].install_core_requested.connect(self._install_core)
         self.views["dashboard"].check_updates_requested.connect(self._check_updates_manually)
         self.views["updates"].whats_new_requested.connect(self._open_whats_new)
+        self.views["updates"].something_updated.connect(self._start_update_check)
         self.controller.foreign_conflict.connect(self._ask_about_foreign)
         self.controller.watch_alert.connect(self._watch_alert)
 
@@ -262,6 +279,12 @@ class MainWindow(FramelessWindow):
             reload_method()
         if key == "logs":
             view.load_tail(self.controller.status.log_tail)
+
+        # Проверка уже сходила на GitHub — незачем просить человека нажать
+        # «Проверить» ради того же ответа. `reload` выше сбрасывает кнопки,
+        # поэтому находку отдаём после него.
+        if self._found_updates and (show := getattr(view, "show_known_updates", None)):
+            show(self._found_updates)
 
     def _watch_alert(self, message: str, switched: bool) -> None:
         """Показывает сообщение сторожа.
@@ -384,8 +407,13 @@ class MainWindow(FramelessWindow):
 
     def _updates_found(self, found: list) -> None:
         manual, self._updates_manual = self._updates_manual, False
+        self._found_updates = found
 
         if not found:
+            # Полосу надо убрать: обновиться могли и мимо неё — например,
+            # поставить новое ядро в разделе «Обновления». Висящее после
+            # этого «доступна новая версия» просто врёт.
+            self._hide_update_banner()
             # При фоновой проверке молчим: «всё свежее» — не новость.
             if manual:
                 self._show_toast("Установлены последние версии", COLORS["success"])

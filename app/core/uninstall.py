@@ -136,9 +136,9 @@ def remove_everything() -> Removed:
     result = remove_core()
     result.gone.extend(remove_proxy().gone)
 
-    if shortcut.exists():
-        shortcut.remove()
-        result.gone.append("ярлык")
+    # Ярлыков два — на рабочем столе и в меню «Пуск». Забытый в «Пуске»
+    # ярлык обиднее всего: программы нет, а поиск Windows её всё ещё находит.
+    result.gone.extend(shortcut.remove_all())
 
     # Журнал лежит внутри удаляемой папки, а открытый файл Windows удалить
     # не даёт — та же беда, на которой спотыкался переезд. Записывать после

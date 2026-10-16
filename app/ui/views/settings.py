@@ -213,11 +213,20 @@ class SettingsView(QWidget):
 
         body.addLayout(folder_buttons)
 
-        # Ярлык — единственный способ найти программу потом: установщика нет,
-        # в меню «Пуск» её тоже нет, а файл лежит там, куда его положили.
+        # Ярлыки — единственный способ найти программу потом: установщика
+        # нет, сама она никуда не прописывается, а файл лежит там, куда его
+        # положили.
         self._shortcut = QCheckBox("Ярлык на рабочем столе")
         self._shortcut.toggled.connect(self._toggle_shortcut)
         body.addWidget(self._shortcut)
+
+        self._start_menu = QCheckBox("В меню «Пуск» — чтобы находилась поиском Windows")
+        self._start_menu.setToolTip(
+            "Поиск в «Пуске» просматривает папку с ярлыками программ. "
+            "Пока нас там нет, набрать «zapret» и запустить не получится."
+        )
+        self._start_menu.toggled.connect(self._toggle_start_menu)
+        body.addWidget(self._start_menu)
 
         body.addWidget(Divider())
 
@@ -399,6 +408,7 @@ class SettingsView(QWidget):
             self._watch_autoswitch.setEnabled(settings.watch_enabled)
             self._folder_row.set_value(str(paths.install_root()))
             self._shortcut.setChecked(shortcut.exists())
+            self._start_menu.setChecked(shortcut.exists(shortcut.START_MENU))
             self._shortcut.setEnabled(paths.is_frozen())
             self._shortcut.setToolTip(
                 ""
@@ -501,17 +511,24 @@ class SettingsView(QWidget):
         QApplication.quit()
 
     def _toggle_shortcut(self, wanted: bool) -> None:
+        self._toggle_link(shortcut.DESKTOP, wanted)
+
+    def _toggle_start_menu(self, wanted: bool) -> None:
+        self._toggle_link(shortcut.START_MENU, wanted)
+
+    def _toggle_link(self, where: str, wanted: bool) -> None:
         if self._loading:
             return
 
+        title = shortcut.TITLES[where]
         if wanted:
-            ok = shortcut.create()
+            ok = shortcut.create(where=where)
             self.controller.message.emit(
-                "Ярлык создан на рабочем столе" if ok else "Не удалось создать ярлык"
+                f"Создан {title}" if ok else f"Не удалось создать {title}"
             )
         else:
-            shortcut.remove()
-            self.controller.message.emit("Ярлык удалён")
+            shortcut.remove(where)
+            self.controller.message.emit(f"Удалён {title}")
 
     def _refuse_folder(self, reason: str) -> None:
         refusal = QMessageBox(self)

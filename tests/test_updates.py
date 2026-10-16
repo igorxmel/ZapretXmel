@@ -58,6 +58,27 @@ def test_core_update_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
     assert found.section == "updates"
 
 
+def test_found_update_carries_the_release(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Релиз едет вместе с находкой, иначе экран спросит GitHub второй раз.
+
+    Полоса вверху окна сообщала о новой версии, человек шёл по ней в раздел
+    обновлений — а кнопка «Обновить» не горела, пока он не нажмёт
+    «Проверить» и не получит тот же самый ответ.
+    """
+    release = FakeRelease("1.11.0")
+    monkeypatch.setattr(
+        updates.coreinfo,
+        "describe",
+        lambda: type("Info", (), {"present": True, "version": "1.10.3"})(),
+    )
+    monkeypatch.setattr(updates.github, "latest_release", lambda _repo: release)
+
+    found = updates.check_core()
+
+    assert found is not None
+    assert found.release is release
+
+
 def test_missing_core_is_not_an_update(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ядра нет — это не «устарело», а «ещё не установлено»."""
     monkeypatch.setattr(

@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import coreinfo, hosts, ipset, paths, telegram
+from app.core import coreinfo, hosts, ipset, paths, telegram, updates
 from app.core.updater import github, install, selfupdate
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
@@ -34,6 +34,8 @@ class UpdatesView(QWidget):
     """Установка официальных релизов Flowseal и откат на предыдущую версию."""
 
     whats_new_requested = pyqtSignal()
+    # Что-то поставлено — полоса вверху окна о нём больше не актуальна.
+    something_updated = pyqtSignal()
 
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
@@ -414,6 +416,22 @@ class UpdatesView(QWidget):
         self._backups.setEnabled(bool(backups))
         self._rollback_button.setEnabled(bool(backups))
 
+    def show_known_updates(self, found: list) -> None:
+        """Показывает то, что фоновая проверка уже нашла.
+
+        Иначе выходит глупо: полоса вверху окна сообщает о новой версии,
+        человек идёт по ней в этот раздел — а кнопка «Обновить» не горит, и
+        надо нажать «Проверить», чтобы спросить GitHub о том же самом второй
+        раз. Релиз у находки уже с собой, спрашивать нечего.
+        """
+        for available in found:
+            if available.release is None:
+                continue
+            if available.what == updates.APP:
+                self._app_checked(available.release)
+            elif available.what == updates.CORE and self._source == CORE:
+                self._show_release(available.release)
+
     def install_core(self) -> None:
         """Ставит ядро сразу, без лишних нажатий.
 
@@ -485,6 +503,7 @@ class UpdatesView(QWidget):
         self.reload()
         self.controller.message.emit(f"Ядро обновлено до версии {version}")
         self.controller.refresh()
+        self.something_updated.emit()
 
     def _rollback(self) -> None:
         backup = self._backups.currentData()

@@ -29,7 +29,7 @@ def installed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setattr(uninstall.service, "is_installed", lambda: False)
     monkeypatch.setattr(uninstall.service, "unload_windivert", lambda: True)
     monkeypatch.setattr(uninstall.winws, "kill_all", lambda: 0)
-    monkeypatch.setattr(uninstall.shortcut, "exists", lambda: False)
+    monkeypatch.setattr(uninstall.shortcut, "remove_all", list)
 
     yield tmp_path
     paths.reset_cache()
