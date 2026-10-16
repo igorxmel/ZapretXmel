@@ -27,6 +27,7 @@ def installed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     paths.reset_cache()
 
     monkeypatch.setattr(uninstall.service, "is_installed", lambda: False)
+    monkeypatch.setattr(uninstall.telegram, "kill_running", lambda: 0)
     monkeypatch.setattr(uninstall.service, "unload_windivert", lambda: True)
     monkeypatch.setattr(uninstall.winws, "kill_all", lambda: 0)
     monkeypatch.setattr(uninstall.shortcut, "remove_all", list)
@@ -63,9 +64,7 @@ def test_service_is_removed_before_the_files(
 
 def test_proxy_is_removed_separately(installed: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(uninstall.telegram, "home", lambda: installed / "tgproxy")
-    monkeypatch.setattr(
-        uninstall.telegram.TelegramProxy, "is_running", lambda self: False
-    )
+    monkeypatch.setattr(uninstall.telegram, "kill_running", lambda: 0)
 
     uninstall.remove_proxy()
 
@@ -73,11 +72,34 @@ def test_proxy_is_removed_separately(installed: Path, monkeypatch: pytest.Monkey
     assert (installed / "core").exists(), "ядро при удалении прокси не трогаем"
 
 
-def test_everything_takes_settings_too(installed: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_running_proxy_is_stopped_before_its_folder_goes(
+    installed: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Включённый прокси держит свой .exe, и папка не удаляется.
+
+    Снимать его надо по пути к файлу: запущенный экземпляр принадлежит
+    контроллеру, а здесь его нет. Прежний код создавал новый `TelegramProxy`,
+    тот про чужой процесс ничего не знал, отвечал «не запущен» — и включённый
+    прокси оставался на диске, хотя ядро на ходу удалялось.
+    """
+    order: list[str] = []
     monkeypatch.setattr(uninstall.telegram, "home", lambda: installed / "tgproxy")
     monkeypatch.setattr(
-        uninstall.telegram.TelegramProxy, "is_running", lambda self: False
+        uninstall.telegram, "kill_running", lambda: order.append("снят") or 1
     )
+    monkeypatch.setattr(
+        uninstall.shutil, "rmtree", lambda path, onexc=None: order.append("файлы")
+    )
+
+    result = uninstall.remove_proxy()
+
+    assert order == ["снят", "файлы"]
+    assert "запущенный прокси" in result.gone
+
+
+def test_everything_takes_settings_too(installed: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(uninstall.telegram, "home", lambda: installed / "tgproxy")
+    monkeypatch.setattr(uninstall.telegram, "kill_running", lambda: 0)
 
     uninstall.remove_everything()
 
