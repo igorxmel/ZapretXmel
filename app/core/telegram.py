@@ -180,6 +180,42 @@ def has_clients(port: int = DEFAULT_PORT) -> bool:
     )
 
 
+def kill_running(timeout: float = 5.0) -> int:
+    """Снимает запущенные экземпляры прокси. Возвращает число снятых.
+
+    Нужно перед заменой файла: Windows не даёт перезаписать работающий
+    `.exe`, и обновление падало с «отказано в доступе» на переименовании
+    скачанного `.part` — двадцать мегабайт скачивались впустую.
+
+    Ищем по пути, а не по имени: чужую установку tg-ws-proxy, живущую
+    где-то ещё, мы не трогаем.
+    """
+    ours = executable()
+    victims: list[psutil.Process] = []
+    for process in psutil.process_iter(["exe"]):
+        try:
+            path = process.info["exe"]
+            if path and Path(path) == ours:
+                victims.append(process)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    for process in victims:
+        try:
+            process.terminate()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    _, alive = psutil.wait_procs(victims, timeout=timeout)
+    for process in alive:
+        try:
+            process.kill()
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+
+    return len(victims)
+
+
 def latest_release(timeout: int = 20) -> github.Release:
     return github.latest_release(REPO, timeout=timeout)
 
@@ -196,6 +232,13 @@ def install(release: github.Release | None = None, progress=None, on_bytes=None)
         raise TelegramError(f"в релизе {release.tag} нет файла {EXECUTABLE}")
 
     home().mkdir(parents=True, exist_ok=True)
+
+    # Работающий прокси держит свой файл, и переименование скачанного на
+    # его место падает с «отказано в доступе». Снимаем до загрузки, а не
+    # после: иначе двадцать мегабайт качаются впустую.
+    if kill_running():
+        log.info("Прокси остановлен на время обновления")
+
     if progress:
         progress(f"Скачиваю {asset.name} ({asset.size // 1048576} МБ)…")
 

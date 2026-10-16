@@ -192,8 +192,21 @@ def stop(name: str = SERVICE_NAME) -> None:
 
 def start(name: str = SERVICE_NAME) -> None:
     result = _run(["sc", "start", name])
-    if not result.ok:
-        raise ServiceError(f"не удалось запустить службу: {result.output.strip()}")
+    if result.ok:
+        return
+
+    # 1053 звучит как «служба не ответила своевременно», и человек ищет
+    # причину в медленном компьютере. На деле winws запустился и тут же
+    # умер: не хватает файла в core/bin или драйвер WinDivert занят чужим
+    # процессом. Говорим это прямо, иначе совет искать нечего.
+    if "1053" in result.output:
+        raise ServiceError(
+            "winws запустился и сразу завершился. Чаще всего в папке ядра "
+            "не хватает файлов — переустановите ядро в разделе «Обновления». "
+            "Подробности в разделе «Логи»."
+        )
+
+    raise ServiceError(f"не удалось запустить службу: {result.output.strip()}")
 
 
 def remove(name: str = SERVICE_NAME) -> None:
@@ -258,3 +271,27 @@ def install(spec: StrategySpec, exe: Path | None = None, autostart: bool = True)
 def windivert_state() -> State:
     """Состояние драйвера WinDivert — он поднимается вместе с winws."""
     return query_state(WINDIVERT_SERVICE)
+
+
+def unload_windivert() -> bool:
+    """Выгружает драйвер WinDivert из ядра Windows.
+
+    Пока драйвер загружен, система держит открытым сам файл
+    `core/bin/WinDivert64.sys`, и папка ядра не удаляется: `WinError 5`,
+    отказано в доступе. Снятия winws для этого мало — службу драйвера он
+    за собой не убирает, и после `kill_all` она остаётся загруженной.
+
+    Ошибки проглатываются: драйвер мог быть загружен не нами (чужая
+    установка zapret, другая программа на WinDivert), и тогда выгружать
+    его нам нечем — об этом скажет возвращённое `False`.
+    """
+    if query_state(WINDIVERT_SERVICE) == "not_installed":
+        return True
+
+    _run(["sc", "stop", WINDIVERT_SERVICE])
+    _run(["sc", "delete", WINDIVERT_SERVICE])
+
+    gone = query_state(WINDIVERT_SERVICE) == "not_installed"
+    if not gone:
+        log.warning("Драйвер WinDivert остался загруженным")
+    return gone

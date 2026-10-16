@@ -23,11 +23,14 @@ def app_icon() -> QIcon:
 
 
 def build_icon(active: bool, proxy: bool = False) -> QIcon:
-    """Значок для трея: логотип и две точки состояния в углу.
+    """Значок для трея: логотип и точки состояния в углу.
 
-    Точек две, потому что и работает две разные вещи: обход (зелёная) и
-    прокси для Telegram (голубая). Выключенное показывается серым, а когда
-    не работает ничего — ещё и приглушённым логотипом: так значок остаётся
+    Точка рисуется только на то, что работает: зелёная — обход, голубая —
+    прокси для Telegram. Серая точка значит, что не работает ничего, и
+    поэтому она одна: серый кружок рядом с голубым читался как «что-то
+    сломано», хотя сломанного нет.
+
+    Когда не работает ничего, логотип ещё и приглушается: значок остаётся
     узнаваемым, но не притворяется работающим.
     """
     size = 64
@@ -48,17 +51,22 @@ def build_icon(active: bool, proxy: bool = False) -> QIcon:
         painter.drawPixmap(0, 0, logo)
         painter.setOpacity(1.0)
 
-    dot = 16.0
-    painter.setPen(QPen(QColor(COLORS["bg"]), 3))
-
     # Обход — правая точка, прокси — левее: порядок тот же, что у кнопок на
     # главном экране, чтобы значок читался без подсказки.
-    painter.setBrush(QColor(COLORS["success"] if active else COLORS["text_muted"]))
-    painter.drawEllipse(QRectF(size - dot - 2, size - dot - 2, dot, dot))
-
+    dots = []
     if proxy:
-        painter.setBrush(QColor(BRAND["telegram"]))
-        painter.drawEllipse(QRectF(size - dot * 2 - 6, size - dot - 2, dot, dot))
+        dots.append(BRAND["telegram"])
+    if active:
+        dots.append(COLORS["success"])
+    if not dots:
+        dots.append(COLORS["text_muted"])
+
+    dot = 16.0
+    painter.setPen(QPen(QColor(COLORS["bg"]), 3))
+    for index, colour in enumerate(reversed(dots)):
+        painter.setBrush(QColor(colour))
+        left = size - dot - 2 - index * (dot + 6)
+        painter.drawEllipse(QRectF(left, size - dot - 2, dot, dot))
 
     painter.end()
 

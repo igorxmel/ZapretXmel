@@ -9,6 +9,7 @@ import pytest
 
 from app.core import telegram
 from app.core.telegram import ProxyState, ensure_config, generate_secret, read_config
+from app.core.updater import github
 
 
 @pytest.fixture
@@ -121,3 +122,30 @@ def test_not_installed_until_executable_appears(proxy_home: Path) -> None:
     telegram.executable().write_bytes(b"")
 
     assert telegram.is_installed()
+
+
+def test_running_proxy_is_stopped_before_its_file_is_replaced(
+    proxy_home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Работающий .exe Windows перезаписать не даёт.
+
+    Обновление падало с «отказано в доступе» на переименовании скачанного
+    `.part` — и двадцать мегабайт качались впустую. Снимать прокси надо до
+    загрузки, а не после.
+    """
+    order: list[str] = []
+    asset = github.Asset(name=telegram.EXECUTABLE, url="https://…", size=1, digest="")
+    release = github.Release(
+        tag="v1.11.2", name="1.11.2", body="", published_at="", assets=[asset]
+    )
+
+    monkeypatch.setattr(telegram, "kill_running", lambda: order.append("снят") or 1)
+    monkeypatch.setattr(
+        telegram.github,
+        "download",
+        lambda *args, **kwargs: order.append("скачан"),
+    )
+
+    telegram.install(release)
+
+    assert order == ["снят", "скачан"]
