@@ -12,7 +12,6 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QMessageBox,
     QPushButton,
     QStackedWidget,
     QVBoxLayout,
@@ -22,6 +21,7 @@ from PyQt6.QtWidgets import (
 from app import __version__
 from app.core import foreground, updates
 from app.core.config import Settings
+from app.ui import dialogs
 from app.ui.controller import Controller, Status
 from app.ui.frameless import FramelessWindow
 from app.ui.theme.tokens import BRAND, COLORS, SIZE, SPACE
@@ -256,6 +256,7 @@ class MainWindow(FramelessWindow):
         self.controller.status_changed.connect(self._apply_status)
         self.views["dashboard"].navigate.connect(self.navigate)
         self.views["dashboard"].install_core_requested.connect(self._install_core)
+        self.views["dashboard"].install_proxy_requested.connect(self._install_proxy)
         self.views["dashboard"].check_updates_requested.connect(self._check_updates_manually)
         self.views["updates"].whats_new_requested.connect(self._open_whats_new)
         self.views["updates"].something_updated.connect(self._start_update_check)
@@ -309,32 +310,31 @@ class MainWindow(FramelessWindow):
         пересоздаёт. Человек, который до этого пользовался zapret вручную,
         должен узнать об этом до, а не после.
         """
-        question = QMessageBox(self)
-        question.setWindowTitle("На компьютере уже есть zapret")
-        question.setIcon(QMessageBox.Icon.Warning)
-        question.setText(f"Обходом сейчас управляет установка в {path}.")
-        question.setInformativeText(
+        switch = dialogs.confirm(
+            self,
+            "На компьютере уже есть zapret",
+            f"Обходом сейчас управляет установка в {path}.",
             "Служба Windows у неё и у нас называется одинаково, поэтому включение "
             "обхода здесь пересоздаст её на нашу копию, а в режиме обычного "
             "процесса ещё и остановит её winws.\n\n"
             "Прежняя установка никуда не денется: её консольное меню сможет "
             "вернуть службу себе. Свои списки доменов стоит перенести заранее — "
-            "в разделе «Списки» есть импорт из другой папки zapret."
+            "в разделе «Списки» есть импорт из другой папки zapret.",
+            action="Переключить на эту программу",
         )
 
-        replace = question.addButton(
-            "Переключить на эту программу", QMessageBox.ButtonRole.AcceptRole
-        )
-        question.addButton("Оставить как есть", QMessageBox.ButtonRole.RejectRole)
-        question.exec()
-
-        if question.clickedButton() is replace:
+        if switch:
             self.controller.start(replace_foreign=True)
 
     def _install_core(self) -> None:
         """Ставит ядро по нажатию главной кнопки, когда его ещё нет."""
         self.navigate("updates")
         self.views["updates"].install_core()
+
+    def _install_proxy(self) -> None:
+        """То же для прокси: согласие уже получено, остаётся показать загрузку."""
+        self.navigate("telegram")
+        self.views["telegram"].install_proxy()
 
     def _first_run(self) -> None:
         status = self.controller.refresh()

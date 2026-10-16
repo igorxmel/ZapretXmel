@@ -19,7 +19,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QMessageBox,
     QProgressBar,
     QPushButton,
     QTableWidget,
@@ -33,6 +32,7 @@ from app.core.diagnostics import vpn
 from app.core.probe import dpi, services
 from app.core.probe.autopick import DPI_TARGET_LIMIT, Mode, Report, StrategyScore, save_report
 from app.core.probe.http import supported_protocols
+from app.ui import dialogs
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, Chip, view_header
@@ -331,20 +331,18 @@ class AutoPickView(QWidget):
 
     def _warn_about_vpn(self, tunnel: vpn.VpnInfo) -> None:
         """Останавливает прогон, пока трафик идёт через туннель."""
-        answer = QMessageBox(self)
-        answer.setWindowTitle("Включён VPN")
-        answer.setIcon(QMessageBox.Icon.Warning)
-        answer.setText(f"Трафик идёт через {tunnel.label}.")
-        answer.setInformativeText(
+        run_anyway = dialogs.confirm(
+            self,
+            "Включён VPN",
+            f"Трафик идёт через {tunnel.label}.",
             "Через туннель открывается всё подряд, поэтому подбор измерит VPN, "
             "а не вашего провайдера, и выберет случайную стратегию.\n\n"
-            "Выключите VPN и запустите подбор заново."
+            "Выключите VPN и запустите подбор заново.",
+            action="Всё равно запустить",
+            danger=True,
         )
-        run_anyway = answer.addButton("Всё равно запустить", QMessageBox.ButtonRole.DestructiveRole)
-        answer.addButton("Отмена", QMessageBox.ButtonRole.RejectRole)
-        answer.exec()
 
-        if answer.clickedButton() is run_anyway:
+        if run_anyway:
             self._ignore_vpn = True
             self._start()
 

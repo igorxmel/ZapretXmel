@@ -213,6 +213,9 @@ def build_stylesheet() -> str:
     QLabel#Muted {{ color: {c["text_muted"]}; font-size: {FONT_SIZE["caption"]}px; }}
     QLabel#Display {{ font-size: {FONT_SIZE["display"]}px; font-weight: 600; }}
 
+    /* Вопрос в своём модальном окне — вместо системного QMessageBox. */
+    QLabel#DialogText {{ font-size: {FONT_SIZE["subtitle"]}px; font-weight: 600; }}
+
     /* --- карточки --- */
 
     QFrame#Card {{

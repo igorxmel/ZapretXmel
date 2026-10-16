@@ -193,6 +193,17 @@ class TelegramView(QWidget):
         )
         self._connection.setStyleSheet(f"color: {COLORS['warning']};")
 
+    def install_proxy(self) -> None:
+        """Ставит прокси сразу: согласие спросили на главном экране.
+
+        Там жмут кнопку «включить», и человеку нужен работающий Telegram, а
+        не экскурсия по разделам. Сюда он попадает только затем, чтобы
+        видеть загрузку — файл весит два десятка мегабайт.
+        """
+        if not self._install_button.isEnabled():
+            return
+        self._install()
+
     def _install(self) -> None:
         self._install_button.setEnabled(False)
         self._status.setStyleSheet(f"color: {COLORS['text_muted']};")

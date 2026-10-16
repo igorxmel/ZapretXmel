@@ -18,7 +18,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QMessageBox,
     QPushButton,
     QScrollArea,
     QSpinBox,
@@ -28,6 +27,7 @@ from PyQt6.QtWidgets import (
 
 from app.core import fakes, gamefilter, ipset, location, paths, shortcut, uninstall
 from app.core.gamefilter import GameFilter
+from app.ui import dialogs
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, Divider, KeyValueRow, view_header
@@ -531,22 +531,13 @@ class SettingsView(QWidget):
             self.controller.message.emit(f"Удалён {title}")
 
     def _refuse_folder(self, reason: str) -> None:
-        refusal = QMessageBox(self)
-        refusal.setWindowTitle("Папка не подходит")
-        refusal.setIcon(QMessageBox.Icon.Warning)
-        refusal.setText(reason)
-        refusal.addButton("Понятно", QMessageBox.ButtonRole.AcceptRole)
-        refusal.exec()
+        dialogs.tell(self, "Папка не подходит", reason, tone="warning")
 
     def _confirm_relocation(self, target: Path) -> bool:
         """Переезд останавливает обход и трогает сотню мегабайт — спросим прямо."""
         size = location.installed_size_mb()
         free = location.free_space_mb(target)
 
-        question = QMessageBox(self)
-        question.setWindowTitle("Сменить папку установки")
-        question.setIcon(QMessageBox.Icon.Question)
-        question.setText(f"Перенести ядро и настройки в {target}?")
         details = [
             f"Переносится {size} МБ, на диске свободно {free} МБ.",
             "Программа переедет вместе с данными и перезапустится оттуда — "
@@ -556,43 +547,49 @@ class SettingsView(QWidget):
         ]
         if free and size > free:
             details.insert(1, "Места на диске может не хватить.")
-        question.setInformativeText("\n\n".join(details))
 
-        move = question.addButton("Перенести", QMessageBox.ButtonRole.AcceptRole)
-        question.addButton("Отмена", QMessageBox.ButtonRole.RejectRole)
-        question.exec()
-
-        return question.clickedButton() is move
+        return dialogs.confirm(
+            self,
+            "Сменить папку установки",
+            f"Перенести ядро и настройки в {target}?",
+            "\n\n".join(details),
+            action="Перенести",
+        )
 
     # --- удаление --------------------------------------------------------
 
     def _remove(self, what: str) -> None:
         """Убирает ядро, прокси или всё сразу — после прямого подтверждения."""
         titles = {
-            "core": ("ядро zapret", "Будут сняты служба и процессы winws, удалены папка "
-                     "ядра и бэкапы. Стратегии и свои списки тоже исчезнут."),
-            "proxy": ("прокси для Telegram", "Прокси будет остановлен, его папка удалена. "
-                      "В настройках самого Telegram он останется прописанным — "
-                      "уберите его там вручную."),
-            "all": ("все данные программы", "Будет удалено всё: ядро, прокси, настройки, "
-                    "журналы и ярлык."),
+            "core": (
+                "ядро zapret",
+                "Будут сняты служба и процессы winws, удалены папка ядра и "
+                "бэкапы. Стратегии и свои списки тоже исчезнут.",
+            ),
+            "proxy": (
+                "прокси для Telegram",
+                "Прокси будет остановлен, его папка удалена. В настройках "
+                "самого Telegram он останется прописанным — уберите его там "
+                "вручную.",
+            ),
+            "all": (
+                "все данные программы",
+                "Будет удалено всё: ядро, прокси, настройки, журналы и ярлыки.",
+            ),
         }
         title, details = titles[what]
 
-        question = QMessageBox(self)
-        question.setWindowTitle("Удаление")
-        question.setIcon(QMessageBox.Icon.Warning)
-        question.setText(f"Удалить {title}?")
-
         if what == "all":
             details += "\n\nОстанется: " + ", ".join(uninstall.leftovers()) + "."
-        question.setInformativeText(details + "\n\nОтменить это нельзя.")
 
-        confirm = question.addButton("Удалить", QMessageBox.ButtonRole.DestructiveRole)
-        question.addButton("Отмена", QMessageBox.ButtonRole.RejectRole)
-        question.exec()
-
-        if question.clickedButton() is not confirm:
+        if not dialogs.confirm(
+            self,
+            "Удаление",
+            f"Удалить {title}?",
+            details + "\n\nОтменить это нельзя.",
+            action="Удалить",
+            danger=True,
+        ):
             return
 
         actions = {
@@ -618,19 +615,17 @@ class SettingsView(QWidget):
 
     def _say_goodbye(self) -> None:
         """Объясняет, что осталось сделать руками, и закрывает программу."""
-        farewell = QMessageBox(self)
-        farewell.setWindowTitle("Готово")
-        farewell.setIcon(QMessageBox.Icon.Information)
-        farewell.setText("Данные программы удалены.")
-        farewell.setInformativeText(
+        dialogs.tell(
+            self,
+            "Готово",
+            "Данные программы удалены.",
             f"Осталось стереть сам файл {paths.executable().name} — работающую "
-            "программу Windows удалить не даёт, а делать это за вас после выхода "
-            "мы не станем: так ведут себя ровно те программы, от которых защищают "
-            "антивирусы.\n\nСейчас программа закроется."
+            "программу Windows удалить не даёт, а делать это за вас после "
+            "выхода мы не станем: так ведут себя ровно те программы, от "
+            "которых защищают антивирусы.\n\nСейчас программа закроется.",
+            tone="success",
+            button="Закрыть",
         )
-        farewell.addButton("Закрыть", QMessageBox.ButtonRole.AcceptRole)
-        farewell.exec()
-
         QApplication.quit()
 
     def _show_welcome(self) -> None:

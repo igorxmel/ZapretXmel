@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core import service, strategies
+from app.ui import dialogs
 from app.ui.controller import Controller, Status
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, Divider, KeyValueRow, PowerButton, StatusPill, view_header
@@ -60,6 +61,7 @@ class DashboardView(QWidget):
 
     navigate = pyqtSignal(str)
     install_core_requested = pyqtSignal()
+    install_proxy_requested = pyqtSignal()
     check_updates_requested = pyqtSignal()
 
     def __init__(self, controller: Controller, parent: QWidget | None = None):
@@ -316,19 +318,58 @@ class DashboardView(QWidget):
         self._check_result.setText(text)
 
     def _toggle_bypass(self) -> None:
-        # Без ядра включать нечего, но и гасить кнопку неправильно: человек
-        # жмёт главную кнопку программы и не получает ничего, даже объяснения.
-        # Поэтому первое нажатие ставит ядро — ровно как у кнопки Telegram.
         if not self.controller.status.core_present:
-            self.install_core_requested.emit()
+            self._offer_install("core")
             return
         self.controller.toggle()
 
     def _toggle_telegram(self) -> None:
         if not self.controller.status.telegram_installed:
-            self.navigate.emit("telegram")
+            self._offer_install("proxy")
             return
         self.controller.toggle_telegram()
+
+    def _offer_install(self, what: str) -> None:
+        """Предлагает поставить то, чего ещё нет, и ставит с согласия.
+
+        Гасить кнопку неправильно: человек жмёт главную кнопку программы и
+        не получает ничего, даже объяснения. Но и ставить молча нельзя —
+        нажатие на «включить» уходило качать полтора мегабайта с GitHub и
+        перекидывало в другой раздел, о чём никто не просил.
+
+        Поэтому оба нажатия ведут себя одинаково: вопрос, а потом установка
+        там, где видно загрузку. Раньше ядро ставилось само, а прокси просто
+        открывал свой раздел, и почему кнопки работают по-разному, понять
+        было нельзя.
+        """
+        offers = {
+            "core": (
+                "Ядро zapret не установлено",
+                "Скачать и установить его сейчас?",
+                "Это сборка Flowseal — около полутора мегабайт с GitHub. "
+                "Без неё включать нечего: все стратегии лежат именно в ней.",
+            ),
+            "proxy": (
+                "Прокси для Telegram не установлен",
+                "Скачать и установить его сейчас?",
+                "Это tg-ws-proxy — около двадцати мегабайт с GitHub. "
+                "Telegram Desktop не чинится обычными стратегиями, для него "
+                "нужен отдельный локальный прокси.",
+            ),
+        }
+        title, question, details = offers[what]
+
+        if not dialogs.confirm(
+            self, title, question, details, action="Скачать и установить"
+        ):
+            return
+
+        # Установка показывается там, где у неё есть полоса загрузки: файл
+        # качается с GitHub, а он у части провайдеров открывается не сразу.
+        if what == "core":
+            self.install_core_requested.emit()
+        else:
+            self.install_proxy_requested.emit()
 
     def reload(self) -> None:
         self._fill_strategies()
@@ -363,8 +404,8 @@ class DashboardView(QWidget):
             state=self._bypass_state(status),
         )
 
-        # Кнопка Telegram остаётся нажимаемой и без прокси: щелчок отправляет
-        # на его экран, где он ставится, — иначе непонятно, что делать дальше.
+        # Кнопка Telegram остаётся нажимаемой и без прокси: щелчок предлагает
+        # его поставить — иначе непонятно, что делать дальше.
         if status.telegram_running:
             telegram_state = "прокси работает"
         elif status.telegram_installed:
