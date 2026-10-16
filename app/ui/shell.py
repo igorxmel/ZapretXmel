@@ -234,6 +234,7 @@ class MainWindow(FramelessWindow):
         self.views["dashboard"].navigate.connect(self.navigate)
         self.views["dashboard"].install_core_requested.connect(self._install_core)
         self.views["dashboard"].check_updates_requested.connect(self._check_updates_manually)
+        self.views["updates"].whats_new_requested.connect(self._open_whats_new)
         self.controller.foreign_conflict.connect(self._ask_about_foreign)
         self.controller.watch_alert.connect(self._watch_alert)
 
@@ -394,6 +395,19 @@ class MainWindow(FramelessWindow):
             6000,
         )
 
+    def _open_whats_new(self) -> None:
+        """Открывает окно по кнопке — независимо от того, видели его или нет."""
+        notes = whatsnew.notes_for_current_version()
+        if not notes:
+            self._show_toast(
+                f"Для версии {__version__} описания изменений нет", COLORS["text_muted"]
+            )
+            return
+
+        self._whats_new = whatsnew.WhatsNewWindow(notes, self)
+        self._whats_new.show()
+        foreground.force(int(self._whats_new.winId()))
+
     def _show_whats_new(self) -> None:
         """Рассказывает об изменениях — один раз после обновления.
 
@@ -404,10 +418,11 @@ class MainWindow(FramelessWindow):
         if seen == __version__:
             return
 
+        show = whatsnew.should_show(seen, __version__, self.settings.first_run_done)
         self.settings.last_seen_version = __version__
         self.settings.save()
 
-        if not seen:
+        if not show:
             return
 
         notes = whatsnew.notes_for_current_version()

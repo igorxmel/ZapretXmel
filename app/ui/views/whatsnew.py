@@ -83,3 +83,16 @@ class WhatsNewWindow(FramelessWindow):
 def notes_for_current_version() -> str:
     """Текст для окна. Пусто — значит показывать нечего."""
     return changelog.read(__version__)
+
+
+def should_show(seen: str, current: str, first_run_done: bool) -> bool:
+    """Показывать ли окно «что нового».
+
+    Пустая отметка о просмотре значит две разные вещи: либо программу
+    запустили впервые, либо обновились с версии, которая эту отметку ещё не
+    вела. Различает их `first_run_done`: человек, прошедший знакомство,
+    новичком уже не является — ему окно показать надо.
+    """
+    if seen == current:
+        return False
+    return bool(seen) or first_run_done

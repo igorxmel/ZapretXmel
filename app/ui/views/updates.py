@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QUrl
+from PyQt6.QtCore import QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
@@ -32,6 +32,8 @@ PROXY = "proxy"
 
 class UpdatesView(QWidget):
     """Установка официальных релизов Flowseal и откат на предыдущую версию."""
+
+    whats_new_requested = pyqtSignal()
 
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
@@ -74,6 +76,12 @@ class UpdatesView(QWidget):
 
         self._row_app = KeyValueRow("Версия программы")
         row.addWidget(self._row_app, 1)
+
+        # Окно после обновления показывается один раз; посмотреть, что
+        # изменилось, человек может захотеть и позже.
+        self._whats_new = QPushButton("Что нового")
+        self._whats_new.clicked.connect(self.whats_new_requested.emit)
+        row.addWidget(self._whats_new)
 
         self._app_check = QPushButton("Проверить")
         self._app_check.clicked.connect(self._check_app)

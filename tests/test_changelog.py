@@ -70,3 +70,36 @@ def test_current_version_is_described() -> None:
     from app import __version__
 
     assert changelog.read(__version__), f"нет раздела про {__version__}"
+
+
+# --- когда показывать окно ----------------------------------------------
+
+
+def test_window_is_shown_after_an_update() -> None:
+    from app.ui.views.whatsnew import should_show
+
+    assert should_show("0.1.16", "0.1.17", first_run_done=True)
+
+
+def test_window_is_not_shown_twice_for_the_same_version() -> None:
+    from app.ui.views.whatsnew import should_show
+
+    assert not should_show("0.1.17", "0.1.17", first_run_done=True)
+
+
+def test_first_run_stays_silent() -> None:
+    """Сравнивать не с чем, да и знакомство важнее."""
+    from app.ui.views.whatsnew import should_show
+
+    assert not should_show("", "0.1.17", first_run_done=False)
+
+
+def test_update_from_a_version_without_the_mark_is_still_an_update() -> None:
+    """Отметку о просмотре ввели не сразу.
+
+    У тех, кто обновлялся с более ранней версии, она пустая — но это не
+    первый запуск, и окно им показать надо.
+    """
+    from app.ui.views.whatsnew import should_show
+
+    assert should_show("", "0.1.18", first_run_done=True)
