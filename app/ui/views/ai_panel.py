@@ -98,6 +98,15 @@ class AiPanel(QWidget):
 
         self._model = QComboBox()
         choose.addWidget(self._model, 1)
+
+        # Список моделей зашивать нельзя: сервисы снимают их с обслуживания,
+        # и разбор начинает отвечать «404» вместо ответа.
+        self._refresh_models = QPushButton("Обновить")
+        self._refresh_models.setToolTip(
+            "Спросить у сервиса, какие модели у него есть сейчас"
+        )
+        self._refresh_models.clicked.connect(self._load_models)
+        choose.addWidget(self._refresh_models)
         body.addLayout(choose)
 
         self._provider_note = QLabel("")
@@ -163,6 +172,43 @@ class AiPanel(QWidget):
             note += " Ключ пока не сохранён."
         self._provider_note.setText(note)
         self._analyze_button.setEnabled(True)
+
+    def _load_models(self) -> None:
+        """Спрашивает у сервиса список моделей.
+
+        Ключ берётся сохранённый или только что введённый: без него
+        большинство сервисов список не отдаёт.
+        """
+        provider = self._current_provider()
+        key = self._key.text().strip() or secrets.load(ai.key_name(provider.id))
+        if not key and provider.id != "openrouter":
+            self._say(f"Сначала сохраните ключ для {provider.label}.", COLORS["warning"])
+            return
+
+        self._refresh_models.setEnabled(False)
+        self._say(f"Спрашиваю у {provider.label} список моделей…")
+
+        self._models_task = Task(ai.list_models, provider, key)
+        self._models_task.done.connect(self._models_loaded)
+        self._models_task.failed.connect(self._models_failed)
+        self._models_task.start()
+
+    def _models_loaded(self, names: list) -> None:
+        self._refresh_models.setEnabled(True)
+        if not names:
+            self._say("Сервис не назвал ни одной модели.", COLORS["warning"])
+            return
+
+        chosen = self._model.currentText()
+        self._model.clear()
+        self._model.addItems(names)
+        if chosen in names:
+            self._model.setCurrentText(chosen)
+        self._say(f"Моделей доступно: {len(names)}", COLORS["success"])
+
+    def _models_failed(self, message: str) -> None:
+        self._refresh_models.setEnabled(True)
+        self._say(message, COLORS["danger"])
 
     # --- действия --------------------------------------------------------
 

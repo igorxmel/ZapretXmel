@@ -107,6 +107,22 @@ ENDPOINTS = {
     "mistral": "https://api.mistral.ai/v1/chat/completions",
 }
 
+USER_AGENT = "ZapretXmel"
+# Версия API Anthropic: у них она передаётся заголовком и обязательна.
+ANTHROPIC_VERSION = "2023-06-01"
+
+# Откуда спрашивать список доступных моделей. Зашитые имена протухают
+# молча: сервисы снимают модели с обслуживания, и разбор начинает отвечать
+# «404» вместо ответа. Списки в PROVIDERS остаются запасным вариантом на
+# случай, когда спросить не удалось.
+MODEL_LISTS = {
+    "groq": "https://api.groq.com/openai/v1/models",
+    "openrouter": "https://openrouter.ai/api/v1/models",
+    "mistral": "https://api.mistral.ai/v1/models",
+    "anthropic": "https://api.anthropic.com/v1/models",
+    "gemini": "https://generativelanguage.googleapis.com/v1beta/models",
+}
+
 
 class AiError(Exception):
     """Запрос к нейросети не удался."""
@@ -281,7 +297,53 @@ def _raise_for_status(response: requests.Response, provider: Provider) -> None:
         raise AiError("ключ не принят — проверьте его в настройках")
     if response.status_code == 429:
         raise AiError("слишком часто: сервис ограничил число запросов")
+    if response.status_code == 404:
+        # Самая частая причина: сервис снял модель с обслуживания. Писать
+        # голое «404» бесполезно — человек идёт проверять интернет.
+        raise AiError(
+            f"{provider.label} не знает такой модели — скорее всего её сняли "
+            "с обслуживания. Нажмите «Обновить список» и выберите другую."
+        )
     raise AiError(f"{provider.label} ответил ошибкой {response.status_code}")
+
+
+def list_models(provider: Provider, key: str, timeout: int = 20) -> list[str]:
+    """Спрашивает у сервиса, какие модели у него есть сейчас.
+
+    Зашитый список — не источник правды: сервисы снимают модели, и разбор
+    начинает отвечать «404». Не ответил или ответил непонятно — остаётся
+    запасной список, он всё же лучше пустого выбора.
+    """
+    url = MODEL_LISTS.get(provider.id)
+    if not url:
+        return list(provider.models)
+
+    headers = {"User-Agent": USER_AGENT}
+    params = {}
+    if provider.kind == "anthropic":
+        headers |= {"x-api-key": key, "anthropic-version": ANTHROPIC_VERSION}
+    elif provider.kind == "gemini":
+        params["key"] = key
+    else:
+        headers["Authorization"] = f"Bearer {key}"
+
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=timeout)
+        _raise_for_status(response, provider)
+        payload = response.json()
+    except AiError:
+        raise
+    except Exception as error:  # noqa: BLE001 — сеть может не ответить
+        raise AiError(f"не удалось получить список моделей: {error}") from error
+
+    items = payload.get("data") or payload.get("models") or []
+    names = []
+    for item in items:
+        name = item.get("id") or item.get("name") or ""
+        # Gemini отдаёт «models/gemini-2.5-flash» — показываем без приставки.
+        names.append(str(name).removeprefix("models/"))
+
+    return sorted(name for name in names if name) or list(provider.models)
 
 
 def analyze(snapshot: dict, problem: str, provider_id: str, model: str = "") -> Analysis:
