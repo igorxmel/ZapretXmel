@@ -102,8 +102,7 @@ class MainWindow(FramelessWindow):
         self._updates_timer.timeout.connect(self._check_updates_now)
 
         self.setWindowIcon(app_icon())
-        self.setMinimumSize(SIZE["window_min_width"], SIZE["window_min_height"])
-        self.resize(SIZE["window_width"], SIZE["window_height"])
+        self._fit_to_screen()
 
         self._build_ui()
         self._build_tray()
@@ -195,6 +194,33 @@ class MainWindow(FramelessWindow):
             button.setProperty("alert", False)
             button.style().unpolish(button)
             button.style().polish(button)
+
+    def _fit_to_screen(self) -> None:
+        """Подбирает размер окна под экран, на котором его открывают.
+
+        Размеры в токенах — для экрана без увеличения. При системном
+        масштабе 125% Qt множит их сам, и окно по умолчанию оказывалось
+        больше, чем рабочий стол ноутбука: заголовок за верхним краем,
+        кнопки за нижним. Нижнюю границу тоже приходится опускать — иначе
+        окно просто не помещается и его нельзя уменьшить.
+        """
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None:
+            self.setMinimumSize(SIZE["window_min_width"], SIZE["window_min_height"])
+            self.resize(SIZE["window_width"], SIZE["window_height"])
+            return
+
+        free = screen.availableGeometry()
+        # Немного меньше рабочей области: окно должно читаться как окно, а
+        # не как что-то, развёрнутое во весь экран.
+        width = min(SIZE["window_width"], int(free.width() * 0.94))
+        height = min(SIZE["window_height"], int(free.height() * 0.94))
+
+        self.setMinimumSize(
+            min(SIZE["window_min_width"], width),
+            min(SIZE["window_min_height"], height),
+        )
+        self.resize(width, height)
 
     def _build_sidebar(self) -> QWidget:
         sidebar = Sidebar()

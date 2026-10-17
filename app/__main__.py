@@ -10,6 +10,7 @@ from __future__ import annotations
 import contextlib
 import ctypes
 import logging
+import os
 import sys
 
 from PyQt6.QtGui import QIcon
@@ -68,6 +69,27 @@ def set_app_identity() -> None:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
     except (AttributeError, OSError):
         log.debug("Не удалось задать AppUserModelID")
+
+
+def apply_ui_scale() -> None:
+    """Применяет выбранный масштаб интерфейса.
+
+    Только до создания QApplication: Qt читает `QT_SCALE_FACTOR` один раз
+    при запуске, и поменять масштаб на ходу нельзя — поэтому настройка
+    просит перезапуск.
+
+    Значение множится на системное увеличение, а не заменяет его: 0.8 при
+    системных 125% даёт обычный размер, и человеку не нужно знать, сколько
+    стоит в Windows.
+    """
+    try:
+        scale = Settings.load().ui_scale
+    except Exception:  # noqa: BLE001 — настройки битые, значит масштаб обычный
+        return
+
+    if scale and scale > 0:
+        os.environ["QT_SCALE_FACTOR"] = str(scale)
+        log.info("Масштаб интерфейса: %s", scale)
 
 
 def _versions() -> str:
@@ -203,6 +225,7 @@ def main() -> int:
 
     set_app_identity()
 
+    apply_ui_scale()
     app = QApplication(sys.argv)
     app.setApplicationName("ZapretXmel")
     app.setApplicationDisplayName("ZapretXmel")

@@ -41,6 +41,16 @@ from app.ui.workers import Task
 
 log = logging.getLogger(__name__)
 
+# Масштаб интерфейса. 0 — не вмешиваться в то, что задано в Windows.
+SCALES = {
+    "Как в Windows": 0.0,
+    "80% — для ноутбуков": 0.8,
+    "90%": 0.9,
+    "100%": 1.0,
+    "110%": 1.1,
+    "125%": 1.25,
+}
+
 RUN_MODES = {
     "Служба Windows": "service",
     "Обычный процесс": "process",
@@ -246,6 +256,18 @@ class SettingsView(QWidget):
         self._animations.toggled.connect(self._save_flags)
         body.addWidget(self._animations)
 
+        body.addWidget(QLabel("Масштаб интерфейса"))
+        self._scale = QComboBox()
+        for title in SCALES:
+            self._scale.addItem(title)
+        self._scale.setToolTip(
+            "Множится на увеличение, выставленное в Windows. Если там 125% "
+            "и окно кажется громоздким — возьмите 80%, получится обычный "
+            "размер."
+        )
+        self._scale.currentTextChanged.connect(self._change_scale)
+        body.addWidget(self._scale)
+
         self._testing = QCheckBox("Получать тестовые сборки")
         self._testing.setToolTip(
             "Версии «-rc» выходят раньше обычных и нужны, чтобы поймать "
@@ -438,6 +460,7 @@ class SettingsView(QWidget):
             self._start_menu.setChecked(shortcut.exists(shortcut.START_MENU))
             self._animations.setChecked(self.controller.settings.animations)
             self._testing.setChecked(self.controller.settings.testing_builds)
+            self._select_by_value(self._scale, SCALES, self.controller.settings.ui_scale)
             self._shortcut.setEnabled(paths.is_frozen())
             self._shortcut.setToolTip(
                 ""
@@ -536,6 +559,41 @@ class SettingsView(QWidget):
 
         try:
             location.restart(moved_to)
+        except Exception as error:  # noqa: BLE001 — причину показываем пользователю
+            self.controller.error.emit(str(error))
+            return
+
+        QApplication.quit()
+
+    def _change_scale(self, title: str) -> None:
+        """Запоминает масштаб и предлагает перезапуск.
+
+        Qt читает масштаб один раз при запуске — поменять его на ходу
+        нельзя, и делать вид, что можно, было бы хуже всего.
+        """
+        if self._loading:
+            return
+
+        wanted = SCALES.get(title, 0.0)
+        if wanted == self.controller.settings.ui_scale:
+            return
+
+        self.controller.settings.ui_scale = wanted
+        self.controller.settings.save()
+
+        if not dialogs.confirm(
+            self,
+            "Масштаб интерфейса",
+            f"Перезапустить программу, чтобы применить {title.lower()}?",
+            "Размер окна Qt задаёт при запуске, поменять его на ходу нельзя. "
+            "Можно и не перезапускать — масштаб применится при следующем "
+            "открытии программы.",
+            action="Перезапустить",
+        ):
+            return
+
+        try:
+            location.restart(paths.executable())
         except Exception as error:  # noqa: BLE001 — причину показываем пользователю
             self.controller.error.emit(str(error))
             return
