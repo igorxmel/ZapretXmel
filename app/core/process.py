@@ -29,6 +29,48 @@ _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000
 _PROCESS_ALL_ACCESS = 0x1F0FFF
 
 
+# Сколько ждать, пока процесс закроется сам, прежде чем снимать силой.
+CLOSE_TIMEOUT = 3.0
+
+_WM_CLOSE = 0x0010
+
+
+def ask_to_close(pid: int) -> bool:
+    """Просит окна процесса закрыться. False — просить было нечего.
+
+    Нужно тем программам, которые что-то убирают за собой при выходе:
+    у tg-ws-proxy это значок в трее Windows, который иначе остаётся висеть
+    фантомом до первого движения мышью по нему.
+
+    Окно ищем перебором верхнеуровневых: своего окна у дочернего процесса мы
+    не знаем, а спрашивать его у системы по идентификатору процесса штатных
+    способов нет.
+    """
+    if sys.platform != "win32":
+        return False
+
+    user32 = ctypes.windll.user32
+    asked = False
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def visit(window, _param):
+        nonlocal asked
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(window, ctypes.byref(owner))
+        if owner.value == pid:
+            user32.PostMessageW(window, _WM_CLOSE, 0, 0)
+            asked = True
+        return True
+
+    try:
+        user32.EnumWindows(visit, 0)
+    except OSError:
+        log.debug("Не удалось перебрать окна процесса %s", pid)
+        return False
+
+    return asked
+
+
 class _IoCounters(ctypes.Structure):
     _fields_ = [
         ("ReadOperationCount", ctypes.c_ulonglong),
@@ -213,6 +255,21 @@ class ManagedProcess:
 
         if process and process.poll() is None:
             try:
+                # Сначала просим закрыться по-человечески. TerminateProcess,
+                # который стоит за terminate(), не даёт программе ни одной
+                # инструкции на прощание — а tg-ws-proxy держит свой значок
+                # в трее Windows и убирает его сам при закрытии. Убитый
+                # насмерть, он оставлял там фантом: значок висит, пока по
+                # нему не проведут мышью.
+                if ask_to_close(process.pid):
+                    with contextlib.suppress(subprocess.TimeoutExpired):
+                        process.wait(timeout=CLOSE_TIMEOUT)
+
+                if process.poll() is not None:
+                    close_job(self._job)
+                    self._job = None
+                    return
+
                 process.terminate()
                 process.wait(timeout=timeout)
             except subprocess.TimeoutExpired:

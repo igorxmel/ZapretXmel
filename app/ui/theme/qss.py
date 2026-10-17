@@ -295,6 +295,21 @@ def build_stylesheet() -> str:
         font-weight: 600;
     }}
 
+    /* Выключенная таблетка должна выглядеть выключенной. В режиме проверки
+       DPI сервисы не проверяются вовсе, но выбранные оставались белыми — и
+       казалось, что проверка идёт и по DPI, и по ним заодно. */
+    QPushButton#Chip:disabled {{
+        color: {c["text_muted"]};
+        border-color: {c["border"]};
+    }}
+
+    QPushButton#Chip:checked:disabled {{
+        background: {c["surface_hover"]};
+        border-color: {c["border"]};
+        color: {c["text_muted"]};
+        font-weight: 400;
+    }}
+
     /* --- поля ввода --- */
 
     QLineEdit, QPlainTextEdit, QTextEdit, QSpinBox, QComboBox {{

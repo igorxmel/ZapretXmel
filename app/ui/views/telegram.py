@@ -7,7 +7,7 @@ Telegram Desktop не ходит по TLS с SNI, поэтому обычные 
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QUrl
+from PyQt6.QtCore import QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
@@ -28,6 +28,10 @@ from app.ui.workers import Task, TelegramInstallWorker
 
 class TelegramView(QWidget):
     """Установка, запуск и настройка прокси для Telegram."""
+
+    # Долгая работа: боковое меню рисует кружок, а трей сообщает о
+    # завершении, если окно успели свернуть.
+    busy_changed = pyqtSignal(bool)
 
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
@@ -211,6 +215,7 @@ class TelegramView(QWidget):
         self._progress.setValue(0)
         self._progress.show()
 
+        self.busy_changed.emit(True)
         self._worker = TelegramInstallWorker()
         self._worker.progress.connect(self._status.setText)
         self._worker.percent.connect(self._progress.setValue)
@@ -219,6 +224,7 @@ class TelegramView(QWidget):
         self._worker.start()
 
     def _installed(self, version: str) -> None:
+        self.busy_changed.emit(False)
         self._progress.hide()
         self._install_button.setEnabled(True)
         self._status.setStyleSheet(f"color: {COLORS['success']};")
@@ -261,6 +267,7 @@ class TelegramView(QWidget):
         self.controller.message.emit("Ссылка скопирована — откройте её в Telegram")
 
     def _fail(self, message: str) -> None:
+        self.busy_changed.emit(False)
         self._progress.hide()
         self._install_button.setEnabled(True)
         self._status.setStyleSheet(f"color: {COLORS['danger']};")

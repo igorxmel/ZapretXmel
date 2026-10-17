@@ -34,6 +34,9 @@ class UpdatesView(QWidget):
     """Установка официальных релизов Flowseal и откат на предыдущую версию."""
 
     whats_new_requested = pyqtSignal()
+    # Установка ядра и обновление программы идут десятками секунд: боковое
+    # меню должно показывать, что работа ещё не кончилась.
+    busy_changed = pyqtSignal(bool)
     # Что-то поставлено — полоса вверху окна о нём больше не актуальна.
     something_updated = pyqtSignal()
 
@@ -161,6 +164,7 @@ class UpdatesView(QWidget):
         self._app_progress.setValue(0)
         self._app_progress.show()
 
+        self.busy_changed.emit(True)
         self._app_worker = AppUpdateWorker(release)
         self._app_worker.progress.connect(self._app_say)
         self._app_worker.percent.connect(self._app_progress.setValue)
@@ -179,6 +183,7 @@ class UpdatesView(QWidget):
         QApplication.quit()
 
     def _app_failed(self, message: str) -> None:
+        self.busy_changed.emit(False)
         self._app_progress.hide()
         self._app_check.setEnabled(True)
         self._app_install.setEnabled(getattr(self, "_new_app", None) is not None)
@@ -248,6 +253,16 @@ class UpdatesView(QWidget):
         self._changelog = QTextBrowser()
         self._changelog.setPlaceholderText("Здесь появится описание релиза")
         self._changelog.setOpenExternalLinks(True)
+        # Ссылки внутри описания Qt красит системным синим — тёмным, и на
+        # тёмном фоне его просто не видно. Таблицей стилей приложения это не
+        # лечится: текст здесь разбирается как HTML, и цвет ссылок берётся из
+        # таблицы стилей самого документа.
+        # Белым, а не цветом: палитра монохромная, цвет остаётся за
+        # состояниями. Ссылку и так видно по подчёркиванию.
+        self._changelog.document().setDefaultStyleSheet(
+            f"a {{ color: {COLORS['text']}; }}"
+            f"code {{ color: {COLORS['text_dim']}; }}"
+        )
         body.addWidget(self._changelog, 1)
 
         # Откат есть только у ядра: его бэкапы мы храним сами, а прокси —
@@ -488,6 +503,7 @@ class UpdatesView(QWidget):
         self._progress.show()
 
         paths.ensure_dirs()
+        self.busy_changed.emit(True)
         self._worker = CoreUpdateWorker(self._latest, paths.downloads_dir())
         self._worker.progress.connect(self._status.setText)
         self._worker.percent.connect(self._progress.setValue)
@@ -496,6 +512,7 @@ class UpdatesView(QWidget):
         self._worker.start()
 
     def _installed(self, version: str) -> None:
+        self.busy_changed.emit(False)
         self._progress.hide()
         self._check_button.setEnabled(True)
         self._status.setStyleSheet(f"color: {COLORS['success']};")
@@ -592,6 +609,7 @@ class UpdatesView(QWidget):
         self.reload()
 
     def _fail(self, message: str) -> None:
+        self.busy_changed.emit(False)
         self._progress.hide()
         self._check_button.setEnabled(True)
         self._status.setStyleSheet(f"color: {COLORS['danger']};")

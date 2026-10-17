@@ -465,15 +465,18 @@ class SettingsView(QWidget):
 
     def _change_install_folder(self) -> None:
         """Спрашивает новую папку и переносит в неё установку."""
+        # Открываем на уровень выше: диалог, открытый в самой установке,
+        # подталкивает выбрать папку внутри неё — а туда переносить нельзя.
+        start = paths.install_root().parent
         chosen = QFileDialog.getExistingDirectory(
             self,
             "Куда складывать ядро и настройки",
-            str(paths.install_root()),
+            str(start if start.exists() else paths.install_root()),
         )
         if not chosen:
             return
 
-        target = Path(chosen)
+        target = location.folder_for(Path(chosen))
         reason = location.check_target(target)
         if reason:
             self._refuse_folder(reason)

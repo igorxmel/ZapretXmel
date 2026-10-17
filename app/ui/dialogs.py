@@ -18,6 +18,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -86,10 +87,23 @@ class Dialog(QDialog):
             explanation.setWordWrap(True)
             body.addWidget(explanation)
 
+        # Место для содержимого между объяснением и кнопками: поле ввода,
+        # список, что угодно.
+        self._extra = QVBoxLayout()
+        self._extra.setSpacing(SPACE["sm"])
+        body.addLayout(self._extra)
+
         self._buttons = QHBoxLayout()
         self._buttons.setSpacing(SPACE["sm"])
         self._buttons.addStretch(1)
         body.addLayout(self._buttons)
+
+    def insert_widget(self, widget: QWidget) -> None:
+        """Добавляет виджет между объяснением и кнопками."""
+        self._extra.addWidget(widget)
+
+    def insert_layout(self, layout) -> None:
+        self._extra.addLayout(layout)
 
     def add_action(self, label: str, *, danger: bool = False, primary: bool = False) -> None:
         """Добавляет кнопку, закрывающую окно с ответом в виде её подписи."""
@@ -129,6 +143,40 @@ def confirm(
     dialog.add_action("Отмена")
     dialog.add_action(action, danger=danger, primary=not danger)
     return dialog.ask() == action
+
+
+def ask_text(
+    parent: QWidget | None,
+    title: str,
+    text: str,
+    details: str = "",
+    *,
+    value: str = "",
+    placeholder: str = "",
+    action: str = "Сохранить",
+) -> str:
+    """Спрашивает строку. Пустая строка — отказались.
+
+    Вместо `QInputDialog`: тот рисуется системой, выходит крошечным светлым
+    окошком посреди тёмного и не даёт ни объяснить, зачем спрашиваем, ни
+    назвать кнопку делом.
+    """
+    dialog = Dialog(parent, title, text, details)
+
+    field = QLineEdit(value)
+    field.setPlaceholderText(placeholder)
+    field.selectAll()
+    dialog.insert_widget(field)
+
+    dialog.add_action("Отмена")
+    dialog.add_action(action, primary=True)
+
+    # Enter в поле — то же, что нажать кнопку: иначе приходится тянуться мышью
+    # после того, как имя уже набрано.
+    field.returnPressed.connect(lambda: dialog._answer_with(action))
+    field.setFocus()
+
+    return field.text().strip() if dialog.ask() == action else ""
 
 
 def tell(

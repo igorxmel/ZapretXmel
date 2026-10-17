@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPaintEvent, QPen, QPixmap
+from PyQt6.QtGui import QColor, QIcon, QPainter, QPaintEvent, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractButton,
     QFrame,
@@ -247,6 +247,32 @@ class Chip(QPushButton):
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.value = value or text
+
+
+def spinner_icon(angle: int, size: int = 14) -> QIcon:
+    """Кружок загрузки для пункта бокового меню.
+
+    Рисуется дугой через QPainter, а не символом из шрифта: у глифов свои
+    поля, и крутящийся символ гуляет вокруг центра вместо того, чтобы
+    вращаться на месте.
+    """
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    pen = QPen(QColor(COLORS["text_dim"]), 2)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    painter.setPen(pen)
+
+    inset = 2.0
+    box = QRectF(inset, inset, size - inset * 2, size - inset * 2)
+    # Углы в Qt — в шестнадцатых долях градуса, отсчёт против часовой.
+    painter.drawArc(box, -angle * 16, 270 * 16)
+    painter.end()
+
+    return QIcon(pixmap)
 
 
 def logo_pixmap(size: int) -> QPixmap:

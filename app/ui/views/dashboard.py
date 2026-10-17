@@ -178,7 +178,10 @@ class DashboardView(QWidget):
         self._strategy_box = QComboBox()
         body.addWidget(self._strategy_box)
 
-        self._apply_button = QPushButton("Применить")
+        # Называем делом, а не намерением: рядом на экране «Стратегии» стоит
+        # «Применить и включить», и разница между двумя «Применить» была
+        # загадкой — на самом деле её нет.
+        self._apply_button = QPushButton("Применить и включить")
         self._apply_button.clicked.connect(self._apply_strategy)
         body.addWidget(self._apply_button)
 

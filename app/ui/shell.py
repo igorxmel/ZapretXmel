@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QCloseEvent
+from PyQt6.QtGui import QCloseEvent, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
@@ -39,12 +39,24 @@ from app.ui.views.support import SupportView
 from app.ui.views.telegram import TelegramView
 from app.ui.views.updates import UpdatesView
 from app.ui.views.welcome import WelcomeWindow
-from app.ui.widgets import banner_pixmap
+from app.ui.widgets import banner_pixmap, spinner_icon
 from app.ui.workers import Task
 
 log = logging.getLogger(__name__)
 
 # Пауза перед первой проверкой обновлений: см. `_look_for_updates`.
+# Кружок загрузки в боковом меню: шаг и частота подобраны так, чтобы
+# движение читалось, но не мельтешило.
+# Разделы с долгой работой и то, как они называются в уведомлении.
+BUSY_SECTIONS = {
+    "autopick": "Подбор стратегии",
+    "updates": "Обновление",
+    "telegram": "Установка прокси",
+}
+
+SPINNER_INTERVAL_MS = 90
+SPINNER_STEP = 30
+
 UPDATE_CHECK_DELAY_MS = 60_000
 
 # Дальше — раз в шесть часов: программа живёт в трее неделями, и одной
@@ -72,6 +84,14 @@ class MainWindow(FramelessWindow):
         # Последняя находка: её отдают экранам, чтобы те не спрашивали
         # GitHub о том же самом второй раз.
         self._found_updates: list = []
+        # Разделы, где прямо сейчас идёт долгая работа. Нужны, чтобы
+        # нарисовать кружок в боковом меню и сказать о завершении, если окно
+        # успели свернуть.
+        self._busy_sections: dict[str, str] = {}
+        self._spin_angle = 0
+        self._spin_timer = QTimer(self)
+        self._spin_timer.setInterval(SPINNER_INTERVAL_MS)
+        self._spin_timer.timeout.connect(self._spin)
         self._updates_timer = QTimer(self)
         self._updates_timer.timeout.connect(self._check_updates_now)
 
@@ -260,6 +280,12 @@ class MainWindow(FramelessWindow):
         self.views["dashboard"].check_updates_requested.connect(self._check_updates_manually)
         self.views["updates"].whats_new_requested.connect(self._open_whats_new)
         self.views["updates"].something_updated.connect(self._start_update_check)
+
+        # Разделы, где работа идёт долго, сами говорят о начале и конце.
+        for key, title in BUSY_SECTIONS.items():
+            self.views[key].busy_changed.connect(
+                lambda busy, k=key, name=title: self.set_section_busy(k, name, busy)
+            )
         self.controller.foreign_conflict.connect(self._ask_about_foreign)
         self.controller.watch_alert.connect(self._watch_alert)
 
@@ -286,6 +312,49 @@ class MainWindow(FramelessWindow):
         # поэтому находку отдаём после него.
         if self._found_updates and (show := getattr(view, "show_known_updates", None)):
             show(self._found_updates)
+
+    # --- долгая работа в разделах ----------------------------------------
+
+    def set_section_busy(self, key: str, title: str, busy: bool) -> None:
+        """Отмечает раздел занятым и сообщает, когда он освободился.
+
+        Подбор идёт минутами, установка ядра — десятками секунд, и всё это
+        время можно уйти на другую вкладку. Раньше о том, что работа
+        закончилась, человек узнавал, только вернувшись обратно.
+        """
+        was_busy = key in self._busy_sections
+        if busy:
+            self._busy_sections[key] = title
+        else:
+            self._busy_sections.pop(key, None)
+
+        if self._busy_sections and not self._spin_timer.isActive():
+            self._spin_timer.start()
+        elif not self._busy_sections:
+            self._spin_timer.stop()
+            self._spin_angle = 0
+
+        self._draw_spinners()
+
+        # Окно свёрнуто — человек его и не увидит, поэтому говорим в трей.
+        if was_busy and not busy and not self.isVisible():
+            self._tray.showMessage(
+                "ZapretXmel",
+                f"{title}: работа закончена",
+                build_icon(self.controller.status.is_active),
+                6000,
+            )
+
+    def _spin(self) -> None:
+        self._spin_angle = (self._spin_angle + SPINNER_STEP) % 360
+        self._draw_spinners()
+
+    def _draw_spinners(self) -> None:
+        for key, button in self._nav_buttons.items():
+            if key in self._busy_sections:
+                button.setIcon(spinner_icon(self._spin_angle))
+            else:
+                button.setIcon(QIcon())
 
     def _watch_alert(self, message: str, switched: bool) -> None:
         """Показывает сообщение сторожа.

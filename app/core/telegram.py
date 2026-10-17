@@ -27,6 +27,7 @@ from urllib.parse import urlencode
 import psutil
 
 from app.core import paths
+from app.core import process as managed
 from app.core.process import ManagedProcess
 from app.core.updater import github
 
@@ -199,6 +200,14 @@ def kill_running(timeout: float = 5.0) -> int:
                 victims.append(process)
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
+
+    # Сначала по-хорошему: прокси держит свой значок в трее Windows и
+    # убирает его сам при закрытии. Убитый насмерть, он оставляет фантом.
+    for victim in victims:
+        managed.ask_to_close(victim.pid)
+    if victims:
+        _, still_here = psutil.wait_procs(victims, timeout=managed.CLOSE_TIMEOUT)
+        victims = still_here
 
     for process in victims:
         try:

@@ -89,7 +89,15 @@ def check_target(path: Path) -> str:
     if resolved == current:
         return "Это и есть текущее место установки."
     if resolved.is_relative_to(current) and _has_installed_parts(current):
-        return "Нельзя переносить установку внутрь себя же."
+        # Переносить дерево внутрь него самого нельзя технически, но сказать
+        # об этом надо так, чтобы было понятно, что делать дальше: диалог
+        # открывается в текущей папке, и выбрать что-то внутри неё — первое,
+        # что приходит в голову.
+        return (
+            f"Эта папка лежит внутри текущей установки ({current}), "
+            "а перенести её внутрь себя же нельзя. Выберите папку рядом "
+            "или на другом диске."
+        )
     if current.is_relative_to(resolved):
         return "Эта папка уже содержит установку — выберите другую."
 
@@ -115,6 +123,33 @@ def _writable(target: Path) -> str:
 
 def _has_installed_parts(root: Path) -> bool:
     return any((root / name).exists() for name in MOVABLE)
+
+
+FOLDER_NAME = "ZapretXmel"
+
+
+def folder_for(chosen: Path) -> Path:
+    """Куда на самом деле класть установку внутри выбранной папки.
+
+    Человек выбирает «куда», думая о `D:\\Program`, а получает ядро, данные,
+    прокси и .exe прямо в ней вперемешку с чужим добром. Поэтому в непустой
+    папке заводим свою подпапку — и заодно пропадает соблазн выбрать место
+    внутри текущей установки.
+
+    Пустую папку и папку, которая уже наша, оставляем как есть: человек её
+    для этого и создал, второй уровень вложенности там лишний.
+    """
+    try:
+        if not chosen.exists():
+            return chosen
+        if _has_installed_parts(chosen):
+            return chosen
+        if not any(chosen.iterdir()):
+            return chosen
+    except OSError:
+        return chosen
+
+    return chosen / FOLDER_NAME
 
 
 def free_space_mb(path: Path) -> int:

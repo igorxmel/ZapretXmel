@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QColor, QDesktopServices
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -39,6 +39,7 @@ from app.ui.widgets import Card, Chip, view_header
 from app.ui.workers import AutoPickWorker, Task
 
 COLUMNS = ("Стратегия", "Сервисы", "Пройдено", "Не прошло", "Блокировка", "Время")
+SERVICES_COLUMN = COLUMNS.index("Сервисы")
 
 DPI_CHIP = "Проверка DPI"
 
@@ -61,6 +62,10 @@ DPI_NOTE = (
 
 class AutoPickView(QWidget):
     """Перебор стратегий с показом хода работы и применением лучшей."""
+
+    # Долгая работа: боковое меню рисует кружок, а трей сообщает о
+    # завершении, если окно успели свернуть.
+    busy_changed = pyqtSignal(bool)
 
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
@@ -223,6 +228,11 @@ class AutoPickView(QWidget):
         for chip in self._service_chips:
             chip.setEnabled(not dpi_mode)
 
+        # В режиме DPI сервисы не проверяются, и столбец про них стоял бы
+        # пустым у всех строк подряд — прочерк напротив каждой стратегии
+        # читается как «ничего не нашлось», а не «здесь это не меряется».
+        self._table.setColumnHidden(SERVICES_COLUMN, dpi_mode)
+
         if dpi_mode:
             self._note.setText(DPI_NOTE)
             count = len(self._dpi_targets) or "около 36"
@@ -352,6 +362,9 @@ class AutoPickView(QWidget):
             self._cancel_button.setEnabled(False)
 
     def _set_running(self, running: bool) -> None:
+        # Подбор идёт минутами, и уйти на другую вкладку — нормально.
+        # Пусть боковое меню показывает, что здесь ещё работают.
+        self.busy_changed.emit(running)
         self._start_button.setEnabled(not running)
         self._cancel_button.setEnabled(running)
         for chip in [*self._service_chips, self._dpi_chip]:
