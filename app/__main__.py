@@ -70,6 +70,38 @@ def set_app_identity() -> None:
         log.debug("Не удалось задать AppUserModelID")
 
 
+def _versions() -> str:
+    """Версии программы и всего, что она принесла с собой.
+
+    Пишется при каждом запуске отдельной строкой: по логу иначе не понять,
+    на какой сборке случилась поломка, — а журнал присылают именно тогда,
+    когда что-то сломалось, и чаще всего после нескольких обновлений подряд.
+    """
+    from app import __version__
+    from app.core import coreinfo, telegram
+
+    parts = [f"программа {__version__}"]
+
+    try:
+        core = coreinfo.describe()
+        if core.present:
+            parts.append(f"ядро {core.version or 'неизвестно'}")
+        else:
+            parts.append("ядро не установлено")
+    except Exception:  # noqa: BLE001 — строка в журнале не стоит падения
+        parts.append("ядро: прочитать не удалось")
+
+    try:
+        if telegram.is_installed():
+            parts.append(f"прокси {telegram.installed_version() or 'неизвестно'}")
+        else:
+            parts.append("прокси не установлен")
+    except Exception:  # noqa: BLE001
+        parts.append("прокси: прочитать не удалось")
+
+    return ", ".join(parts)
+
+
 def install_crash_handler() -> None:
     """Делает падения заметными.
 
@@ -157,6 +189,7 @@ def main() -> int:
     logging_setup.setup()
     install_crash_handler()
     log.info("Запуск ZapretXmel (admin=%s)", elevation.is_admin())
+    log.info("Версии — %s", _versions())
 
     # Файл прошлой версии удаляется здесь: пока программа работала,
     # сделать это было нельзя. По той же причине здесь убирается и то, что

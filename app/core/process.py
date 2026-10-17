@@ -30,7 +30,7 @@ _PROCESS_ALL_ACCESS = 0x1F0FFF
 
 
 # Сколько ждать, пока процесс закроется сам, прежде чем снимать силой.
-CLOSE_TIMEOUT = 3.0
+CLOSE_TIMEOUT = 1.5
 
 _WM_CLOSE = 0x0010
 

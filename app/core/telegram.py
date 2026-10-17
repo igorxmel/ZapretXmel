@@ -181,6 +181,30 @@ def has_clients(port: int = DEFAULT_PORT) -> bool:
     )
 
 
+def running_instances() -> list[int]:
+    """Номера запущенных процессов прокси — по пути к нашему файлу.
+
+    Спрашивать свой объект процесса недостаточно: tg-ws-proxy при запуске
+    отпускает родительский процесс, наш дескриптор тут же становится
+    мёртвым, и каждое нажатие поднимало ещё один экземпляр. В трее
+    копились их значки, а порт занимал самый первый.
+    """
+    ours = executable()
+    found = []
+    for process in psutil.process_iter(["exe", "pid"]):
+        try:
+            path = process.info["exe"]
+            if path and Path(path) == ours:
+                found.append(process.info["pid"])
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return found
+
+
+def is_running_anywhere() -> bool:
+    return bool(running_instances())
+
+
 def kill_running(timeout: float = 5.0) -> int:
     """Снимает запущенные экземпляры прокси. Возвращает число снятых.
 

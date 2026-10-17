@@ -115,6 +115,7 @@ class Controller(QObject):
         # нельзя до перезапуска приложения, иначе выключить его вообще
         # невозможно: следующая же проверка видит игру и включает снова.
         self._profile_declined = ""
+        self._telegram_task: Task | None = None
         self.last_check: object | None = None
         self.last_check_at: datetime | None = None
         self._watch_timer = QTimer(self)
@@ -228,7 +229,7 @@ class Controller(QObject):
             active_vpn=tunnel.adapter if (tunnel := vpn.detect_fast()) else "",
             foreign_install=str(stranger.root) if stranger else "",
             telegram_installed=telegram.is_installed(),
-            telegram_running=self.telegram.is_running(),
+            telegram_running=telegram.is_running_anywhere(),
             active_profile=self._profile_name if self._profile_alive() else "",
             profile_action=self._decide_about_profiles(),
             log_tail=list(self._process.output) if self._process else [],
@@ -483,22 +484,48 @@ class Controller(QObject):
             self.refresh()
 
     def toggle_telegram(self) -> None:
-        """Включает или выключает прокси для Telegram."""
-        try:
-            if self.telegram.is_running():
-                self.telegram.stop()
-                self.message.emit("Прокси для Telegram остановлен")
-            else:
-                state = self.telegram.start()
-                self.message.emit(
-                    f"Прокси слушает {state.host}:{state.port} — "
-                    "нажмите «Открыть в Telegram» на вкладке Telegram"
-                )
-        except Exception as error:  # noqa: BLE001 — причину показываем пользователю
-            log.exception("Не удалось переключить прокси для Telegram")
-            self.error.emit(str(error))
-        finally:
-            self.refresh()
+        """Включает или выключает прокси для Telegram.
+
+        Состояние берём по запущенным процессам, а не у своего объекта:
+        прокси отпускает родителя сразу после старта, дескриптор тут же
+        мёртв, и каждое нажатие поднимало ещё один экземпляр — в трее
+        копились их значки.
+
+        Работа уходит в поток: остановка ждёт, пока прокси закроется сам
+        (он убирает за собой значок в трее), и в потоке интерфейса это
+        были секунды застывшего окна.
+        """
+        if self._telegram_task is not None and self._telegram_task.isRunning():
+            return
+
+        self._set_busy(True)
+        self._telegram_task = Task(self._switch_telegram)
+        self._telegram_task.done.connect(self._telegram_switched)
+        self._telegram_task.failed.connect(self._telegram_failed)
+        self._telegram_task.start()
+
+    def _switch_telegram(self) -> str:
+        if telegram.is_running_anywhere():
+            self.telegram.stop()
+            telegram.kill_running()
+            return "Прокси для Telegram остановлен"
+
+        state = self.telegram.start()
+        return (
+            f"Прокси слушает {state.host}:{state.port} — "
+            "нажмите «Открыть в Telegram» на вкладке Telegram"
+        )
+
+    def _telegram_switched(self, message: str) -> None:
+        self._set_busy(False)
+        self.message.emit(message)
+        self.refresh()
+
+    def _telegram_failed(self, message: str) -> None:
+        self._set_busy(False)
+        log.warning("Не удалось переключить прокси для Telegram: %s", message)
+        self.error.emit(message)
+        self.refresh()
 
     def relocate(self, target):
         """Переносит установку в другую папку и возвращает новый путь к программе.

@@ -36,6 +36,9 @@ log = logging.getLogger(__name__)
 
 SAMPLE_INTERVAL_MS = 1000
 
+# Как часто перечитывать список запущенных программ, пока экран открыт.
+APPS_REFRESH_MS = 3000
+
 # Вопрос «а как оно вообще понимает, что игра запустилась» возникает у всех,
 # поэтому ответ висит прямо на галочке, а не в документации.
 AUTO_START_HINT = (
@@ -70,6 +73,12 @@ class ProfilesView(QWidget):
         self._recorder: Recorder | None = None
         self._recorded_exe = ""
         self._shown_active = ""
+
+        # Список запущенных программ живёт своей жизнью: его обновляем, пока
+        # экран открыт, а не только при переходе на него.
+        self._apps_timer = QTimer(self)
+        self._apps_timer.setInterval(APPS_REFRESH_MS)
+        self._apps_timer.timeout.connect(self._refresh_apps)
         self._profiles: list[Profile] = []
         # Пока подставляем значения в галочку, её сигнал не должен
         # перезаписывать профиль.
@@ -205,6 +214,41 @@ class ProfilesView(QWidget):
         return card
 
     # --- данные ---------------------------------------------------------
+
+    def showEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        """Пока экран открыт, список приложений обновляется сам.
+
+        Программу для записи обычно запускают уже после того, как открыли
+        этот экран, — и она не появлялась в списке до перехода на другую
+        вкладку и обратно.
+        """
+        super().showEvent(event)
+        self._apps_timer.start()
+
+    def hideEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        super().hideEvent(event)
+        self._apps_timer.stop()
+
+    def _refresh_apps(self) -> None:
+        """Перечитывает список, сохраняя выбор.
+
+        Во время записи не трогаем: выбранная программа не должна уехать
+        из-под курсора, пока идёт запись её трафика.
+        """
+        if self._recorder is not None:
+            return
+
+        chosen = self._apps.currentItem()
+        wanted = chosen.data(Qt.ItemDataRole.UserRole) if chosen else None
+
+        self._apps.clear()
+        for app in appprofile.running_apps():
+            item = QListWidgetItem(app.label)
+            item.setData(Qt.ItemDataRole.UserRole, app.pid)
+            item.setData(Qt.ItemDataRole.UserRole + 1, app.exe)
+            self._apps.addItem(item)
+            if app.pid == wanted:
+                self._apps.setCurrentItem(item)
 
     def reload(self) -> None:
         if self._recorder is None:

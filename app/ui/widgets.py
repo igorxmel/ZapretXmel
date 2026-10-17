@@ -23,7 +23,11 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPaintEvent, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractButton,
+    QAbstractScrollArea,
+    QAbstractSpinBox,
+    QApplication,
     QComboBox,
+    QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -100,29 +104,44 @@ def _blend(start: QColor, end: QColor, ratio: float) -> QColor:
 
 
 class WheelGuard(QObject):
-    """Не даёт колесу мыши менять значения при прокрутке страницы.
+    """Колесо мыши листает страницу, а не меняет значения.
 
     Настройки длиннее экрана, их прокручивают — и курсор по дороге проходит
     над списками и счётчиками. Qt отдаёт колесо тому, что под курсором, и
     человек, листая страницу, незаметно менял таймаут проверки или выбранную
     стратегию.
 
-    Колесо работает, только когда поле выбрано щелчком: тогда это уже
-    осознанное действие, а не прокрутка мимо.
+    Значение колесом не меняется вовсе, даже если поле выбрано: проверка на
+    «выбрано щелчком» не спасала — попасть по полю, а потом крутить дальше,
+    получается само собой. Менять значение есть чем: щелчок, стрелки,
+    клавиатура.
     """
 
-    GUARDED = (QComboBox, QSpinBox, QSlider)
+    GUARDED = (QComboBox, QSpinBox, QDoubleSpinBox, QSlider, QAbstractSpinBox)
 
     def eventFilter(self, target, event) -> bool:  # noqa: N802 — имя задано Qt
-        if (
-            event.type() == QEvent.Type.Wheel
-            and isinstance(target, self.GUARDED)
-            and not target.hasFocus()
-        ):
-            # Событие не глотаем, а передаём выше — прокручивается страница.
-            event.ignore()
-            return True
-        return super().eventFilter(target, event)
+        if event.type() != QEvent.Type.Wheel or not isinstance(target, self.GUARDED):
+            return super().eventFilter(target, event)
+
+        # Событие не глотаем, а передаём прокручиваемой области выше —
+        # иначе страница замирала бы каждый раз, когда курсор проходит
+        # над полем.
+        area = self._scrollable(target)
+        if area is not None:
+            QApplication.sendEvent(area, event)
+        return True
+
+    @staticmethod
+    def _scrollable(widget):
+        """Ближайшая прокручиваемая область выше по дереву."""
+        parent = widget.parentWidget()
+        while parent is not None:
+            if isinstance(parent, QAbstractScrollArea) and not isinstance(
+                parent, WheelGuard.GUARDED
+            ):
+                return parent.viewport()
+            parent = parent.parentWidget()
+        return None
 
 
 class Sidebar(QWidget):

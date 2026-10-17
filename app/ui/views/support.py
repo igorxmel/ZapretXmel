@@ -40,6 +40,9 @@ WHAT_IT_PAYS_FOR = (
 REPO_URL = "https://github.com/igorxmel/ZapretXmel"
 ISSUES_URL = f"{REPO_URL}/issues/new"
 
+# Те, кто ловил поломки на себе, пока их не поймали все остальные.
+TESTERS = ("Dencraz", "Drendr", "DynamitNS")
+
 
 class SupportView(QWidget):
     """Благодарность и ссылка на Boosty."""
@@ -92,7 +95,20 @@ class SupportView(QWidget):
             boosty.hide()
         body.addWidget(boosty)
 
-        body.addWidget(Divider())
+
+
+        body.addStretch(1)
+        return card
+
+    def _build_people_card(self) -> Card:
+        card = Card("Спасибо этим людям")
+        body = card.body()
+
+        # Тестировщики — отдельной строкой и первыми: поломки, которые они
+        # ловят, стоят дороже денег, а узнать о них больше неоткуда.
+        testers = QLabel("Ловят поломки до всех остальных: " + ", ".join(TESTERS) + ".")
+        testers.setWordWrap(True)
+        body.addWidget(testers)
 
         # Помогает не только деньгами: найденная поломка стоит дороже, а
         # звезда — единственный способ для случайного человека сказать, что
@@ -117,12 +133,7 @@ class SupportView(QWidget):
         star.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(REPO_URL)))
         body.addWidget(star)
 
-        body.addStretch(1)
-        return card
-
-    def _build_people_card(self) -> Card:
-        card = Card("Спасибо этим людям")
-        body = card.body()
+        body.addWidget(Divider())
 
         self._list = QListWidget()
         body.addWidget(self._list, 1)
