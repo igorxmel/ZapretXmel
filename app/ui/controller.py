@@ -107,6 +107,10 @@ class Controller(QObject):
         # секунды, поэтому опрос состояния её ждать не должен.
         self._watch_worker = None
         self._watch_tried: list[str] = []
+        # Профиль поднимается и гасится не сам по себе, а по итогам опроса,
+        # и действие не должно запускать само себя заново.
+        self._profile_busy = False
+        self._profile_failed = ""
         self.last_check: object | None = None
         self.last_check_at: datetime | None = None
         self._watch_timer = QTimer(self)
@@ -356,6 +360,14 @@ class Controller(QObject):
             return ("", "")
 
         running = appwatch.running_executables()
+
+        # Приложение закрыли — забываем, что запуск профиля не удался:
+        # в следующий раз попробовать стоит, причина могла быть разовой.
+        if self._profile_failed:
+            failed = next((p for p in profiles if p.name == self._profile_failed), None)
+            if failed is None or not appwatch.is_running(failed.exe, running):
+                self._profile_failed = ""
+
         for profile in profiles:
             action = appwatch.decide(
                 profile.exe,
@@ -369,12 +381,30 @@ class Controller(QObject):
         return ("", "")
 
     def _follow_apps(self, action: str, name: str) -> None:
+        """Поднимает или гасит профиль вслед за приложением.
+
+        Входить сюда повторно нельзя. `start_profile` начинается со
+        `stop_profile`, тот зовёт `refresh`, `refresh` публикует состояние, а
+        публикация снова приводит сюда — профиль ведь ещё не поднят. Выходила
+        бесконечная рекурсия: программа падала с RecursionError и падала
+        снова после перезапуска, потому что галочка автозапуска лежит в самом
+        профиле и всё начиналось заново.
+        """
         from app.core import appprofile
+
+        if self._profile_busy:
+            return
 
         if action == "stop":
             log.info("Приложение профиля «%s» закрылось — гашу профиль", name)
             self.stop_profile()
             self.message.emit(f"Профиль «{name}» выключен вместе с приложением")
+            return
+
+        # Неудачный запуск не повторяем до следующего запуска приложения:
+        # иначе каждая проверка снова лезет поднимать winws, и журнал
+        # заполняется одной строкой в тысячи повторов.
+        if name == self._profile_failed:
             return
 
         profile = next((item for item in appprofile.load_all() if item.name == name), None)
@@ -396,29 +426,44 @@ class Controller(QObject):
             self.error.emit("Сначала выберите стратегию — из неё берётся способ обхода.")
             return
 
-        self.stop_profile()
+        # Флаг держится на всё действие: внутри дважды зовётся refresh, а тот
+        # публикует состояние и снова спрашивает, не пора ли поднять профиль.
+        self._profile_busy = True
         try:
-            built = appprofile.as_spec(profile, spec)
-            process = WinwsProcess(on_output=self.log_line.emit)
-            process.start(built)
-            if not winws.wait_until_ready():
-                raise RuntimeError("процесс winws не поднялся — смотрите раздел «Логи»")
-        except Exception as error:  # noqa: BLE001 — причину показываем пользователю
-            log.exception("Не удалось включить профиль приложения")
-            self.error.emit(str(error))
-            return
+            self.stop_profile()
+            try:
+                built = appprofile.as_spec(profile, spec)
+                process = WinwsProcess(on_output=self.log_line.emit)
+                process.start(built)
+                if not winws.wait_until_ready():
+                    raise RuntimeError("процесс winws не поднялся — смотрите раздел «Логи»")
+            except Exception as error:  # noqa: BLE001 — причину показываем пользователю
+                log.exception("Не удалось включить профиль приложения")
+                self._profile_failed = profile.name
+                self.error.emit(str(error))
+                return
 
-        self._profile_process = process
-        self._profile_name = profile.name
-        self.message.emit(f"Профиль «{profile.name}» включён")
+            self._profile_process = process
+            self._profile_name = profile.name
+            self._profile_failed = ""
+            self.message.emit(f"Профиль «{profile.name}» включён")
+        finally:
+            self._profile_busy = False
+
         self.refresh()
 
     def stop_profile(self) -> None:
-        if self._profile_process is not None:
-            self._profile_process.stop()
-            self._profile_process = None
-        self._profile_name = ""
-        self.refresh()
+        was_busy, self._profile_busy = self._profile_busy, True
+        try:
+            if self._profile_process is not None:
+                self._profile_process.stop()
+                self._profile_process = None
+            self._profile_name = ""
+        finally:
+            self._profile_busy = was_busy
+
+        if not was_busy:
+            self.refresh()
 
     def toggle_telegram(self) -> None:
         """Включает или выключает прокси для Telegram."""

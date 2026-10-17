@@ -337,7 +337,9 @@ class MainWindow(FramelessWindow):
         self._draw_spinners()
 
         # Окно свёрнуто — человек его и не увидит, поэтому говорим в трей.
-        if was_busy and not busy and not self.isVisible():
+        # Проверять одну только видимость мало: свёрнутое в панель задач окно
+        # Qt всё ещё считает видимым, и уведомление не приходило.
+        if was_busy and not busy and (not self.isVisible() or self.isMinimized()):
             self._tray.showMessage(
                 "ZapretXmel",
                 f"{title}: работа закончена",

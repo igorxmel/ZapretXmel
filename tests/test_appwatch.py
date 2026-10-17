@@ -54,3 +54,21 @@ def test_disabled_autostart_is_left_alone() -> None:
 
 def test_profile_without_executable_is_skipped() -> None:
     assert appwatch.decide("", auto=True, profile_active=False, running=RUNNING) == ""
+
+
+def test_start_and_stop_do_not_chase_each_other() -> None:
+    """Решение не должно просить поднять профиль, пока он уже поднимается.
+
+    На этом программа падала насмерть: `start_profile` начинался со
+    `stop_profile`, тот звал обновление состояния, обновление снова
+    спрашивало «не пора ли поднять профиль» — профиль ведь ещё не поднят, —
+    и всё повторялось до RecursionError. Перезапуск не спасал: галочка
+    автозапуска лежит в самом профиле, и цикл начинался заново.
+
+    Здесь проверяется сама развилка: пока профиль считается активным,
+    команды «start» быть не может, а значит и повторного входа.
+    """
+    running = {r"c:\games\game.exe"}
+
+    assert appwatch.decide(r"C:\Games\game.exe", True, False, running) == "start"
+    assert appwatch.decide(r"C:\Games\game.exe", True, True, running) == ""

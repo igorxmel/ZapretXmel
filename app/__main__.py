@@ -13,12 +13,13 @@ import logging
 import sys
 
 from PyQt6.QtGui import QIcon
-from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtWidgets import QApplication
 
 from app import logging_setup
 from app.core import elevation, location, paths, singleton
 from app.core.config import Settings
 from app.core.updater import selfupdate
+from app.ui import dialogs
 from app.ui.theme import build_stylesheet
 
 log = logging.getLogger(__name__)
@@ -39,12 +40,14 @@ def ensure_admin(app: QApplication, skip: bool = False) -> bool:
         log.info("Перезапуск с правами администратора")
         return False
 
-    QMessageBox.critical(
+    dialogs.tell(
         None,
         "Нужны права администратора",
-        "ZapretXmel управляет службой Windows и загружает драйвер WinDivert — "
-        "без прав администратора это невозможно.\n\n"
-        "Запустите приложение ещё раз и подтвердите запрос системы.",
+        "Без прав администратора обходом управлять нельзя.",
+        "ZapretXmel создаёт службу Windows и загружает драйвер WinDivert — "
+        "и то, и другое требует прав администратора.\n\n"
+        "Запустите программу ещё раз и подтвердите запрос системы.",
+        tone="warning",
     )
     app.quit()
     return False
@@ -77,11 +80,15 @@ def install_crash_handler() -> None:
 
         log.critical("Необработанная ошибка", exc_info=(exc_type, exc_value, traceback))
         with contextlib.suppress(Exception):  # на этом этапе показать может быть уже нечем
-            QMessageBox.critical(
+            dialogs.tell(
                 None,
                 "ZapretXmel: сбой",
+                "Что-то сломалось так, что продолжать программа не может.",
                 f"{exc_type.__name__}: {exc_value}\n\n"
-                f"Подробности в файле {paths.logs_dir() / 'app.log'}",
+                f"Подробности — в журнале {paths.logs_dir() / 'app.log'}. "
+                "Его стоит приложить к issue на GitHub: по нему видно, что "
+                "именно случилось.",
+                tone="danger",
             )
 
     sys.excepthook = handle
@@ -96,35 +103,36 @@ def revive_stuck_instance() -> bool:
     """
     stuck = singleton.other_instances()
     if not stuck:
-        QMessageBox.information(
+        dialogs.tell(
             None,
             "ZapretXmel уже запущен",
-            "Программа уже работает, но её окно пока не появилось.\n\n"
-            "Подождите несколько секунд и попробуйте ещё раз — или откройте её "
-            "из значка в трее.",
+            "Программа уже работает, но окно ещё не появилось.",
+            "Подождите несколько секунд и попробуйте ещё раз — или откройте "
+            "её из значка в трее.",
         )
         return False
 
-    answer = QMessageBox.question(
+    if not dialogs.confirm(
         None,
         "ZapretXmel уже запущен",
-        "Программа есть в памяти, но её окно не отзывается — похоже, прошлый "
-        "запуск завис.\n\nЗавершить его и открыть программу заново?",
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        QMessageBox.StandardButton.Yes,
-    )
-    if answer is not QMessageBox.StandardButton.Yes:
+        "Похоже, прошлый запуск завис.",
+        "Программа есть в памяти, но её окно не отзывается. Завершить этот "
+        "процесс и открыть программу заново?",
+        action="Завершить и открыть",
+    ):
         return False
 
     singleton.terminate_others()
     if singleton.acquire():
         return True
 
-    QMessageBox.warning(
+    dialogs.tell(
         None,
         "ZapretXmel",
-        "Зависший процесс не удалось завершить. Снимите ZapretXmel.exe в "
-        "диспетчере задач и запустите программу ещё раз.",
+        "Зависший процесс не удалось завершить.",
+        "Снимите ZapretXmel.exe в диспетчере задач и запустите программу "
+        "ещё раз.",
+        tone="warning",
     )
     return False
 
