@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
 from app.core import service, strategies
 from app.ui import dialogs
 from app.ui.controller import Controller, Status
-from app.ui.theme.tokens import COLORS, SPACE
+from app.ui.theme.tokens import BRAND, COLORS, SPACE
 from app.ui.widgets import Card, Divider, KeyValueRow, PowerButton, StatusPill, view_header
 from app.ui.workers import QuickCheckWorker
 
@@ -27,7 +27,12 @@ class PowerTile(QWidget):
 
     toggled = pyqtSignal()
 
-    def __init__(self, title: str, parent: QWidget | None = None):
+    def __init__(
+        self,
+        title: str,
+        parent: QWidget | None = None,
+        accent: str = COLORS["success"],
+    ):
         super().__init__(parent)
 
         layout = QVBoxLayout(self)
@@ -35,7 +40,7 @@ class PowerTile(QWidget):
         layout.setSpacing(SPACE["sm"])
         layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
-        self.button = PowerButton()
+        self.button = PowerButton(accent=accent)
         self.button.clicked.connect(self.toggled.emit)
         layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignHCenter)
 
@@ -116,7 +121,9 @@ class DashboardView(QWidget):
         self._bypass.toggled.connect(self._toggle_bypass)
         tiles.addWidget(self._bypass)
 
-        self._telegram = PowerTile("Telegram")
+        # Прокси везде обозначен голубым — в трее, в боковом меню. Зелёное
+        # кольцо здесь выбивалось из этого ряда.
+        self._telegram = PowerTile("Telegram", accent=BRAND["telegram"])
         self._telegram.toggled.connect(self._toggle_telegram)
         tiles.addWidget(self._telegram)
 

@@ -19,7 +19,7 @@ from app import logging_setup
 from app.core import elevation, location, paths, singleton
 from app.core.config import Settings
 from app.core.updater import selfupdate
-from app.ui import dialogs
+from app.ui import dialogs, motion
 from app.ui.theme import build_stylesheet
 
 log = logging.getLogger(__name__)
@@ -194,6 +194,7 @@ def main() -> int:
             return 0
 
     settings = Settings.load()
+    motion.set_enabled(settings.animations)
 
     from app.ui.shell import MainWindow
 

@@ -8,7 +8,16 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QPointF, QRectF, QSize, Qt, pyqtSignal
+from PyQt6.QtCore import (
+    QEasingCurve,
+    QPointF,
+    QPropertyAnimation,
+    QRectF,
+    QSize,
+    Qt,
+    pyqtProperty,
+    pyqtSignal,
+)
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPaintEvent, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractButton,
@@ -21,6 +30,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.ui import motion
 from app.ui.theme.tokens import COLORS, FONT_SIZE, SPACE
 
 
@@ -61,6 +71,24 @@ class Divider(QFrame):
         self.setFixedHeight(1)
 
 
+# Длительности анимаций. Короткие нарочно: движение должно подсказывать, что
+# состояние сменилось, а не заставлять себя ждать — по кнопке и по пунктам
+# меню щёлкают часто и быстро.
+RING_FILL_MS = 260
+PILL_FADE_MS = 220
+NAV_SLIDE_MS = 180
+
+
+def _blend(start: QColor, end: QColor, ratio: float) -> QColor:
+    """Цвет между двумя по доле `ratio` от 0 до 1."""
+    ratio = max(0.0, min(1.0, ratio))
+    return QColor(
+        round(start.red() + (end.red() - start.red()) * ratio),
+        round(start.green() + (end.green() - start.green()) * ratio),
+        round(start.blue() + (end.blue() - start.blue()) * ratio),
+    )
+
+
 class StatusPill(QWidget):
     """Точка состояния с подписью.
 
@@ -71,14 +99,47 @@ class StatusPill(QWidget):
     def __init__(self, text: str = "", color: str = COLORS["text_muted"], parent=None):
         super().__init__(parent)
         self._text = text
-        self._color = color
+        self._color = QColor(color)
+        self._from = QColor(color)
+        self._target = QColor(color)
+        self._shift = 1.0
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.setMinimumHeight(20)
 
+        self._fade = QPropertyAnimation(self, b"shift", self)
+        self._fade.setDuration(PILL_FADE_MS)
+        self._fade.setEasingCurve(QEasingCurve.Type.OutCubic)
+
     def set_state(self, text: str, color: str) -> None:
-        self._text, self._color = text, color
+        """Подпись меняется сразу, цвет — переходом.
+
+        Состояние опрашивается каждые несколько секунд, и мигание точки на
+        каждом опросе читалось бы как тревога. Переход от текущего цвета,
+        а не от прежнего состояния: опрос может застать анимацию на полпути.
+        """
+        self._text = text
+        target = QColor(color)
+        if target != self._target:
+            self._from = QColor(self._color)
+            self._target = target
+            self._fade.stop()
+            self._fade.setDuration(motion.duration(PILL_FADE_MS))
+            self._fade.setStartValue(0.0)
+            self._fade.setEndValue(1.0)
+            self._fade.start()
+
         self.updateGeometry()
         self.update()
+
+    def get_shift(self) -> float:
+        return self._shift
+
+    def set_shift(self, value: float) -> None:
+        self._shift = value
+        self._color = _blend(self._from, self._target, value)
+        self.update()
+
+    shift = pyqtProperty(float, fget=get_shift, fset=set_shift)
 
     def sizeHint(self) -> QSize:
         metrics = self.fontMetrics()
@@ -90,7 +151,7 @@ class StatusPill(QWidget):
 
         radius = 4.0
         center_y = self.height() / 2
-        painter.setBrush(QColor(self._color))
+        painter.setBrush(self._color)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawEllipse(QRectF(1, center_y - radius, radius * 2, radius * 2))
 
@@ -114,12 +175,43 @@ class PowerButton(QAbstractButton):
     выше центра, и выровнять его средствами текста не получается.
     """
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent: QWidget | None = None, accent: str = COLORS["success"]):
         super().__init__(parent)
         self.setCheckable(True)
         self.setFixedSize(116, 116)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._busy = False
+        self._accent = QColor(accent)
+
+        # Кольцо не перекрашивается рывком, а наливается цветом. Значение
+        # анимации — от 0 (выключено) до 1 (работает).
+        self._fill = 0.0
+        self._glow = QPropertyAnimation(self, b"fill", self)
+        self._glow.setDuration(RING_FILL_MS)
+        self._glow.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.toggled.connect(self._animate_fill)
+
+    def _animate_fill(self, on: bool) -> None:
+        """Ведёт кольцо к новому состоянию от того, где оно сейчас.
+
+        Отсчёт именно от текущего значения, а не от нуля: по кнопке щёлкают
+        быстро и по многу раз, и анимация, начинающая каждый раз сначала,
+        дёргала бы кольцо вместо того, чтобы доводить его до места.
+        """
+        self._glow.stop()
+        self._glow.setDuration(motion.duration(RING_FILL_MS))
+        self._glow.setStartValue(self._fill)
+        self._glow.setEndValue(1.0 if on else 0.0)
+        self._glow.start()
+
+    def get_fill(self) -> float:
+        return self._fill
+
+    def set_fill(self, value: float) -> None:
+        self._fill = value
+        self.update()
+
+    fill = pyqtProperty(float, fget=get_fill, fset=set_fill)
 
     def set_busy(self, busy: bool) -> None:
         self._busy = busy
@@ -132,10 +224,11 @@ class PowerButton(QAbstractButton):
 
         if self._busy:
             ring = glyph = QColor(COLORS["text_muted"])
-        elif self.isChecked():
-            ring, glyph = QColor(COLORS["success"]), QColor(COLORS["text"])
         else:
-            ring, glyph = QColor(COLORS["border_strong"]), QColor(COLORS["text_dim"])
+            # Между «выключено» и «работает» идём плавно: цвет смешивается
+            # по тому, насколько кольцо уже налилось.
+            ring = _blend(QColor(COLORS["border_strong"]), self._accent, self._fill)
+            glyph = _blend(QColor(COLORS["text_dim"]), QColor(COLORS["text"]), self._fill)
 
         if self.underMouse() and not self._busy:
             ring = ring.lighter(125)

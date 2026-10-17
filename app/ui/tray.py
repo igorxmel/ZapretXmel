@@ -51,13 +51,13 @@ def build_icon(active: bool, proxy: bool = False) -> QIcon:
         painter.drawPixmap(0, 0, logo)
         painter.setOpacity(1.0)
 
-    # Обход — правая точка, прокси — левее: порядок тот же, что у кнопок на
-    # главном экране, чтобы значок читался без подсказки.
+    # Порядок тот же, что у кнопок на главном экране: сначала обход, потом
+    # Telegram. В трее они стояли наоборот, и значок читался задом наперёд.
     dots = []
-    if proxy:
-        dots.append(BRAND["telegram"])
     if active:
         dots.append(COLORS["success"])
+    if proxy:
+        dots.append(BRAND["telegram"])
     if not dots:
         dots.append(COLORS["text_muted"])
 

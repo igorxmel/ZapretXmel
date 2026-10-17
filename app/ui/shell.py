@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, QRect, Qt, QTimer
 from PyQt6.QtGui import QCloseEvent, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 from app import __version__
 from app.core import foreground, updates
 from app.core.config import Settings
-from app.ui import dialogs
+from app.ui import dialogs, motion
 from app.ui.controller import Controller, Status
 from app.ui.frameless import FramelessWindow
 from app.ui.theme.tokens import BRAND, COLORS, SIZE, SPACE
@@ -53,6 +53,9 @@ BUSY_SECTIONS = {
     "updates": "Обновление",
     "telegram": "Установка прокси",
 }
+
+# Переезд подсветки в боковом меню.
+NAV_SLIDE_MS = 180
 
 SPINNER_INTERVAL_MS = 90
 SPINNER_STEP = 30
@@ -194,6 +197,7 @@ class MainWindow(FramelessWindow):
         sidebar = QWidget()
         sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(SIZE["sidebar_width"])
+        self._sidebar = sidebar
 
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(0, 0, 0, SPACE["xl"])
@@ -248,6 +252,19 @@ class MainWindow(FramelessWindow):
             self._nav_buttons[key] = button
             layout.addWidget(button)
 
+        # Подсветка выбранного пункта — отдельная полоска под кнопками:
+        # переходы в таблице стилей Qt не поддерживает, и выделение
+        # перескакивало рывком. Кнопки прозрачные, поэтому она видна сквозь
+        # них.
+        self._nav_mark = QFrame(sidebar)
+        self._nav_mark.setObjectName("NavMark")
+        self._nav_mark.lower()
+        self._nav_mark.hide()
+
+        self._nav_slide = QPropertyAnimation(self._nav_mark, b"geometry", self)
+        self._nav_slide.setDuration(NAV_SLIDE_MS)
+        self._nav_slide.setEasingCurve(QEasingCurve.Type.OutCubic)
+
         layout.addStretch(1)
 
         self._sidebar_state = QLabel("")
@@ -299,6 +316,7 @@ class MainWindow(FramelessWindow):
         self._stack.setCurrentWidget(view)
         if button := self._nav_buttons.get(key):
             button.setChecked(True)
+            self._move_nav_mark(button)
 
         # Экраны перечитывают данные при открытии: состояние сборки меняется
         # и снаружи приложения — через консольное меню или другой GUI.
@@ -346,6 +364,30 @@ class MainWindow(FramelessWindow):
                 build_icon(self.controller.status.is_active),
                 6000,
             )
+
+    def _move_nav_mark(self, button: QPushButton) -> None:
+        """Ведёт подсветку к выбранному пункту.
+
+        Отсчёт от того места, где полоска сейчас, а не от прежнего пункта:
+        по меню щёлкают быстро и подряд, и анимация, начинающая каждый раз
+        с нуля, дёргала бы её назад перед каждым новым переходом.
+        """
+        target = QRect(0, button.y(), self._sidebar.width(), button.height())
+
+        if not self._nav_mark.isVisible():
+            self._nav_mark.setGeometry(target)
+            self._nav_mark.show()
+            self._nav_mark.lower()
+            return
+
+        if self._nav_mark.geometry() == target:
+            return
+
+        self._nav_slide.stop()
+        self._nav_slide.setDuration(motion.duration(NAV_SLIDE_MS))
+        self._nav_slide.setStartValue(self._nav_mark.geometry())
+        self._nav_slide.setEndValue(target)
+        self._nav_slide.start()
 
     def _spin(self) -> None:
         self._spin_angle = (self._spin_angle + SPINNER_STEP) % 360

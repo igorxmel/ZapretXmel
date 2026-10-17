@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
 
 from app.core import fakes, gamefilter, ipset, location, paths, shortcut, uninstall
 from app.core.gamefilter import GameFilter
-from app.ui import dialogs
+from app.ui import dialogs, motion
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, Divider, KeyValueRow, view_header
@@ -230,6 +230,20 @@ class SettingsView(QWidget):
 
         body.addWidget(Divider())
 
+        body.addWidget(QLabel("Производительность"))
+
+        self._animations = QCheckBox("Анимации в интерфейсе")
+        self._animations.setToolTip(
+            "Плавная смена состояния у кнопок и переезд подсветки в этом "
+            "меню. Движение здесь служебное — подсказывает, что состояние "
+            "сменилось. На слабой машине или через удалённый рабочий стол "
+            "его можно убрать."
+        )
+        self._animations.toggled.connect(self._save_flags)
+        body.addWidget(self._animations)
+
+        body.addWidget(Divider())
+
         welcome = QPushButton("Показать окно знакомства")
         welcome.setToolTip("То самое окно с шагами настройки, что открывается при первом запуске")
         welcome.clicked.connect(self._show_welcome)
@@ -409,6 +423,7 @@ class SettingsView(QWidget):
             self._folder_row.set_value(str(paths.install_root()))
             self._shortcut.setChecked(shortcut.exists())
             self._start_menu.setChecked(shortcut.exists(shortcut.START_MENU))
+            self._animations.setChecked(self.controller.settings.animations)
             self._shortcut.setEnabled(paths.is_frozen())
             self._shortcut.setToolTip(
                 ""
@@ -657,6 +672,10 @@ class SettingsView(QWidget):
         settings.start_minimized = self._start_minimized.isChecked()
         settings.minimize_to_tray = self._minimize_to_tray.isChecked()
         settings.notify_updates = self._notify_updates.isChecked()
+        settings.animations = self._animations.isChecked()
+        # Срабатывает сразу: длительность спрашивается в момент запуска
+        # анимации, а не при создании виджета.
+        motion.set_enabled(settings.animations)
         settings.watch_enabled = self._watch.isChecked()
         settings.watch_interval_minutes = self._watch_interval.value()
         settings.watch_autoswitch = self._watch_autoswitch.isChecked()

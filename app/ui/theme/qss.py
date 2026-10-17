@@ -185,11 +185,17 @@ def build_stylesheet() -> str:
         color: {BRAND["orange"]};
     }}
 
+    /* Подложку и оранжевую полоску рисует отдельный виджет NavMark: он
+       переезжает между пунктами плавно, а переходов в таблице стилей Qt
+       нет. Здесь остаётся только то, что относится к самому тексту. */
     QPushButton#NavButton:checked {{
-        background: {c["surface"]};
-        border-left: 2px solid {BRAND["orange"]};
         color: {c["text"]};
         font-weight: 600;
+    }}
+
+    QFrame#NavMark {{
+        background: {c["surface"]};
+        border-left: 2px solid {BRAND["orange"]};
     }}
 
     /* --- заголовки и текст --- */
