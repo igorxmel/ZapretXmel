@@ -74,7 +74,7 @@ class Divider(QFrame):
 # Длительности анимаций. Короткие нарочно: движение должно подсказывать, что
 # состояние сменилось, а не заставлять себя ждать — по кнопке и по пунктам
 # меню щёлкают часто и быстро.
-RING_FILL_MS = 260
+RING_FILL_MS = 460
 PILL_FADE_MS = 220
 NAV_SLIDE_MS = 180
 
@@ -188,7 +188,7 @@ class PowerButton(QAbstractButton):
         self._fill = 0.0
         self._glow = QPropertyAnimation(self, b"fill", self)
         self._glow.setDuration(RING_FILL_MS)
-        self._glow.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._glow.setEasingCurve(QEasingCurve.Type.InOutCubic)
         self.toggled.connect(self._animate_fill)
 
     def _animate_fill(self, on: bool) -> None:
@@ -197,7 +197,15 @@ class PowerButton(QAbstractButton):
         Отсчёт именно от текущего значения, а не от нуля: по кнопке щёлкают
         быстро и по многу раз, и анимация, начинающая каждый раз сначала,
         дёргала бы кольцо вместо того, чтобы доводить его до места.
+
+        Пока кнопка занята, анимация не идёт: в это время кольцо нарисовано
+        серым и перехода всё равно не видно. Включение службы занимает
+        секунду-две, и переход успевал закончиться целиком за этой серой
+        заглушкой — со стороны кольцо перекрашивалось рывком.
         """
+        if self._busy:
+            return
+
         self._glow.stop()
         self._glow.setDuration(motion.duration(RING_FILL_MS))
         self._glow.setStartValue(self._fill)
@@ -214,8 +222,17 @@ class PowerButton(QAbstractButton):
     fill = pyqtProperty(float, fget=get_fill, fset=set_fill)
 
     def set_busy(self, busy: bool) -> None:
-        self._busy = busy
+        """Занятая кнопка нарисована серым; переход показываем после неё."""
+        was, self._busy = self._busy, busy
         self.setEnabled(not busy)
+
+        if was and not busy:
+            self._glow.stop()
+            # Начинаем с противоположного края: состояние уже сменилось,
+            # пока кнопка была серой, и наливаться кольцу иначе неоткуда.
+            self._fill = 0.0 if self.isChecked() else 1.0
+            self._animate_fill(self.isChecked())
+
         self.update()
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 — имя задано Qt
@@ -225,9 +242,7 @@ class PowerButton(QAbstractButton):
         if self._busy:
             ring = glyph = QColor(COLORS["text_muted"])
         else:
-            # Между «выключено» и «работает» идём плавно: цвет смешивается
-            # по тому, насколько кольцо уже налилось.
-            ring = _blend(QColor(COLORS["border_strong"]), self._accent, self._fill)
+            ring = QColor(COLORS["border_strong"])
             glyph = _blend(QColor(COLORS["text_dim"]), QColor(COLORS["text"]), self._fill)
 
         if self.underMouse() and not self._busy:
@@ -242,6 +257,16 @@ class PowerButton(QAbstractButton):
             pen.setStyle(Qt.PenStyle.DashLine)
         painter.setPen(pen)
         painter.drawEllipse(circle)
+
+        # Кольцо не перекрашивается, а обводится: цветная дуга идёт от
+        # двенадцати часов по часовой стрелке и доходит до полного круга.
+        # Смена цвета на тёмном фоне почти не читается — а растущая дуга
+        # видна сразу и объясняет, что состояние меняется прямо сейчас.
+        if not self._busy and self._fill > 0.0:
+            accent = QPen(self._accent, 2.5, cap=Qt.PenCapStyle.RoundCap)
+            painter.setPen(accent)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawArc(circle, 90 * 16, -round(360 * 16 * self._fill))
 
         centre_x, centre_y = self.width() / 2, self.height() / 2
         radius = self.width() * 0.17

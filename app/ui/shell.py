@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, QRect, Qt, QTimer
+from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
 from PyQt6.QtGui import QCloseEvent, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -54,8 +54,10 @@ BUSY_SECTIONS = {
     "telegram": "Установка прокси",
 }
 
-# Переезд подсветки в боковом меню.
-NAV_SLIDE_MS = 180
+# Переезд полоски в боковом меню. Длиннее, чем кажется нужным: на коротком
+# переходе между соседними пунктами движение не успевает прочитаться.
+NAV_SLIDE_MS = 240
+NAV_MARK_WIDTH = 2
 
 SPINNER_INTERVAL_MS = 90
 SPINNER_STEP = 30
@@ -252,18 +254,24 @@ class MainWindow(FramelessWindow):
             self._nav_buttons[key] = button
             layout.addWidget(button)
 
-        # Подсветка выбранного пункта — отдельная полоска под кнопками:
-        # переходы в таблице стилей Qt не поддерживает, и выделение
-        # перескакивало рывком. Кнопки прозрачные, поэтому она видна сквозь
-        # них.
+        # Оранжевая полоска выбранного пункта — отдельный виджет: переходов
+        # таблица стилей Qt не поддерживает, и выделение перескакивало рывком.
+        #
+        # Лежит поверх кнопок, а не под ними: наведение красит кнопку
+        # подложкой, и полоска, будучи снизу, пропадала ровно под курсором —
+        # то есть всегда там, куда человек только что нажал. Щелчки сквозь
+        # неё проходят, поэтому попасть по пункту она не мешает.
         self._nav_mark = QFrame(sidebar)
         self._nav_mark.setObjectName("NavMark")
-        self._nav_mark.lower()
+        self._nav_mark.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+        self._nav_mark.setFixedWidth(NAV_MARK_WIDTH)
+        self._nav_mark.raise_()
         self._nav_mark.hide()
 
-        self._nav_slide = QPropertyAnimation(self._nav_mark, b"geometry", self)
-        self._nav_slide.setDuration(NAV_SLIDE_MS)
-        self._nav_slide.setEasingCurve(QEasingCurve.Type.OutCubic)
+        # Ездит только по вертикали: ширина и высота у пунктов одинаковые, и
+        # анимировать всю геометрию — лишняя перерисовка на каждом кадре.
+        self._nav_slide = QPropertyAnimation(self._nav_mark, b"pos", self)
+        self._nav_slide.setEasingCurve(QEasingCurve.Type.InOutCubic)
 
         layout.addStretch(1)
 
@@ -372,20 +380,21 @@ class MainWindow(FramelessWindow):
         по меню щёлкают быстро и подряд, и анимация, начинающая каждый раз
         с нуля, дёргала бы её назад перед каждым новым переходом.
         """
-        target = QRect(0, button.y(), self._sidebar.width(), button.height())
+        self._nav_mark.setFixedHeight(button.height())
+        target = QPoint(0, button.y())
 
         if not self._nav_mark.isVisible():
-            self._nav_mark.setGeometry(target)
+            self._nav_mark.move(target)
             self._nav_mark.show()
-            self._nav_mark.lower()
+            self._nav_mark.raise_()
             return
 
-        if self._nav_mark.geometry() == target:
+        if self._nav_mark.pos() == target:
             return
 
         self._nav_slide.stop()
         self._nav_slide.setDuration(motion.duration(NAV_SLIDE_MS))
-        self._nav_slide.setStartValue(self._nav_mark.geometry())
+        self._nav_slide.setStartValue(self._nav_mark.pos())
         self._nav_slide.setEndValue(target)
         self._nav_slide.start()
 
