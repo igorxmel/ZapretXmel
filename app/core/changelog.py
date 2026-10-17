@@ -29,13 +29,28 @@ def file() -> Path:
 
 
 def section(text: str, version: str) -> str:
-    """Содержимое раздела `## <версия>` без заголовка."""
-    pattern = re.compile(
-        rf"^##\s+v?{re.escape(version)}\s*$(.*?)(?=^##\s|\Z)",
-        re.MULTILINE | re.DOTALL,
-    )
-    found = pattern.search(text)
-    return found.group(1).strip() if found else ""
+    """Содержимое раздела `## <версия>` без заголовка.
+
+    Для тестовой сборки (`1.1.0-rc.1`) годится раздел обычной версии:
+    описывают они одно и то же, и переписывать его дважды, слово в слово,
+    только ради номера — верный способ развести их по содержанию.
+    """
+    for wanted in _candidates(version):
+        pattern = re.compile(
+            rf"^##\s+v?{re.escape(wanted)}\s*$(.*?)(?=^##\s|\Z)",
+            re.MULTILINE | re.DOTALL,
+        )
+        found = pattern.search(text)
+        if found:
+            return found.group(1).strip()
+
+    return ""
+
+
+def _candidates(version: str) -> list[str]:
+    """Номер версии и он же без пометки тестовой сборки."""
+    base = version.split("-", 1)[0]
+    return [version] if base == version else [version, base]
 
 
 def read(version: str) -> str:

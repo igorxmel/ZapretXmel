@@ -134,7 +134,7 @@ class UpdatesView(QWidget):
 
         self._app_check.setEnabled(False)
         self._app_say("Смотрю релизы программы…")
-        self._task = Task(selfupdate.check)
+        self._task = Task(selfupdate.check, testing=self.controller.settings.testing_builds)
         self._task.done.connect(self._app_checked)
         self._task.failed.connect(self._app_failed)
         self._task.start()

@@ -28,7 +28,16 @@ TG_PROXY_REPO = "Flowseal/tg-ws-proxy"
 
 API_ROOT = "https://api.github.com"
 USER_AGENT = "ZapretXmel"
-_VERSION_RE = re.compile(r"(\d+(?:\.\d+)*)([a-z]*)", re.IGNORECASE)
+_VERSION_RE = re.compile(
+    r"(\d+(?:\.\d+)*)([a-z]*)(?:-([0-9a-z.]+))?",
+    re.IGNORECASE,
+)
+
+# Ранг обычного релиза и пре-релиза. Разделять их обязательно: по semver
+# `1.1.0-rc.1` **младше** `1.1.0`, а буквенный суффикс апстрима (`1.9.9d`) —
+# наоборот, правка поверх номерной версии и потому старше.
+_RELEASE = 1
+_PRERELEASE = 0
 
 
 @dataclass(frozen=True)
@@ -46,6 +55,11 @@ class Release:
     name: str
     body: str
     published_at: str
+    # Тестовая сборка. GitHub помечает такие сам и не отдаёт их в
+    # `/releases/latest` — поэтому обычный пользователь их не видит.
+    prerelease: bool = False
+    # Черновик: виден только владельцу репозитория и ставиться не должен.
+    draft: bool = False
     assets: list[Asset] = field(default_factory=list)
 
     @property
@@ -67,16 +81,33 @@ class Release:
         return max(zips, key=lambda a: a.size) if zips else None
 
 
-def parse_version(value: str) -> tuple[tuple[int, ...], str]:
+def parse_version(value: str) -> tuple:
     """Разбирает версию в вид, пригодный для сравнения.
 
-    `1.10.3` -> ((1, 10, 3), ''), `1.9.9d` -> ((1, 9, 9), 'd').
+    Суффиксов два вида, и означают они противоположное:
+
+    - буквенный сразу после номера — правка апстрима поверх версии,
+      `1.9.9d` **новее** `1.9.9`;
+    - через дефис — пре-релиз по semver, `1.1.0-rc.1` **старее** `1.1.0`.
+
+    Второе важно для тестовых сборок: без этого программа считала бы
+    `1.1.0-rc.1` и `1.1.0` одной версией, и человек, поставивший тестовую,
+    никогда не получил бы обычную.
     """
     match = _VERSION_RE.search(value or "")
     if not match:
-        return (), ""
+        return (), _RELEASE, ""
+
     numbers = tuple(int(part) for part in match.group(1).split("."))
-    return numbers, match.group(2).lower()
+    letters = (match.group(2) or "").lower()
+    pre = (match.group(3) or "").lower()
+
+    if not pre:
+        return numbers, _RELEASE, letters
+
+    # `rc.1` -> ('rc', 1): сначала по названию, потом по номеру сборки.
+    parts = tuple(int(part) if part.isdigit() else part for part in pre.split("."))
+    return numbers, _PRERELEASE, parts
 
 
 def is_newer(candidate: str, installed: str) -> bool:
@@ -89,14 +120,31 @@ def is_newer(candidate: str, installed: str) -> bool:
     return left > right
 
 
-def latest_release(repo: str = CORE_REPO, timeout: int = 20) -> Release:
-    response = requests.get(
-        f"{API_ROOT}/repos/{repo}/releases/latest",
-        timeout=timeout,
-        headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT},
-    )
-    response.raise_for_status()
-    return _to_release(response.json())
+def latest_release(repo: str = CORE_REPO, timeout: int = 20, testing: bool = False) -> Release:
+    """Последний релиз. `testing` — считать и тестовые сборки тоже.
+
+    Обычный путь — `/releases/latest`, и это не просто «первый из списка»:
+    GitHub отдаёт там последний **не**тестовый и неподготовительный релиз.
+    Поэтому пометка pre-release сама по себе прячет сборку от всех, кто не
+    просил тестовые.
+    """
+    if not testing:
+        response = requests.get(
+            f"{API_ROOT}/repos/{repo}/releases/latest",
+            timeout=timeout,
+            headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT},
+        )
+        response.raise_for_status()
+        return _to_release(response.json())
+
+    # В списке релизы идут от новых к старым, но «новее» здесь определяем
+    # сами: даты публикации недостаточно — релиз могли выпустить задним
+    # числом или поправить описание старого.
+    releases = [item for item in list_releases(repo, timeout=timeout) if not item.draft]
+    if not releases:
+        raise LookupError(f"у {repo} нет ни одного релиза")
+
+    return max(releases, key=lambda item: parse_version(item.version))
 
 
 def list_releases(repo: str = CORE_REPO, limit: int = 10, timeout: int = 20) -> list[Release]:
@@ -116,6 +164,8 @@ def _to_release(data: dict) -> Release:
         name=data.get("name", ""),
         body=data.get("body", ""),
         published_at=data.get("published_at", ""),
+        prerelease=bool(data.get("prerelease", False)),
+        draft=bool(data.get("draft", False)),
         assets=[
             Asset(
                 name=item.get("name", ""),

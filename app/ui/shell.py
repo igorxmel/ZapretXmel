@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, Qt, QTimer
+from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
 from PyQt6.QtGui import QCloseEvent, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -39,7 +39,7 @@ from app.ui.views.support import SupportView
 from app.ui.views.telegram import TelegramView
 from app.ui.views.updates import UpdatesView
 from app.ui.views.welcome import WelcomeWindow
-from app.ui.widgets import banner_pixmap, spinner_icon
+from app.ui.widgets import NAV_MARK_WIDTH, Sidebar, banner_pixmap, spinner_icon
 from app.ui.workers import Task
 
 log = logging.getLogger(__name__)
@@ -57,7 +57,6 @@ BUSY_SECTIONS = {
 # Переезд полоски в боковом меню. Длиннее, чем кажется нужным: на коротком
 # переходе между соседними пунктами движение не успевает прочитаться.
 NAV_SLIDE_MS = 240
-NAV_MARK_WIDTH = 2
 
 SPINNER_INTERVAL_MS = 90
 SPINNER_STEP = 30
@@ -89,6 +88,7 @@ class MainWindow(FramelessWindow):
         # Последняя находка: её отдают экранам, чтобы те не спрашивали
         # GitHub о том же самом второй раз.
         self._found_updates: list = []
+        self._nav_ready = False
         # Разделы, где прямо сейчас идёт долгая работа. Нужны, чтобы
         # нарисовать кружок в боковом меню и сказать о завершении, если окно
         # успели свернуть.
@@ -196,7 +196,7 @@ class MainWindow(FramelessWindow):
             button.style().polish(button)
 
     def _build_sidebar(self) -> QWidget:
-        sidebar = QWidget()
+        sidebar = Sidebar()
         sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(SIZE["sidebar_width"])
         self._sidebar = sidebar
@@ -245,6 +245,14 @@ class MainWindow(FramelessWindow):
         )
         self._nav_buttons: dict[str, QPushButton] = {}
 
+        # Кнопки отступают от левого края ровно на ширину полоски: рисует её
+        # сама панель, а дочерние виджеты всегда ложатся поверх родителя —
+        # без этой полосы кнопка закрывала бы её целиком.
+        nav = QVBoxLayout()
+        nav.setContentsMargins(round(NAV_MARK_WIDTH), 0, 0, 0)
+        nav.setSpacing(0)
+        layout.addLayout(nav)
+
         for key, title in entries:
             button = QPushButton(title)
             button.setObjectName("NavButton")
@@ -252,25 +260,12 @@ class MainWindow(FramelessWindow):
             button.clicked.connect(lambda _, target=key: self.navigate(target))
             self._nav_group.addButton(button)
             self._nav_buttons[key] = button
-            layout.addWidget(button)
+            nav.addWidget(button)
 
-        # Оранжевая полоска выбранного пункта — отдельный виджет: переходов
-        # таблица стилей Qt не поддерживает, и выделение перескакивало рывком.
-        #
-        # Лежит поверх кнопок, а не под ними: наведение красит кнопку
-        # подложкой, и полоска, будучи снизу, пропадала ровно под курсором —
-        # то есть всегда там, куда человек только что нажал. Щелчки сквозь
-        # неё проходят, поэтому попасть по пункту она не мешает.
-        self._nav_mark = QFrame(sidebar)
-        self._nav_mark.setObjectName("NavMark")
-        self._nav_mark.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-        self._nav_mark.setFixedWidth(NAV_MARK_WIDTH)
-        self._nav_mark.raise_()
-        self._nav_mark.hide()
-
-        # Ездит только по вертикали: ширина и высота у пунктов одинаковые, и
-        # анимировать всю геометрию — лишняя перерисовка на каждом кадре.
-        self._nav_slide = QPropertyAnimation(self._nav_mark, b"pos", self)
+        # Полоску у выбранного пункта рисует сама панель: отдельный виджет
+        # приходилось двигать целыми пикселями и перерисовывать вместе с
+        # куском кнопки под ним, отчего движение выходило дёрганым.
+        self._nav_slide = QPropertyAnimation(sidebar, b"mark_y", self)
         self._nav_slide.setEasingCurve(QEasingCurve.Type.InOutCubic)
 
         layout.addStretch(1)
@@ -374,27 +369,27 @@ class MainWindow(FramelessWindow):
             )
 
     def _move_nav_mark(self, button: QPushButton) -> None:
-        """Ведёт подсветку к выбранному пункту.
+        """Ведёт полоску к выбранному пункту.
 
         Отсчёт от того места, где полоска сейчас, а не от прежнего пункта:
         по меню щёлкают быстро и подряд, и анимация, начинающая каждый раз
         с нуля, дёргала бы её назад перед каждым новым переходом.
         """
-        self._nav_mark.setFixedHeight(button.height())
-        target = QPoint(0, button.y())
+        self._sidebar.set_mark_height(button.height())
+        target = float(button.y())
+        current = self._sidebar.get_mark_y()
 
-        if not self._nav_mark.isVisible():
-            self._nav_mark.move(target)
-            self._nav_mark.show()
-            self._nav_mark.raise_()
+        if not self._nav_ready:
+            self._nav_ready = True
+            self._sidebar.set_mark_y(target)
             return
 
-        if self._nav_mark.pos() == target:
+        if current == target:
             return
 
         self._nav_slide.stop()
         self._nav_slide.setDuration(motion.duration(NAV_SLIDE_MS))
-        self._nav_slide.setStartValue(self._nav_mark.pos())
+        self._nav_slide.setStartValue(current)
         self._nav_slide.setEndValue(target)
         self._nav_slide.start()
 
@@ -517,7 +512,7 @@ class MainWindow(FramelessWindow):
         if self._updates_task is not None and self._updates_task.isRunning():
             return
 
-        self._updates_task = Task(updates.check_all)
+        self._updates_task = Task(updates.check_all, self.settings.testing_builds)
         self._updates_task.done.connect(self._updates_found)
         self._updates_task.failed.connect(self._updates_failed)
         self._updates_task.start()

@@ -98,3 +98,7 @@ jobs:
             dist/ZapretXmel.exe
             dist/ZapretXmel.exe.sha256
           body_path: release-notes.md
+          # Тег с дефисом (1.1.0-rc.1) — тестовая сборка. GitHub не отдаёт
+          # такие в «последнем релизе», поэтому кнопка на сайте и обычные
+          # пользователи их не увидят: нужна галочка в настройках.
+          prerelease: ${{ contains(github.ref_name, '-') }}

@@ -122,3 +122,21 @@ def test_update_from_a_version_without_the_mark_is_still_an_update() -> None:
     from app.ui.views.whatsnew import should_show
 
     assert should_show("", "0.1.18", first_run_done=True)
+
+
+def test_prerelease_uses_the_section_of_its_version() -> None:
+    """Тестовая сборка берёт раздел обычной версии.
+
+    Иначе на каждую версию пришлось бы писать два одинаковых раздела — и
+    они неизбежно разъехались бы по содержанию.
+    """
+    text = "## 1.1.0\n\nЧто-то починили.\n\n## 1.0.0\n\nПервый выпуск.\n"
+
+    assert changelog.section(text, "1.1.0-rc.1") == "Что-то починили."
+
+
+def test_prerelease_prefers_its_own_section_when_it_exists() -> None:
+    """Если про сборку есть что сказать отдельно — говорим это."""
+    text = "## 1.1.0-rc.1\n\nПробная сборка.\n\n## 1.1.0\n\nЧто-то починили.\n"
+
+    assert changelog.section(text, "1.1.0-rc.1") == "Пробная сборка."

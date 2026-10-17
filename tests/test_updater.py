@@ -30,6 +30,9 @@ needs_archive = pytest.mark.skipif(
         ("1.9.8c", "1.9.8b"),
         ("2.0.0", "1.10.3"),
         ("1.10.3", ""),  # ядро ещё не установлено
+        ("1.1.0-rc.1", "1.0.0"),  # тестовая сборка новее прошлого релиза
+        ("1.1.0", "1.1.0-rc.1"),  # обычная версия старше своей тестовой
+        ("1.1.0-rc.2", "1.1.0-rc.1"),
     ],
 )
 def test_newer_versions(candidate: str, installed: str) -> None:
@@ -44,6 +47,8 @@ def test_newer_versions(candidate: str, installed: str) -> None:
         ("1.10.3", "1.10.3"),
         ("1.9.9", "1.9.9d"),
         ("", "1.10.3"),
+        ("1.1.0-rc.1", "1.1.0"),  # назад с обычной версии на тестовую не зовём
+        ("1.1.0-rc.1", "1.1.0-rc.2"),
     ],
 )
 def test_not_newer_versions(candidate: str, installed: str) -> None:
@@ -53,6 +58,21 @@ def test_not_newer_versions(candidate: str, installed: str) -> None:
 def test_version_ordering_is_numeric_not_lexicographic() -> None:
     """Строковое сравнение поставило бы 1.9 выше 1.10 — здесь этого быть не должно."""
     assert parse_version("1.10.3") > parse_version("1.9.9")
+
+
+def test_prerelease_is_not_the_same_as_the_release() -> None:
+    """Иначе тестер застрянет на тестовой сборке навсегда.
+
+    Для программы `1.1.0-rc.1` и `1.1.0` были одной версией: суффикс просто
+    отбрасывался. Человек, поставивший тестовую, обычную уже не получал —
+    обновляться, с точки зрения программы, было некуда.
+    """
+    assert parse_version("1.1.0-rc.1") < parse_version("1.1.0")
+
+
+def test_upstream_letter_suffix_still_means_newer() -> None:
+    """У апстрима буква после номера — правка поверх версии, а не пре-релиз."""
+    assert parse_version("1.9.9d") > parse_version("1.9.9")
 
 
 @needs_archive

@@ -44,11 +44,11 @@ class Available:
         return f"{self.what}: {current} → {self.latest}"
 
 
-def check_app() -> Available | None:
+def check_app(testing: bool = False) -> Available | None:
     if not selfupdate.is_frozen():
         return None
 
-    release = selfupdate.check()
+    release = selfupdate.check(testing=testing)
     if release is None:
         return None
     return Available(APP, selfupdate.current_version(), release.version, "updates", release)
@@ -80,15 +80,19 @@ def check_proxy() -> Available | None:
     return Available(PROXY, installed, release.version, "telegram", release)
 
 
-def check_all() -> list[Available]:
-    """Проверяет все три источника. Недоступный источник просто пропускается."""
+def check_all(testing: bool = False) -> list[Available]:
+    """Проверяет все три источника. Недоступный источник просто пропускается.
+
+    Тестовые сборки есть только у самой программы: ядро и прокси — чужие
+    релизы, и помечать их не нам.
+    """
     found: list[Available] = []
 
-    for probe in (check_app, check_core, check_proxy):
+    for probe in (lambda: check_app(testing), check_core, check_proxy):
         try:
             available = probe()
         except Exception:  # noqa: BLE001 — недоступный GitHub не повод шуметь
-            log.info("Проверка обновлений не удалась: %s", probe.__name__, exc_info=True)
+            log.info("Проверка обновлений не удалась", exc_info=True)
             continue
 
         if available is not None:

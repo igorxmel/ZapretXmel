@@ -242,6 +242,15 @@ class SettingsView(QWidget):
         self._animations.toggled.connect(self._save_flags)
         body.addWidget(self._animations)
 
+        self._testing = QCheckBox("Получать тестовые сборки")
+        self._testing.setToolTip(
+            "Версии «-rc» выходят раньше обычных и нужны, чтобы поймать "
+            "поломки до того, как их поймают все остальные. В них что-то "
+            "может работать хуже — на то они и тестовые."
+        )
+        self._testing.toggled.connect(self._toggle_testing)
+        body.addWidget(self._testing)
+
         body.addWidget(Divider())
 
         welcome = QPushButton("Показать окно знакомства")
@@ -424,6 +433,7 @@ class SettingsView(QWidget):
             self._shortcut.setChecked(shortcut.exists())
             self._start_menu.setChecked(shortcut.exists(shortcut.START_MENU))
             self._animations.setChecked(self.controller.settings.animations)
+            self._testing.setChecked(self.controller.settings.testing_builds)
             self._shortcut.setEnabled(paths.is_frozen())
             self._shortcut.setToolTip(
                 ""
@@ -527,6 +537,37 @@ class SettingsView(QWidget):
             return
 
         QApplication.quit()
+
+    def _toggle_testing(self, wanted: bool) -> None:
+        """Тестовые сборки включаются только с отдельного согласия.
+
+        Это не настройка удобства, а согласие ловить поломки раньше всех:
+        человек должен понимать, на что подписывается, а не случайно задеть
+        галочку и потом удивляться, почему что-то отвалилось.
+        """
+        if self._loading:
+            return
+
+        if wanted and not dialogs.confirm(
+            self,
+            "Тестовые сборки",
+            "Получать версии до того, как их проверят?",
+            "Тестовые сборки (с «-rc» в номере) выходят раньше обычных, и "
+            "в них что-то может работать хуже — на то они и тестовые. "
+            "Смысл в том, чтобы поломки находились на вас, а не на всех "
+            "остальных.\n\n"
+            "Выключить это можно в любой момент: следующая обычная версия "
+            "встанет поверх тестовой.",
+            action="Согласен ловить поломки",
+        ):
+            self._loading = True
+            try:
+                self._testing.setChecked(False)
+            finally:
+                self._loading = False
+            return
+
+        self._save_flags()
 
     def _toggle_shortcut(self, wanted: bool) -> None:
         self._toggle_link(shortcut.DESKTOP, wanted)
@@ -676,6 +717,7 @@ class SettingsView(QWidget):
         # Срабатывает сразу: длительность спрашивается в момент запуска
         # анимации, а не при создании виджета.
         motion.set_enabled(settings.animations)
+        settings.testing_builds = self._testing.isChecked()
         settings.watch_enabled = self._watch.isChecked()
         settings.watch_interval_minutes = self._watch_interval.value()
         settings.watch_autoswitch = self._watch_autoswitch.isChecked()

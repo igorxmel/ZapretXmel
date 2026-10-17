@@ -26,12 +26,14 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QSizePolicy,
+    QStyle,
+    QStyleOption,
     QVBoxLayout,
     QWidget,
 )
 
 from app.ui import motion
-from app.ui.theme.tokens import COLORS, FONT_SIZE, SPACE
+from app.ui.theme.tokens import BRAND, COLORS, FONT_SIZE, SPACE
 
 
 class Card(QFrame):
@@ -76,7 +78,10 @@ class Divider(QFrame):
 # меню щёлкают часто и быстро.
 RING_FILL_MS = 460
 PILL_FADE_MS = 220
-NAV_SLIDE_MS = 180
+NAV_SLIDE_MS = 240
+
+# Ширина оранжевой полоски у выбранного пункта меню.
+NAV_MARK_WIDTH = 2.0
 
 
 def _blend(start: QColor, end: QColor, ratio: float) -> QColor:
@@ -87,6 +92,60 @@ def _blend(start: QColor, end: QColor, ratio: float) -> QColor:
         round(start.green() + (end.green() - start.green()) * ratio),
         round(start.blue() + (end.blue() - start.blue()) * ratio),
     )
+
+
+class Sidebar(QWidget):
+    """Боковое меню, которое само рисует полоску у выбранного пункта.
+
+    Полоска была отдельным виджетом и ездила между пунктами, двигая себя.
+    Каждый кадр при этом перерисовывались и она, и открывшийся из-под неё
+    кусок кнопки, а положение считалось целыми пикселями — движение
+    получалось дёрганым, особенно на коротких переходах.
+
+    Здесь она часть самой панели: один проход отрисовки на кадр и дробная
+    координата, так что сглаживание доводит движение до плавного.
+    """
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._mark_y = 0.0
+        self._mark_height = 0.0
+        self._mark_shown = False
+
+    def set_mark_height(self, height: float) -> None:
+        self._mark_height = height
+        self._mark_shown = True
+        self.update()
+
+    def get_mark_y(self) -> float:
+        return self._mark_y
+
+    def set_mark_y(self, value: float) -> None:
+        self._mark_y = value
+        self.update()
+
+    mark_y = pyqtProperty(float, fget=get_mark_y, fset=set_mark_y)
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 — имя задано Qt
+        """Рисует фон из таблицы стилей, а поверх — полоску.
+
+        Подклассам QWidget Qt оформление из QSS сам не рисует: без явной
+        отрисовки подложки у панели пропали бы и фон, и правая граница.
+        """
+        option = QStyleOption()
+        option.initFrom(self)
+        painter = QPainter(self)
+        self.style().drawPrimitive(
+            QStyle.PrimitiveElement.PE_Widget, option, painter, self
+        )
+
+        if not self._mark_shown or self._mark_height <= 0:
+            return
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(BRAND["orange"]))
+        painter.drawRect(QRectF(0.0, self._mark_y, NAV_MARK_WIDTH, self._mark_height))
 
 
 class StatusPill(QWidget):

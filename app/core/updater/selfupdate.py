@@ -73,9 +73,15 @@ def cleanup() -> None:
             log.debug("Файл прошлой версии пока занят, удалю в следующий раз")
 
 
-def check(repo: str = REPO, timeout: int = 20) -> github.Release | None:
-    """Возвращает релиз, если он новее установленного."""
-    release = github.latest_release(repo, timeout=timeout)
+def check(
+    repo: str = REPO, timeout: int = 20, testing: bool = False
+) -> github.Release | None:
+    """Возвращает релиз, если он новее установленного.
+
+    `testing` включает тестовые сборки: они помечены на GitHub как
+    pre-release и в обычный «последний релиз» не попадают.
+    """
+    release = github.latest_release(repo, timeout=timeout, testing=testing)
     return release if github.is_newer(release.version, current_version()) else None
 
 
