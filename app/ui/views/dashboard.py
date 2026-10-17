@@ -105,6 +105,7 @@ class DashboardView(QWidget):
 
         controller.status_changed.connect(self.apply_status)
         controller.busy_changed.connect(self._bypass.button.set_busy)
+        controller.telegram_busy.connect(self._telegram.button.set_busy)
 
     # --- сборка интерфейса ---------------------------------------------
 

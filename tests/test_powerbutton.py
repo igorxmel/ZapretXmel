@@ -47,3 +47,28 @@ def test_button_locks_until_the_switch_finishes(app: QApplication) -> None:
     button.set_busy(False)
 
     assert not button.isEnabled(), "пока кольцо не дошло, нажимать нельзя"
+
+
+def test_busy_without_a_change_plays_nothing(app: QApplication) -> None:
+    """Чужая работа не должна проигрывать анимацию на этой кнопке.
+
+    Кнопка прокси помечала занятой кнопку обхода: та гасла пунктиром, а
+    потом проигрывала выключение — хотя обход никто не трогал.
+    """
+    button = PowerButton()
+
+    button.set_busy(True)
+    button.set_busy(False)
+
+    assert button.get_fill() == 0.0, "кольцо осталось там же, где было"
+
+
+def test_switch_during_busy_is_shown_afterwards(app: QApplication) -> None:
+    """Настоящая смена состояния показывается после снятия занятости."""
+    button = PowerButton()
+
+    button.set_busy(True)
+    button.setChecked(True)
+    button.set_busy(False)
+
+    assert button.get_fill() < 1.0, "переход только начался, а не прыгнул в конец"

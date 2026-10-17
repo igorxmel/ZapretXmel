@@ -297,6 +297,7 @@ class PowerButton(QAbstractButton):
         self._fill = 0.0
         self._settling = False
         self._available = True
+        self._before_busy = 0.0
         self._glow = QPropertyAnimation(self, b"fill", self)
         self._glow.setDuration(RING_FILL_MS)
         self._glow.setEasingCurve(QEasingCurve.Type.InOutCubic)
@@ -363,11 +364,25 @@ class PowerButton(QAbstractButton):
         self._settling = busy or self._settling
         self.setEnabled(self._available and not busy and not self._settling)
 
+        if busy and not was:
+            # Запоминаем, где кольцо было до работы: сравнить с этим —
+            # единственный способ понять, менялось ли вообще состояние.
+            self._before_busy = self._fill
+            return
+
         if was and not busy:
             self._glow.stop()
-            # Начинаем с противоположного края: состояние уже сменилось,
-            # пока кнопка была серой, и наливаться кольцу иначе неоткуда.
-            self._fill = 0.0 if self.isChecked() else 1.0
+            target = 1.0 if self.isChecked() else 0.0
+            if self._before_busy == target:
+                # Состояние не изменилось — показывать нечего. Иначе кнопка
+                # прокси заставляла соседнее кольцо проигрывать выключение.
+                self._fill = target
+                self.update()
+                return
+
+            # Начинаем с противоположного края: состояние сменилось, пока
+            # кнопка была серой, и наливаться кольцу иначе неоткуда.
+            self._fill = 1.0 - target
             self._animate_fill(self.isChecked())
 
         self.update()

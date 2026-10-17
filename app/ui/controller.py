@@ -71,6 +71,9 @@ class Controller(QObject):
 
     status_changed = pyqtSignal(object)
     busy_changed = pyqtSignal(bool)
+    # Занятость прокси — отдельным сигналом: общий помечал занятой кнопку
+    # обхода, и та гасла пунктиром, пока включается Telegram.
+    telegram_busy = pyqtSignal(bool)
     error = pyqtSignal(str)
     message = pyqtSignal(str)
     log_line = pyqtSignal(str)
@@ -498,7 +501,7 @@ class Controller(QObject):
         if self._telegram_task is not None and self._telegram_task.isRunning():
             return
 
-        self._set_busy(True)
+        self.telegram_busy.emit(True)
         self._telegram_task = Task(self._switch_telegram)
         self._telegram_task.done.connect(self._telegram_switched)
         self._telegram_task.failed.connect(self._telegram_failed)
@@ -517,12 +520,12 @@ class Controller(QObject):
         )
 
     def _telegram_switched(self, message: str) -> None:
-        self._set_busy(False)
+        self.telegram_busy.emit(False)
         self.message.emit(message)
         self.refresh()
 
     def _telegram_failed(self, message: str) -> None:
-        self._set_busy(False)
+        self.telegram_busy.emit(False)
         log.warning("Не удалось переключить прокси для Telegram: %s", message)
         self.error.emit(message)
         self.refresh()
