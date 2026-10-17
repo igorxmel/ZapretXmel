@@ -1,63 +1,85 @@
-name: Счётчик скачиваний
+name: Бейджи
 
-# Считает, сколько раз скачали файлы из всех релизов, и кладёт число туда,
-# откуда его возьмёт бейдж в README.
+# Рисует бейджи заранее и кладёт готовые картинки в ветку badges, откуда их
+# берёт README.
 #
-# Зачем своими руками. Бейджи shields.io ходят в API GitHub через пул
-# токенов, общий на всех пользователей сервиса; когда он выбирает лимит,
-# вместо числа показывается «Unable to select next GitHub token from pool».
-# Чаще всего это ловил именно счётчик скачиваний: чтобы сложить сумму, надо
-# перебрать все релизы, а их становится только больше. У badgen общий счёт
-# не умеет считаться вовсе — он показывает одну последнюю версию, и число
-# обнуляется при каждом релизе.
+# Зачем так, а не ссылкой на сервис. Картинки в README GitHub отдаёт не
+# напрямую: он проксирует их через camo.githubusercontent.com, который сам
+# ходит на сторонний сервис, а результат кладёт в кеш. Если в этот момент
+# сервис тормозил или отвечал ошибкой, camo запоминает неудачу — и бейдж
+# висит битым, хотя по ссылке открывается прекрасно. Поэтому ломается не
+# «сервис», а один конкретный бейдж, пока остальные живы.
 #
-# Здесь считает сам GitHub Actions своим токеном: лимит 5000 запросов в час
-# и ни с кем не делится. Результат — JSON в формате shields endpoint, из
-# которого бейдж рисуется без единого обращения к API.
+# Отсюда и решение: за данными и за картинкой ходим здесь, где сеть
+# надёжна, а в README ставим ссылку на сам GitHub. Camo остаётся сходить к
+# своему же хосту, и ломаться в этой цепочке больше нечему.
+#
+# Если сервис недоступен в момент запуска, прежняя картинка остаётся на
+# месте: лучше показать вчерашнее число, чем битую ссылку.
 
 on:
   schedule:
-    # Раз в сутки: счётчик растёт между релизами, и ждать следующего нельзя.
-    - cron: '17 4 * * *'
+    # Раз в шесть часов: звёзды и скачивания меняются между релизами.
+    - cron: '17 */6 * * *'
   release:
     types: [published]
   workflow_dispatch:
 
-# Токену нужно писать только в свою ветку с бейджами.
 permissions:
   contents: write
 
-# Ветка badges живёт отдельно и без истории main: число меняется каждый
-# день, и засорять этим общую историю незачем.
 env:
   BRANCH: badges
 
 jobs:
-  count:
+  draw:
     runs-on: ubuntu-latest
     steps:
-      - name: Сложить скачивания по всем релизам
+      - name: Собрать числа
+        id: numbers
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          total=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
+          # Считает сам GitHub Actions своим токеном: лимит 5000 запросов в
+          # час и ни с кем не делится. У shields токены общие на всех
+          # пользователей сервиса, и когда пул выбирает лимит, вместо числа
+          # приходит «Unable to select next GitHub token from pool».
+          version=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" -q .tag_name)
+          stars=$(gh api "repos/${GITHUB_REPOSITORY}" -q .stargazers_count)
+          downloads=$(gh api "repos/${GITHUB_REPOSITORY}/releases" --paginate \
             -q '[.[].assets[].download_count] | add // 0')
-          echo "Всего скачиваний: $total"
 
-          mkdir -p out
-          # Формат shields endpoint: сервису остаётся только нарисовать.
-          cat > out/downloads.json <<JSON
+          echo "версия=$version звёзды=$stars скачивания=$downloads"
           {
-            "schemaVersion": 1,
-            "label": "скачивания",
-            "message": "$total",
-            "color": "9f9fa6",
-            "labelColor": "141416",
-            "namedLogo": "github",
-            "logoColor": "white"
+            echo "version=$version"
+            echo "stars=$stars"
+            echo "downloads=$downloads"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Нарисовать картинки
+        env:
+          VERSION: ${{ steps.numbers.outputs.version }}
+          STARS: ${{ steps.numbers.outputs.stars }}
+          DOWNLOADS: ${{ steps.numbers.outputs.downloads }}
+        run: |
+          mkdir -p out
+          # Цвета те же, что у остальных бейджей в README: оранжевый из
+          # логотипа на версию, зелёный на звёзды, серый на скачивания.
+          draw() {
+            name=$1; label=$2; message=$3; colour=$4
+            url="https://img.shields.io/badge/${label}-${message}-${colour}"
+            url="${url}?style=flat&logo=github&labelColor=141416&logoColor=white"
+            if curl -sfS --max-time 30 "$url" -o "out/${name}.svg"; then
+              echo "нарисован $name: $message"
+            else
+              echo "::warning::не удалось нарисовать $name, останется прежний"
+              rm -f "out/${name}.svg"
+            fi
           }
-          JSON
-          cat out/downloads.json
+
+          draw version "%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F" "$VERSION" f5a000
+          draw stars "%D0%B7%D0%B2%D1%91%D0%B7%D0%B4%D1%8B" "$STARS" 8ebe3f
+          draw downloads "%D1%81%D0%BA%D0%B0%D1%87%D0%B8%D0%B2%D0%B0%D0%BD%D0%B8%D1%8F" "$DOWNLOADS" 9f9fa6
 
       - name: Положить в ветку badges
         env:
@@ -66,27 +88,26 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git clone --depth 1 --branch "$BRANCH" \
-            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" branch 2>/dev/null \
-            || {
-              # Ветки ещё нет — заводим пустую, без истории main.
-              git init branch
-              cd branch
-              git checkout --orphan "$BRANCH"
-              git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-              cd ..
-            }
+          remote="https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
-          cp out/downloads.json branch/downloads.json
+          # Ветка отдельная и без истории main: картинки меняются каждый
+          # день, и засорять этим общую историю незачем.
+          if ! git clone --depth 1 --branch "$BRANCH" "$remote" branch 2>/dev/null; then
+            git init branch
+            cd branch
+            git checkout --orphan "$BRANCH"
+            git remote add origin "$remote"
+            cd ..
+          fi
+
+          cp out/*.svg branch/ 2>/dev/null || true
           cd branch
 
-          # Коммит только когда число изменилось: ежедневный пустой коммит
-          # ничего не сообщает, а ветка растёт.
-          if git diff --quiet HEAD -- downloads.json 2>/dev/null; then
-            echo "Число не изменилось, коммит не нужен"
+          if git diff --quiet HEAD -- . 2>/dev/null && [ -z "$(git status --porcelain)" ]; then
+            echo "Ничего не изменилось, коммит не нужен"
             exit 0
           fi
 
-          git add downloads.json
-          git commit -m "Скачиваний: $(jq -r .message downloads.json)"
+          git add -A
+          git commit -m "Бейджи обновлены"
           git push origin "$BRANCH"
