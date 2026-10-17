@@ -282,6 +282,10 @@ class PowerButton(QAbstractButton):
         self._glow.setDuration(RING_FILL_MS)
         self._glow.setEasingCurve(QEasingCurve.Type.InOutCubic)
         self.toggled.connect(self._animate_fill)
+        # Подключаем один раз здесь, а не при каждом переключении: PyQt на
+        # повторное подключение с UniqueConnection бросает TypeError, и
+        # вторая же смена состояния роняла программу.
+        self._glow.finished.connect(self._settled)
 
     def _animate_fill(self, on: bool) -> None:
         """Ведёт кольцо к новому состоянию от того, где оно сейчас.
@@ -342,7 +346,6 @@ class PowerButton(QAbstractButton):
 
         if was and not busy:
             self._glow.stop()
-            self._glow.finished.connect(self._settled, Qt.ConnectionType.UniqueConnection)
             # Начинаем с противоположного края: состояние уже сменилось,
             # пока кнопка была серой, и наливаться кольцу иначе неоткуда.
             self._fill = 0.0 if self.isChecked() else 1.0
