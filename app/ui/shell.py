@@ -89,6 +89,7 @@ class MainWindow(FramelessWindow):
         # GitHub о том же самом второй раз.
         self._found_updates: list = []
         self._nav_ready = False
+        self._current_section = "dashboard"
         # Разделы, где прямо сейчас идёт долгая работа. Нужны, чтобы
         # нарисовать кружок в боковом меню и сказать о завершении, если окно
         # успели свернуть.
@@ -235,7 +236,7 @@ class MainWindow(FramelessWindow):
             ("strategies", "Стратегии"),
             ("autopick", "Подбор стратегии"),
             ("lists", "Списки"),
-            ("profiles", "Приложения"),
+            ("profiles", "Профили"),
             ("telegram", "Telegram"),
             ("diagnostics", "Диагностика"),
             ("updates", "Обновления"),
@@ -317,6 +318,7 @@ class MainWindow(FramelessWindow):
             return
 
         self._stack.setCurrentWidget(view)
+        self._current_section = key
         if button := self._nav_buttons.get(key):
             button.setChecked(True)
             self._move_nav_mark(button)
@@ -400,7 +402,9 @@ class MainWindow(FramelessWindow):
     def _draw_spinners(self) -> None:
         for key, button in self._nav_buttons.items():
             if key in self._busy_sections:
-                button.setIcon(spinner_icon(self._spin_angle))
+                # Выбранный пункт написан белым, невыбранные — серым.
+                # Серый кружок на белой надписи читался как чужой.
+                button.setIcon(spinner_icon(self._spin_angle, bright=button.isChecked()))
             else:
                 button.setIcon(QIcon())
 
@@ -645,6 +649,19 @@ class MainWindow(FramelessWindow):
         self.raise_()
         self.activateWindow()
         foreground.force(int(self.winId()))
+
+    def showEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        """Пересчитывает полоску меню, когда окно наконец показали.
+
+        При запуске свёрнутым в трей разметки ещё нет: кнопки не имеют
+        размеров, и полоска получала высоту всего списка. Так она и
+        оставалась после разворачивания.
+        """
+        super().showEvent(event)
+        self._nav_ready = False
+        self._current_section = "dashboard"
+        if button := self._nav_buttons.get(self._current_section):
+            QTimer.singleShot(0, lambda: self._move_nav_mark(button))
 
     def _restore_window(self) -> None:
         self.present()

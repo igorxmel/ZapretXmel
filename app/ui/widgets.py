@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from PyQt6.QtCore import (
     QEasingCurve,
+    QEvent,
+    QObject,
     QPointF,
     QPropertyAnimation,
     QRectF,
@@ -21,11 +23,14 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QColor, QIcon, QPainter, QPaintEvent, QPen, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractButton,
+    QComboBox,
     QFrame,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
+    QSlider,
+    QSpinBox,
     QStyle,
     QStyleOption,
     QVBoxLayout,
@@ -92,6 +97,32 @@ def _blend(start: QColor, end: QColor, ratio: float) -> QColor:
         round(start.green() + (end.green() - start.green()) * ratio),
         round(start.blue() + (end.blue() - start.blue()) * ratio),
     )
+
+
+class WheelGuard(QObject):
+    """Не даёт колесу мыши менять значения при прокрутке страницы.
+
+    Настройки длиннее экрана, их прокручивают — и курсор по дороге проходит
+    над списками и счётчиками. Qt отдаёт колесо тому, что под курсором, и
+    человек, листая страницу, незаметно менял таймаут проверки или выбранную
+    стратегию.
+
+    Колесо работает, только когда поле выбрано щелчком: тогда это уже
+    осознанное действие, а не прокрутка мимо.
+    """
+
+    GUARDED = (QComboBox, QSpinBox, QSlider)
+
+    def eventFilter(self, target, event) -> bool:  # noqa: N802 — имя задано Qt
+        if (
+            event.type() == QEvent.Type.Wheel
+            and isinstance(target, self.GUARDED)
+            and not target.hasFocus()
+        ):
+            # Событие не глотаем, а передаём выше — прокручивается страница.
+            event.ignore()
+            return True
+        return super().eventFilter(target, event)
 
 
 class Sidebar(QWidget):
@@ -245,6 +276,8 @@ class PowerButton(QAbstractButton):
         # Кольцо не перекрашивается рывком, а наливается цветом. Значение
         # анимации — от 0 (выключено) до 1 (работает).
         self._fill = 0.0
+        self._settling = False
+        self._available = True
         self._glow = QPropertyAnimation(self, b"fill", self)
         self._glow.setDuration(RING_FILL_MS)
         self._glow.setEasingCurve(QEasingCurve.Type.InOutCubic)
@@ -280,13 +313,36 @@ class PowerButton(QAbstractButton):
 
     fill = pyqtProperty(float, fget=get_fill, fset=set_fill)
 
+    def set_available(self, value: bool) -> None:
+        """Можно ли нажимать вообще — без оглядки на идущий переход.
+
+        Разведено с `setEnabled` нарочно: состояние опрашивается каждые
+        несколько секунд, и опрос, пришедший посреди перехода, иначе
+        разблокировал бы кнопку раньше времени.
+        """
+        self._available = value
+        self.setEnabled(value and not self._busy and not self._settling)
+
+    def _settled(self) -> None:
+        """Переход закончился — кнопку снова можно нажимать."""
+        self._settling = False
+        self.setEnabled(self._available and not self._busy)
+
     def set_busy(self, busy: bool) -> None:
-        """Занятая кнопка нарисована серым; переход показываем после неё."""
+        """Занятая кнопка нарисована серым; переход показываем после неё.
+
+        Пока идёт переход, нажимать нельзя: по кнопке щёлкают быстро, а
+        каждое нажатие — это включение или выключение обхода, то есть
+        работа со службой. Нажатия, накопленные за секунду, выполнялись бы
+        одно за другим, и состояние расходилось с тем, что видно.
+        """
         was, self._busy = self._busy, busy
-        self.setEnabled(not busy)
+        self._settling = busy or self._settling
+        self.setEnabled(self._available and not busy and not self._settling)
 
         if was and not busy:
             self._glow.stop()
+            self._glow.finished.connect(self._settled, Qt.ConnectionType.UniqueConnection)
             # Начинаем с противоположного края: состояние уже сменилось,
             # пока кнопка была серой, и наливаться кольцу иначе неоткуда.
             self._fill = 0.0 if self.isChecked() else 1.0
@@ -422,11 +478,15 @@ class Chip(QPushButton):
         super().__init__(text, parent)
         self.setObjectName("Chip")
         self.setCheckable(True)
+        # Высота — по содержимому и не меньше: при системном масштабе 125%
+        # раскладка сжимала часть таблеток, и текст в них обрезался.
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self.setMinimumHeight(self.sizeHint().height())
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.value = value or text
 
 
-def spinner_icon(angle: int, size: int = 14) -> QIcon:
+def spinner_icon(angle: int, size: int = 14, bright: bool = False) -> QIcon:
     """Кружок загрузки для пункта бокового меню.
 
     Рисуется дугой через QPainter, а не символом из шрифта: у глифов свои
@@ -439,7 +499,7 @@ def spinner_icon(angle: int, size: int = 14) -> QIcon:
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-    pen = QPen(QColor(COLORS["text_dim"]), 2)
+    pen = QPen(QColor(COLORS["text"] if bright else COLORS["text_dim"]), 2)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     painter.setPen(pen)
 

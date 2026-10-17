@@ -57,7 +57,7 @@ class PowerTile(QWidget):
 
     def apply(self, active: bool, enabled: bool, state: str) -> None:
         self.button.setChecked(active)
-        self.button.setEnabled(enabled)
+        self.button.set_available(enabled)
         self._state.setText(state)
 
 

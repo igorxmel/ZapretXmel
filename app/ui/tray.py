@@ -61,11 +61,13 @@ def build_icon(active: bool, proxy: bool = False) -> QIcon:
     if not dots:
         dots.append(COLORS["text_muted"])
 
-    dot = 16.0
-    painter.setPen(QPen(QColor(COLORS["bg"]), 3))
+    # Крупнее: в трее значок уменьшается до 16 пикселей, и прежние
+    # точки превращались в неразличимые крапинки.
+    dot = 24.0
+    painter.setPen(QPen(QColor(COLORS["bg"]), 4))
     for index, colour in enumerate(reversed(dots)):
         painter.setBrush(QColor(colour))
-        left = size - dot - 2 - index * (dot + 6)
+        left = size - dot - 1 - index * (dot + 4)
         painter.drawEllipse(QRectF(left, size - dot - 2, dot, dot))
 
     painter.end()

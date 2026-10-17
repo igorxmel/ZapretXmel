@@ -33,6 +33,7 @@ def bare(monkeypatch: pytest.MonkeyPatch) -> Controller:
     controller = Controller.__new__(Controller)
     controller._profile_busy = False
     controller._profile_failed = ""
+    controller._profile_declined = ""
     controller.started = []
 
     monkeypatch.setattr(appprofile, "load_all", lambda: [PROFILE])
@@ -72,6 +73,20 @@ def test_failed_profile_is_not_retried_forever(bare: Controller) -> None:
     одна и та же строка повторилась две с половиной тысячи раз.
     """
     bare._profile_failed = "roblox"
+
+    bare._follow_apps("start", "roblox")
+
+    assert bare.started == []
+
+
+def test_manually_stopped_profile_stays_off(bare: Controller) -> None:
+    """Выключенный руками профиль не поднимается обратно сам.
+
+    С галочкой «включать вместе с приложением» и запущенной игрой профиль
+    возвращался через пару секунд после нажатия «Выключить» — кнопка
+    выглядела неработающей, а в журнале копились сотни включений подряд.
+    """
+    bare._profile_declined = "roblox"
 
     bare._follow_apps("start", "roblox")
 

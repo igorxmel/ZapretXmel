@@ -111,6 +111,10 @@ class Controller(QObject):
         # и действие не должно запускать само себя заново.
         self._profile_busy = False
         self._profile_failed = ""
+        # Профиль, который человек выключил руками. Поднимать его обратно
+        # нельзя до перезапуска приложения, иначе выключить его вообще
+        # невозможно: следующая же проверка видит игру и включает снова.
+        self._profile_declined = ""
         self.last_check: object | None = None
         self.last_check_at: datetime | None = None
         self._watch_timer = QTimer(self)
@@ -363,10 +367,13 @@ class Controller(QObject):
 
         # Приложение закрыли — забываем, что запуск профиля не удался:
         # в следующий раз попробовать стоит, причина могла быть разовой.
-        if self._profile_failed:
-            failed = next((p for p in profiles if p.name == self._profile_failed), None)
-            if failed is None or not appwatch.is_running(failed.exe, running):
-                self._profile_failed = ""
+        for attribute in ("_profile_failed", "_profile_declined"):
+            name = getattr(self, attribute)
+            if not name:
+                continue
+            profile = next((item for item in profiles if item.name == name), None)
+            if profile is None or not appwatch.is_running(profile.exe, running):
+                setattr(self, attribute, "")
 
         for profile in profiles:
             action = appwatch.decide(
@@ -404,7 +411,7 @@ class Controller(QObject):
         # Неудачный запуск не повторяем до следующего запуска приложения:
         # иначе каждая проверка снова лезет поднимать winws, и журнал
         # заполняется одной строкой в тысячи повторов.
-        if name == self._profile_failed:
+        if name in (self._profile_failed, self._profile_declined):
             return
 
         profile = next((item for item in appprofile.load_all() if item.name == name), None)
@@ -452,7 +459,17 @@ class Controller(QObject):
 
         self.refresh()
 
-    def stop_profile(self) -> None:
+    def stop_profile(self, by_hand: bool = False) -> None:
+        """Гасит профиль. `by_hand` — человек нажал «Выключить».
+
+        Выключенный руками профиль с галочкой «включать вместе с
+        приложением» надо запомнить: игра всё ещё запущена, и следующая же
+        проверка подняла бы его обратно. Со стороны это выглядело так, будто
+        кнопка «Выключить» не работает вовсе.
+        """
+        if by_hand:
+            self._profile_declined = self._profile_name
+
         was_busy, self._profile_busy = self._profile_busy, True
         try:
             if self._profile_process is not None:

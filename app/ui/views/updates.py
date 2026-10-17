@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import (
 from app.core import coreinfo, hosts, ipset, paths, telegram, updates
 from app.core.updater import github, install, selfupdate
 from app.ui.controller import Controller
-from app.ui.theme.tokens import COLORS, SPACE
+from app.ui.theme.tokens import BRAND, COLORS, SPACE
 from app.ui.widgets import Card, KeyValueRow, view_header
 from app.ui.workers import AppUpdateWorker, CoreUpdateWorker, Task, TelegramInstallWorker
 
@@ -257,10 +257,11 @@ class UpdatesView(QWidget):
         # тёмном фоне его просто не видно. Таблицей стилей приложения это не
         # лечится: текст здесь разбирается как HTML, и цвет ссылок берётся из
         # таблицы стилей самого документа.
-        # Белым, а не цветом: палитра монохромная, цвет остаётся за
-        # состояниями. Ссылку и так видно по подчёркиванию.
+        # Оранжевым — тем же, что и логотип. Это единственное место, где
+        # цвет не обозначает состояние, но ссылка и должна выделяться из
+        # текста, иначе её не отличить от обычных слов.
         self._changelog.document().setDefaultStyleSheet(
-            f"a {{ color: {COLORS['text']}; }}"
+            f"a {{ color: {BRAND['orange']}; }}"
             f"code {{ color: {COLORS['text_dim']}; }}"
         )
         body.addWidget(self._changelog, 1)

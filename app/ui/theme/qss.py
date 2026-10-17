@@ -283,7 +283,7 @@ def build_stylesheet() -> str:
         color: {c["text_dim"]};
         font-size: {FONT_SIZE["caption"]}px;
         padding: {s["xs"]}px {s["md"]}px;
-        min-height: 22px;
+        min-height: 24px;
     }}
 
     QPushButton#Chip:hover {{ color: {c["text"]}; border-color: {c["border_strong"]}; }}

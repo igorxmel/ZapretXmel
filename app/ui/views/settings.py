@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import contextlib
 import logging
-import sys
-import winreg
 from pathlib import Path
 
 from PyQt6.QtCore import QUrl
@@ -25,7 +22,16 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import fakes, gamefilter, ipset, location, paths, shortcut, uninstall
+from app.core import (
+    autostart,
+    fakes,
+    gamefilter,
+    ipset,
+    location,
+    paths,
+    shortcut,
+    uninstall,
+)
 from app.core.gamefilter import GameFilter
 from app.ui import dialogs, motion
 from app.ui.controller import Controller
@@ -78,8 +84,6 @@ IPSET_HINTS = {
     "none": "Фильтр по адресам не применяется — работают только списки доменов.",
 }
 
-AUTOSTART_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
-AUTOSTART_VALUE = "ZapretXmel"
 
 
 class SettingsView(QWidget):
@@ -418,7 +422,7 @@ class SettingsView(QWidget):
             self._select_by_value(self._run_mode, RUN_MODES, settings.run_mode)
             self._run_mode_hint.setText(RUN_MODE_HINTS[settings.run_mode])
             self._autostart_hint.setText(AUTOSTART_HINTS[settings.run_mode])
-            self._autostart.setChecked(autostart_enabled())
+            self._autostart.setChecked(autostart.enabled())
             self._start_bypass.setChecked(settings.start_bypass_on_launch)
             self._start_proxy.setChecked(settings.start_proxy_on_launch)
             self._start_minimized.setChecked(settings.start_minimized)
@@ -734,7 +738,7 @@ class SettingsView(QWidget):
     def _toggle_autostart(self, enabled: bool) -> None:
         if self._loading:
             return
-        if set_autostart(enabled):
+        if autostart.set_enabled(enabled):
             self.controller.settings.autostart_with_windows = enabled
             self.controller.settings.save()
         else:
@@ -798,34 +802,3 @@ class SettingsView(QWidget):
 # --- автозапуск ---------------------------------------------------------
 
 
-def _autostart_command() -> str:
-    if getattr(sys, "frozen", False):
-        return f'"{sys.executable}"'
-    script = Path(sys.argv[0]).resolve()
-    return f'"{sys.executable}" "{script}"'
-
-
-def autostart_enabled() -> bool:
-    try:
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, AUTOSTART_KEY) as key:
-            winreg.QueryValueEx(key, AUTOSTART_VALUE)
-            return True
-    except (FileNotFoundError, OSError):
-        return False
-
-
-def set_autostart(enabled: bool) -> bool:
-    """Добавляет или убирает запись автозапуска для текущего пользователя."""
-    try:
-        with winreg.OpenKey(
-            winreg.HKEY_CURRENT_USER, AUTOSTART_KEY, 0, winreg.KEY_SET_VALUE
-        ) as key:
-            if enabled:
-                winreg.SetValueEx(key, AUTOSTART_VALUE, 0, winreg.REG_SZ, _autostart_command())
-            else:
-                with contextlib.suppress(FileNotFoundError):
-                    winreg.DeleteValue(key, AUTOSTART_VALUE)
-        return True
-    except OSError:
-        log.warning("Не удалось изменить автозапуск")
-        return False

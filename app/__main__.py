@@ -21,10 +21,14 @@ from app.core.config import Settings
 from app.core.updater import selfupdate
 from app.ui import dialogs, motion
 from app.ui.theme import build_stylesheet
+from app.ui.widgets import WheelGuard
 
 log = logging.getLogger(__name__)
 
-APP_ID = "ZapretXmel.Bypass.GUI.1"
+# Он же подписывает уведомления Windows, если программа не
+# зарегистрирована ярлыком: в шапке всплывающего окна человек видел
+# «ZapretXmel.Bypass.GUI.1». Поэтому имя, а не путь из точек.
+APP_ID = "ZapretXmel"
 
 
 def ensure_admin(app: QApplication, skip: bool = False) -> bool:
@@ -176,6 +180,10 @@ def main() -> int:
     # Стили вешаем на приложение, а не на окно: меню в трее создаётся без
     # родителя и оформление окна до него не доходит.
     app.setStyleSheet(build_stylesheet())
+
+    # Колесо мыши не должно менять значения при прокрутке страницы.
+    guard = WheelGuard(app)
+    app.installEventFilter(guard)
 
     if not ensure_admin(app, skip=skip_elevation):
         return 0

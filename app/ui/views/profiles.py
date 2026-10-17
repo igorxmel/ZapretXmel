@@ -166,7 +166,7 @@ class ProfilesView(QWidget):
         row.addWidget(self._apply_button)
 
         self._stop_button = QPushButton("Выключить")
-        self._stop_button.clicked.connect(self.controller.stop_profile)
+        self._stop_button.clicked.connect(self._stop_profile)
         row.addWidget(self._stop_button)
 
         self._edit_button = QPushButton("Посмотреть и править")
@@ -415,6 +415,27 @@ class ProfilesView(QWidget):
         if profile is not None:
             self.controller.start_profile(profile)
             self._reload_profiles()
+
+    def _stop_profile(self) -> None:
+        """Гасит профиль и говорит, что он сам больше не поднимется.
+
+        С галочкой «включать вместе с приложением» и запущенной игрой
+        профиль возвращался через пару секунд, и кнопка выглядела
+        неработающей.
+        """
+        profile = next(
+            (item for item in self._profiles
+             if item.name == self.controller.status.active_profile),
+            None,
+        )
+        self.controller.stop_profile(by_hand=True)
+
+        if profile is not None and profile.auto_start:
+            self._say(
+                f"Профиль «{profile.name}» выключен и сам больше не включится — "
+                "до следующего запуска приложения.",
+                COLORS["warning"],
+            )
 
     def _edit_profile(self) -> None:
         profile = self._current_profile()

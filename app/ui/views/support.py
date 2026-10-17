@@ -24,7 +24,7 @@ from app.core import supporters
 from app.core.supporters import SupportersList
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, banner_pixmap, view_header
+from app.ui.widgets import Card, Divider, banner_pixmap, view_header
 from app.ui.workers import Task
 
 log = logging.getLogger(__name__)
@@ -35,6 +35,10 @@ WHAT_IT_PAYS_FOR = (
     "• разбор неполадок нейросетью на общем ключе, чтобы не нужно было заводить свой;\n"
     "• время на поддержку, когда у провайдеров меняются правила."
 )
+
+
+REPO_URL = "https://github.com/igorxmel/ZapretXmel"
+ISSUES_URL = f"{REPO_URL}/issues/new"
 
 
 class SupportView(QWidget):
@@ -87,6 +91,31 @@ class SupportView(QWidget):
             # нет, её просто нет.
             boosty.hide()
         body.addWidget(boosty)
+
+        body.addWidget(Divider())
+
+        # Помогает не только деньгами: найденная поломка стоит дороже, а
+        # звезда — единственный способ для случайного человека сказать, что
+        # программа пригодилась.
+        helping = QLabel(
+            "Помочь можно и бесплатно: рассказать о поломке или поставить "
+            "звезду на GitHub — по ней программу находят другие."
+        )
+        helping.setObjectName("Muted")
+        helping.setWordWrap(True)
+        body.addWidget(helping)
+
+        issue = QPushButton("Сообщить о поломке")
+        issue.setToolTip(
+            "Откроется страница issue на GitHub. Приложите журнал из раздела "
+            "«Логи» — по нему видно, что именно случилось."
+        )
+        issue.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(ISSUES_URL)))
+        body.addWidget(issue)
+
+        star = QPushButton("Поставить звезду на GitHub")
+        star.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(REPO_URL)))
+        body.addWidget(star)
 
         body.addStretch(1)
         return card
