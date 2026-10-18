@@ -72,3 +72,34 @@ def test_blocked_icmp_is_said_plainly(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert outcome.verdict == "ICMP не проходит"
     assert outcome.level == "ok", "это не поломка сети, а её настройка"
+
+
+def test_layer_advice_covers_every_verdict() -> None:
+    """Вердикт без объяснения бесполезен.
+
+    Вся ценность послойной проверки в ответе на вопрос «поможет ли здесь
+    обход»: при подмене DNS не поможет никакая стратегия, а при фильтрации
+    по имени сайта — поможет именно она.
+    """
+    from app.core.probe.layers import ADVICE, Layer
+
+    assert set(ADVICE) == set(Layer)
+    assert all(text.strip() for text in ADVICE.values())
+
+
+def test_dns_substitution_stops_the_check() -> None:
+    """Дальше идти незачем: мы уже знаем, что пойдём не туда."""
+    import socket
+
+    from app.core.probe import layers
+
+    monkey = pytest.MonkeyPatch()
+    monkey.setattr(
+        socket, "getaddrinfo", lambda *a, **k: [(0, 0, 0, "", ("10.0.0.1", 443))]
+    )
+    try:
+        result = layers.check("rutracker.org", honest_addresses=["104.21.32.39"])
+    finally:
+        monkey.undo()
+
+    assert result.layer is layers.Layer.DNS

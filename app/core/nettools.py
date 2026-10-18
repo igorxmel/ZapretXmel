@@ -31,6 +31,10 @@ log = logging.getLogger(__name__)
 # этом принадлежит крупной сети, адреса которой известны.
 PROBE_DOMAIN = "rutracker.org"
 
+# Что проверять послойно: пара заведомо фильтруемых и один свободный —
+# без последнего «не работает ничего» не отличить от «интернета нет».
+LAYER_HOSTS = ("rutracker.org", "www.youtube.com", "example.com")
+
 # Куда стучаться. Несколько нарочно: один зашитый адрес у части
 # провайдеров не отвечает вовсе, и проверка молчала бы без причины.
 PING_TARGETS = ("1.1.1.1", "8.8.8.8", "77.88.8.8")
@@ -156,6 +160,43 @@ def _resolve_over_https(domain: str) -> list[str]:
         return []
 
     return sorted({item["data"] for item in answers if item.get("type") == 1})
+
+
+def where_blocked() -> Outcome:
+    """Проверяет на нескольких сайтах, на каком уровне рвётся связь.
+
+    Берём и заведомо режущийся сайт, и заведомо свободный: без второго
+    нельзя отличить «провайдер фильтрует» от «интернета нет вовсе».
+    """
+    from app.core.probe import layers
+
+    results = [layers.check(host, _resolve_over_https(host)) for host in LAYER_HOSTS]
+    lines = [result.label for result in results]
+
+    # Вердикт даём по самому «глубокому» найденному уровню: именно он
+    # определяет, поможет ли здесь вообще стратегия обхода.
+    order = (layers.Layer.DNS, layers.Layer.TCP, layers.Layer.TLS, layers.Layer.STUB)
+    found = next(
+        (level for level in order if any(item.layer is level for item in results)),
+        None,
+    )
+
+    if found is None:
+        return Outcome(
+            "Где рвётся",
+            "нигде — всё открывается",
+            "Проверенные сайты отвечают нормально. Если что-то всё равно не "
+            "работает, дело не в фильтрации на этих уровнях.",
+            lines=lines,
+        )
+
+    return Outcome(
+        "Где рвётся",
+        layers.ADVICE[found].split(".")[0].lower(),
+        layers.ADVICE[found],
+        "warning",
+        lines,
+    )
 
 
 def gateway() -> str:
