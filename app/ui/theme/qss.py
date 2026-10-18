@@ -8,7 +8,7 @@ Qt не знает CSS-переменных, поэтому стили соби�
 from __future__ import annotations
 
 from app.core import paths
-from app.ui.theme.tokens import BRAND, COLORS, FONT_SIZE, FONTS, RADIUS, SIZE, SPACE
+from app.ui.theme.tokens import BRAND, COLORS, FONT_SIZE, FONTS, RADIUS, SIZE, SPACE, is_light
 
 
 def _asset_url(name: str) -> str:
@@ -18,8 +18,14 @@ def _asset_url(name: str) -> str:
 
 def build_stylesheet() -> str:
     c, s, r, z = COLORS, SPACE, RADIUS, SIZE
-    chevron = _asset_url("chevron.png")
-    chevron_hover = _asset_url("chevron-hover.png")
+
+    # Картинку Qt перекрасить не умеет, поэтому стрелки нарисованы заранее
+    # под обе темы: стрелка цвета тёмной темы на светлом фоне не видна.
+    tint = "-light" if is_light() else ""
+    chevron = _asset_url(f"chevron{tint}.png")
+    chevron_hover = _asset_url(f"chevron{tint}-hover.png")
+    chevron_up = _asset_url(f"chevron-up{tint}.png")
+    chevron_up_hover = _asset_url(f"chevron-up{tint}-hover.png")
     return f"""
     QWidget {{
         background: {c["bg"]};
@@ -423,6 +429,47 @@ def build_stylesheet() -> str:
         border-color: {c["accent"]};
     }}
     QRadioButton::indicator {{ border-radius: 8px; }}
+
+    /* Кнопки счётчика рисуем сами. Нетронутые, они достаются родному
+       стилю Windows, и на светлой теме у них проступает тиснение — на
+       тёмной его просто не было видно. */
+    QSpinBox, QDoubleSpinBox {{
+        padding-right: {s["xl"]}px;
+    }}
+
+    QSpinBox::up-button, QDoubleSpinBox::up-button,
+    QSpinBox::down-button, QDoubleSpinBox::down-button {{
+        background: transparent;
+        border: none;
+        width: {s["xl"]}px;
+        subcontrol-origin: border;
+    }}
+
+    QSpinBox::up-button, QDoubleSpinBox::up-button {{ subcontrol-position: top right; }}
+    QSpinBox::down-button, QDoubleSpinBox::down-button {{ subcontrol-position: bottom right; }}
+
+    QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+    QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {{
+        background: {c["surface_hover"]};
+        border-radius: {r["sm"]}px;
+    }}
+
+    QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
+        image: url({chevron_up});
+        width: 11px;
+        height: 11px;
+    }}
+    QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
+        image: url({chevron});
+        width: 11px;
+        height: 11px;
+    }}
+    QSpinBox::up-arrow:hover, QDoubleSpinBox::up-arrow:hover {{
+        image: url({chevron_up_hover});
+    }}
+    QSpinBox::down-arrow:hover, QDoubleSpinBox::down-arrow:hover {{
+        image: url({chevron_hover});
+    }}
 
     QProgressBar {{
         background: {c["bg"]};

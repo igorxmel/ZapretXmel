@@ -17,6 +17,7 @@ from pathlib import Path
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -28,6 +29,7 @@ from PyQt6.QtWidgets import (
 from app.core import coreinfo, location, paths, shortcut, strategies, telegram
 from app.core.updater import github
 from app.ui.frameless import FramelessWindow
+from app.ui.theme import use_theme
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, Divider, banner_pixmap
 from app.ui.workers import CoreUpdateWorker, Task
@@ -76,6 +78,22 @@ class Step(QWidget):
         self._hint.setText(hint)
         self.button.setText(action)
         self.button.setEnabled(enabled)
+
+
+# Те же названия, что и в настройках: человек встретит их дважды, и
+# разные слова для одного и того же сбивали бы с толку.
+THEMES = {
+    "Тёмное": "dark",
+    "Светлое": "light",
+    "Как в Windows": "system",
+}
+
+
+def _title_for(value: str) -> str:
+    for title, name in THEMES.items():
+        if name == value:
+            return title
+    return "Тёмное"
 
 
 class WelcomeWindow(FramelessWindow):
@@ -184,6 +202,16 @@ class WelcomeWindow(FramelessWindow):
         self.controller.refresh()
         self.refresh()
 
+    def _change_theme(self, title: str) -> None:
+        """Меняет оформление сразу: перезапуск для этого не нужен."""
+        wanted = THEMES.get(title, "dark")
+        if wanted == self.controller.settings.theme:
+            return
+
+        self.controller.settings.theme = wanted
+        self.controller.settings.save()
+        use_theme(wanted)
+
     def _build_steps(self) -> Card:
         card = Card()
         body = card.body()
@@ -236,6 +264,25 @@ class WelcomeWindow(FramelessWindow):
         )
         self._location_step.button.clicked.connect(self._choose_location)
         body.addWidget(self._location_step)
+
+        body.addWidget(Divider())
+
+        # Тема меняется на ходу, поэтому ей место здесь, а не только в
+        # настройках: выбрать оформление логично до того, как начал
+        # пользоваться, а не после.
+        theme_row = QHBoxLayout()
+        theme_row.setSpacing(SPACE["sm"])
+
+        theme_label = QLabel("Оформление")
+        theme_row.addWidget(theme_label)
+
+        self._theme = QComboBox()
+        for title in THEMES:
+            self._theme.addItem(title)
+        self._theme.setCurrentText(_title_for(self.controller.settings.theme))
+        self._theme.currentTextChanged.connect(self._change_theme)
+        theme_row.addWidget(self._theme, 1)
+        body.addLayout(theme_row)
 
         body.addStretch(1)
         return card

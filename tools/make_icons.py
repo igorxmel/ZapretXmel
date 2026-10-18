@@ -21,7 +21,7 @@ from PyQt6.QtCore import QPointF, Qt  # noqa: E402
 from PyQt6.QtGui import QColor, QImage, QPainter, QPen, QPolygonF  # noqa: E402
 from PyQt6.QtWidgets import QApplication  # noqa: E402
 
-from app.ui.theme.tokens import COLORS  # noqa: E402
+from app.ui.theme.tokens import DARK, LIGHT  # noqa: E402
 
 ASSETS = Path(__file__).resolve().parents[1] / "assets"
 SOURCE = ASSETS / "logo.png"
@@ -75,7 +75,7 @@ def strip_background(image: QImage, threshold: int = BACKGROUND_THRESHOLD) -> QI
     return image
 
 
-def draw_chevron(size: int, colour: str, thickness: float) -> QImage:
+def draw_chevron(size: int, colour: str, thickness: float, up: bool = False) -> QImage:
     """Рисует галочку-стрелку для выпадающих списков.
 
     Qt умеет ставить в `::down-arrow` только картинку — нарисовать её
@@ -92,12 +92,15 @@ def draw_chevron(size: int, colour: str, thickness: float) -> QImage:
 
     inset = size * 0.28
     middle = size / 2
+    # Вверх — та же галочка, перевёрнутая: счётчикам нужны обе, и рисовать
+    # их по отдельности значило бы получить две чуть разные стрелки.
+    tip = -1 if up else 1
     painter.drawPolyline(
         QPolygonF(
             [
-                QPointF(inset, middle - size * 0.1),
-                QPointF(middle, middle + size * 0.16),
-                QPointF(size - inset, middle - size * 0.1),
+                QPointF(inset, middle - size * 0.1 * tip),
+                QPointF(middle, middle + size * 0.16 * tip),
+                QPointF(size - inset, middle - size * 0.1 * tip),
             ]
         )
     )
@@ -141,10 +144,17 @@ def main() -> int:
             return 1
     print(f"проверены размеры: {', '.join(str(s) for s in ICON_SIZES)}")
 
-    for name, colour in (("chevron", COLORS["text_dim"]), ("chevron-hover", COLORS["text"])):
-        path = ASSETS / f"{name}.png"
-        draw_chevron(CHEVRON_SIZE, colour, CHEVRON_THICKNESS).save(str(path), "PNG")
-        print(f"стрелка: {path}")
+    # Стрелок четыре набора: вверх и вниз, для тёмной темы и для светлой.
+    # Картинку Qt берёт из файла и перекрасить её не умеет, а стрелка цвета
+    # тёмной темы на светлом фоне не видна вовсе.
+    for theme, palette in (("", DARK), ("-light", LIGHT)):
+        for state, colour in (("", palette["text_dim"]), ("-hover", palette["text"])):
+            for direction, up in (("", False), ("-up", True)):
+                name = f"chevron{direction}{theme}{state}"
+                path = ASSETS / f"{name}.png"
+                image = draw_chevron(CHEVRON_SIZE, colour, CHEVRON_THICKNESS, up=up)
+                image.save(str(path), "PNG")
+                print(f"стрелка: {path}")
 
     return 0
 

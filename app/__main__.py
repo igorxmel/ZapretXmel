@@ -79,10 +79,7 @@ def apply_chosen_theme() -> None:
     except Exception:  # noqa: BLE001 — настройки битые, значит тема обычная
         wanted = "dark"
 
-    if wanted == "system":
-        wanted = theme.system_theme()
-
-    log.info("Оформление: %s", theme.apply_theme(wanted))
+    theme.apply_theme(theme.system_theme() if wanted == "system" else wanted)
 
 
 def apply_ui_scale() -> None:

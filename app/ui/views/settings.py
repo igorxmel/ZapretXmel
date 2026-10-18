@@ -35,6 +35,7 @@ from app.core import (
 from app.core.gamefilter import GameFilter
 from app.ui import dialogs, motion
 from app.ui.controller import Controller
+from app.ui.theme import use_theme
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, Divider, KeyValueRow, view_header
 from app.ui.workers import Task
@@ -267,9 +268,7 @@ class SettingsView(QWidget):
         self._theme = QComboBox()
         for title in THEMES:
             self._theme.addItem(title)
-        self._theme.currentTextChanged.connect(lambda title: self._restart_for(
-            "theme", THEMES.get(title, "dark"), f"оформление «{title.lower()}»"
-        ))
+        self._theme.currentTextChanged.connect(self._change_theme)
         body.addWidget(self._theme)
 
         body.addWidget(QLabel("Масштаб интерфейса"))
@@ -584,6 +583,23 @@ class SettingsView(QWidget):
 
         QApplication.quit()
 
+    def _change_theme(self, title: str) -> None:
+        """Меняет оформление сразу, без перезапуска."""
+        if self._loading:
+            return
+
+        wanted = THEMES.get(title, "dark")
+        if wanted == self.controller.settings.theme:
+            return
+
+        self.controller.settings.theme = wanted
+        self.controller.settings.save()
+        use_theme(wanted)
+
+        # Часть подписей красится не стилями, а по месту — они обновятся
+        # вместе с состоянием.
+        self.controller.refresh()
+
     def _restart_for(self, field: str, value, what: str) -> None:
         """Запоминает настройку и предлагает перезапуск.
 
@@ -594,18 +610,22 @@ class SettingsView(QWidget):
         if self._loading or getattr(self.controller.settings, field) == value:
             return
 
-        setattr(self.controller.settings, field, value)
-        self.controller.settings.save()
-
+        # Спрашиваем до того, как запомнить: «Отмена» должна отменять, а не
+        # оставлять выбранное до следующего запуска — именно так это и
+        # выглядело, и выбор в списке оставался новым.
         if not dialogs.confirm(
             self,
             "Нужен перезапуск",
-            f"Перезапустить программу, чтобы применить {what}?",
-            "Можно и не перезапускать — настройка применится при следующем "
-            "открытии программы.",
+            f"Применить {what}?",
+            "Размер окна Qt задаёт при запуске, поменять его на ходу нельзя "
+            "— программа закроется и откроется заново.",
             action="Перезапустить",
         ):
+            self.reload()
             return
+
+        setattr(self.controller.settings, field, value)
+        self.controller.settings.save()
 
         try:
             location.restart(paths.executable())
