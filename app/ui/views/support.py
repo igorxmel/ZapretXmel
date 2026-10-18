@@ -106,7 +106,10 @@ class SupportView(QWidget):
 
         # Тестировщики — отдельной строкой и первыми: поломки, которые они
         # ловят, стоят дороже денег, а узнать о них больше неоткуда.
-        testers = QLabel("Ловят поломки до всех остальных: " + ", ".join(TESTERS) + ".")
+        testers = QLabel(
+            "Спасибо любимым тестировщикам: "
+            + ", ".join(f"{name} ♥" for name in TESTERS)
+        )
         testers.setWordWrap(True)
         body.addWidget(testers)
 
