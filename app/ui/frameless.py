@@ -21,6 +21,7 @@ from PyQt6.QtGui import QDesktopServices, QFont, QFontDatabase, QPainter
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
+    QLabel,
     QPushButton,
     QStyle,
     QStyleOption,
@@ -146,7 +147,13 @@ class CaptionButton(QPushButton):
 class TitleBar(QWidget):
     """Свой заголовок окна: логотип, название и кнопки управления."""
 
-    def __init__(self, window: FramelessWindow, title: str, compact: bool = False):
+    def __init__(
+        self,
+        window: FramelessWindow,
+        title: str,
+        compact: bool = False,
+        caption: str = "",
+    ):
         super().__init__(window)
         self.window_ref = window
         self.setObjectName("TitleBar")
@@ -156,9 +163,15 @@ class TitleBar(QWidget):
         row.setContentsMargins(SPACE["md"], 0, 0, 0)
         row.setSpacing(SPACE["sm"])
 
-        # Ни значка, ни названия: и то, и другое есть на баннере в боковом
-        # меню прямо под заголовком, а повторять их дважды незачем. Имя окна
-        # при этом задано и видно системе — в панели задач и при alt-tab.
+        # У главного окна ни значка, ни названия: и то, и другое есть на
+        # баннере в боковом меню прямо под заголовком, повторять их дважды
+        # незачем. А вот у отдельного окна баннера нет, и без подписи
+        # непонятно, что это вообще открылось.
+        if caption:
+            label = QLabel(caption)
+            label.setObjectName("TitleCaption")
+            row.addWidget(label)
+
         row.addStretch(1)
 
         # Ссылки наружу живут в заголовке: в разделах им места нет, а найти
@@ -268,7 +281,13 @@ class FramelessWindow(QWidget):
     Содержимое складывается в `self.body`.
     """
 
-    def __init__(self, title: str, compact: bool = False, resizable: bool | None = None):
+    def __init__(
+        self,
+        title: str,
+        compact: bool = False,
+        resizable: bool | None = None,
+        caption: str = "",
+    ):
         """`compact` убирает ссылки и кнопки окна, `resizable` — ручки краёв.
 
         Разведены нарочно: вспомогательному окну ссылки и сворачивание ни к
@@ -293,7 +312,7 @@ class FramelessWindow(QWidget):
         inner.setContentsMargins(0, 0, 0, 0)
         inner.setSpacing(0)
 
-        self.titlebar = TitleBar(self, title, compact=compact)
+        self.titlebar = TitleBar(self, title, compact=compact, caption=caption)
         inner.addWidget(self.titlebar)
 
         self.body = QWidget()

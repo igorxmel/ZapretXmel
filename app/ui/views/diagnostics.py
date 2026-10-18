@@ -20,10 +20,9 @@ from PyQt6.QtWidgets import (
 
 from app.core.diagnostics import collectors, rules
 from app.core.diagnostics.rules import Finding, Severity
-from app.core.probe import discord
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SEVERITY_COLORS, SPACE
-from app.ui.views.ai_panel import AiPanel
+from app.ui.views.aiwindow import AiWindow
 from app.ui.widgets import Card, Divider, view_header
 from app.ui.workers import Task
 
@@ -92,6 +91,7 @@ class DiagnosticsView(QWidget):
         self.controller = controller
         self._task: Task | None = None
         self._ran = False
+        self._ai_window: AiWindow | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -112,15 +112,16 @@ class DiagnosticsView(QWidget):
         self._run_button.clicked.connect(self.run_checks)
         controls.addWidget(self._run_button)
 
-        # Проверка нужна не всем, но набранная строчным шрифтом она читалась
-        # как примечание — и её просто не замечали.
-        self._discord_button = QPushButton("Проверить Discord")
-        self._discord_button.setToolTip(
-            "Проверяет вход, гейтвей и загрузку картинок по отдельности — "
-            "обычная проверка показывает успех, даже когда клиент не подключается"
+        # Отдельной проверки Discord здесь больше нет: те же три шага
+        # давно идут в быстрой проверке и в подборе, а вторая кнопка рядом
+        # с «Проверить систему» означала для человека непонятный выбор.
+        self._ai_button = QPushButton("ИИ диагностика")
+        self._ai_button.setToolTip(
+            "Отдельное окно: разбор неполадки нейросетью и выгрузка пакета "
+            "для любого чат-бота"
         )
-        self._discord_button.clicked.connect(self.run_discord_checks)
-        controls.addWidget(self._discord_button)
+        self._ai_button.clicked.connect(self._open_ai)
+        controls.addWidget(self._ai_button)
 
         self._summary = QLabel("Проверка ещё не запускалась")
         self._summary.setObjectName("Dim")
@@ -133,13 +134,9 @@ class DiagnosticsView(QWidget):
         self._container.body().setAlignment(Qt.AlignmentFlag.AlignTop)
         self._scroll.setWidget(self._container)
 
-        columns = QHBoxLayout()
-        columns.setSpacing(SPACE["lg"])
-        columns.addWidget(self._scroll, 3)
-
-        self.ai_panel = AiPanel(controller)
-        columns.addWidget(self.ai_panel, 2)
-        layout.addLayout(columns, 1)
+        # Результатам отдан весь экран: разбор нейросетью переехал в своё
+        # окно, и делить ширину больше не с чем.
+        layout.addWidget(self._scroll, 1)
 
         self._placeholder = QLabel(
             "Проверка занимает пару секунд: приложение опрашивает службы Windows, "
@@ -150,9 +147,16 @@ class DiagnosticsView(QWidget):
         self._container.body().addWidget(self._placeholder)
         self._container.body().addStretch(1)
 
+    def _open_ai(self) -> None:
+        """Открывает окно разбора. Одно на всё приложение, а не по окну на нажатие."""
+        if self._ai_window is None:
+            self._ai_window = AiWindow(self)
+        self._ai_window.show()
+        self._ai_window.raise_()
+        self._ai_window.activateWindow()
+
     def reload(self) -> None:
         """Первое открытие экрана сразу запускает проверку — её для этого и открывают."""
-        self.ai_panel.reload()
         if not self._ran:
             self.run_checks()
 
@@ -191,52 +195,6 @@ class DiagnosticsView(QWidget):
         self._summary.setText(f"Найдено проблем: {len(problems)}{serious}")
         self._summary.setStyleSheet(
             f"color: {COLORS['danger'] if errors else COLORS['warning']};"
-        )
-
-    def run_discord_checks(self) -> None:
-        self._discord_button.setEnabled(False)
-        self._summary.setStyleSheet(f"color: {COLORS['text_dim']};")
-        self._summary.setText("Проверяю Discord по шагам…")
-
-        self._task = Task(discord.check_all)
-        self._task.done.connect(self._show_discord)
-        self._task.failed.connect(self._fail)
-        self._task.start()
-
-    def _show_discord(self, results: list[discord.StepResult]) -> None:
-        """Показывает результат по шагам: что именно у Discord не отвечает."""
-        self._discord_button.setEnabled(True)
-        self._clear()
-
-        body = self._container.body()
-        for result in results:
-            finding = Finding(
-                id=f"discord_{result.step}",
-                severity=Severity.OK if result.ok else Severity.ERROR,
-                title=f"{result.title} — {'отвечает' if result.ok else 'не отвечает'}",
-                detail=(
-                    f"{result.detail} · {result.elapsed_ms:.0f} мс"
-                    if result.ok
-                    else f"{result.meaning} Ответ: {result.detail}"
-                ),
-            )
-            body.addWidget(FindingRow(finding, self._apply_fix))
-            body.addWidget(Divider())
-
-        note = QLabel(discord.summarise(results))
-        note.setObjectName("Dim")
-        note.setWordWrap(True)
-        body.addWidget(note)
-        body.addStretch(1)
-
-        broken = [result for result in results if not result.ok]
-        self._summary.setStyleSheet(
-            f"color: {COLORS['danger'] if broken else COLORS['success']};"
-        )
-        self._summary.setText(
-            f"Discord: не отвечает шагов — {len(broken)}"
-            if broken
-            else "Discord отвечает полностью"
         )
 
     def _apply_fix(self, finding: Finding) -> None:

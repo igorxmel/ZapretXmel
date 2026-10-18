@@ -138,6 +138,16 @@ def build_stylesheet() -> str:
         color: {c["text"]};
     }}
 
+    /* Подпись отдельного окна: у него нет баннера в боковом меню, и без
+       неё непонятно, что именно открылось. */
+    QLabel#TitleCaption {{
+        color: {c["text_muted"]};
+        font-size: {FONT_SIZE["caption"]}px;
+        font-weight: 600;
+        letter-spacing: 1px;
+        padding-left: {s["xs"]}px;
+    }}
+
     #TitleSeparator {{
         background: {c["border"]};
         margin: {s["md"]}px 0;

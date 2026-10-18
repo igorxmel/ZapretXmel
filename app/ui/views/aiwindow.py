@@ -29,7 +29,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core.diagnostics import ai, aihistory, secrets, snapshot
+from app.core.diagnostics import ai, aihistory, bundle, secrets, snapshot
 from app.ui.frameless import FramelessWindow
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, Divider
@@ -46,16 +46,18 @@ class AiWindow(FramelessWindow):
     """Разбор нейросетью: выбор сервиса, вопрос, ответ и прошлые разборы."""
 
     def __init__(self, parent: QWidget | None = None):
-        # Растягивать нужно: ответ бывает длинным, а экраны — разными.
-        super().__init__("Разбор нейросетью", compact=True, resizable=True)
+        # Окно полноценное: его сворачивают, разворачивают и держат
+        # открытым рядом с главным, пока пробуют советы.
+        super().__init__("ИИ диагностика", caption="ИИ ДИАГНОСТИКА")
         self.resize(WIDTH, HEIGHT)
         self.setMinimumSize(760, 520)
 
         self._task: Task | None = None
         self._models_task: Task | None = None
+        self._export_task: Task | None = None
 
         layout = QHBoxLayout(self.body)
-        layout.setContentsMargins(SPACE["lg"], 0, SPACE["lg"], SPACE["lg"])
+        layout.setContentsMargins(SPACE["lg"], SPACE["lg"], SPACE["lg"], SPACE["lg"])
         layout.setSpacing(SPACE["lg"])
         layout.addWidget(self._build_history(), 0)
         layout.addWidget(self._build_main(), 1)
@@ -137,10 +139,24 @@ class AiWindow(FramelessWindow):
         self._problem.setFixedHeight(70)
         body.addWidget(self._problem)
 
+        buttons = QHBoxLayout()
+        buttons.setSpacing(SPACE["sm"])
+
         self._ask = QPushButton("Разобрать")
         self._ask.setObjectName("Primary")
         self._ask.clicked.connect(self._analyze)
-        body.addWidget(self._ask)
+        buttons.addWidget(self._ask, 1)
+
+        # Выгрузка живёт здесь же: это тот же разбор, только руками и без
+        # ключа — искать её на другом экране было бы странно.
+        export = QPushButton("Выгрузить пакет для любого ИИ")
+        export.setToolTip(
+            "Архив с данными, пояснением к ним и готовым запросом — ключ не "
+            "нужен, отдать можно любому чат-боту"
+        )
+        export.clicked.connect(self._export)
+        buttons.addWidget(export)
+        body.addLayout(buttons)
 
         self._status = QLabel("")
         self._status.setObjectName("Muted")
@@ -261,6 +277,17 @@ class AiWindow(FramelessWindow):
     def _fail(self, message: str) -> None:
         self._ask.setEnabled(True)
         self._say(message, COLORS["danger"])
+
+    def _export(self) -> None:
+        self._say("Собираю пакет…")
+        self._export_task = Task(bundle.export, problem=self._problem.toPlainText())
+        self._export_task.done.connect(self._exported)
+        self._export_task.failed.connect(self._fail)
+        self._export_task.start()
+
+    def _exported(self, path) -> None:
+        self._say(f"Готово: {path.name}", COLORS["success"])
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path.parent)))
 
     # --- история ---------------------------------------------------------
 

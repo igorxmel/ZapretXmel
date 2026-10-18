@@ -12,6 +12,7 @@ import ctypes
 import logging
 import os
 import sys
+import time
 
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
@@ -152,6 +153,28 @@ def install_crash_handler() -> None:
     sys.excepthook = handle
 
 
+# Сколько ждать, пока завершится предыдущий экземпляр. Пять секунд с
+# запасом покрывают выход старого процесса после самообновления и при этом
+# не превращаются в заметную паузу: обычный повторный запуск сюда не
+# доходит — там окно находится и поднимается сразу.
+PREDECESSOR_WAIT = 5.0
+PREDECESSOR_STEP = 0.25
+
+
+def _wait_for_predecessor() -> bool:
+    """Ждёт, пока освободится мьютекс. True — дождались и заняли его."""
+    deadline = time.monotonic() + PREDECESSOR_WAIT
+    while time.monotonic() < deadline:
+        time.sleep(PREDECESSOR_STEP)
+        if singleton.acquire():
+            return True
+        # Окно могло появиться, пока мы ждали: значит это не умирающий
+        # предшественник, а живой экземпляр — к нему и отправляем.
+        if singleton.focus_existing():
+            return False
+    return False
+
+
 def revive_stuck_instance() -> bool:
     """Предлагает снять зависший экземпляр. True — можно продолжать запуск.
 
@@ -251,10 +274,17 @@ def main() -> int:
         log.info("Программа уже запущена")
         if singleton.focus_existing():
             return 0
-        # Мьютекс занят, а окна нет — экземпляр завис. Просто выйти здесь
-        # нельзя: человек жмёт на ярлык, и ничего не происходит, причём
-        # сколько угодно раз подряд.
-        if not revive_stuck_instance():
+
+        # Сразу после самообновления старый процесс ещё доживает свои
+        # мгновения: окна у него уже нет, а мьютекс ещё занят. Без этого
+        # ожидания новый экземпляр каждый раз объявлял прошлый запуск
+        # зависшим — и человек видел вопрос после каждого обновления.
+        if _wait_for_predecessor():
+            log.info("Прошлый экземпляр завершился, продолжаем запуск")
+        # Не дождались и окна нет — экземпляр действительно завис. Просто
+        # выйти здесь нельзя: человек жмёт на ярлык, и ничего не
+        # происходит, причём сколько угодно раз подряд.
+        elif not revive_stuck_instance():
             return 0
 
     settings = Settings.load()
