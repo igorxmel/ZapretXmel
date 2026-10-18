@@ -268,7 +268,13 @@ class FramelessWindow(QWidget):
     Содержимое складывается в `self.body`.
     """
 
-    def __init__(self, title: str, compact: bool = False):
+    def __init__(self, title: str, compact: bool = False, resizable: bool | None = None):
+        """`compact` убирает ссылки и кнопки окна, `resizable` — ручки краёв.
+
+        Разведены нарочно: вспомогательному окну ссылки и сворачивание ни к
+        чему, но растягивать его бывает нужно — например, разбору
+        нейросетью, где ответ длинный, а названия моделей не помещаются.
+        """
         super().__init__()
         self.setWindowFlag(Qt.WindowType.Window)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
@@ -294,7 +300,9 @@ class FramelessWindow(QWidget):
         inner.addWidget(self.body, 1)
 
         self.grips: list[Grip] = []
-        edges_and_cursors = () if compact else (
+        if resizable is None:
+            resizable = not compact
+        edges_and_cursors = () if not resizable else (
             (Qt.Edge.TopEdge, Qt.CursorShape.SizeVerCursor),
             (Qt.Edge.BottomEdge, Qt.CursorShape.SizeVerCursor),
             (Qt.Edge.LeftEdge, Qt.CursorShape.SizeHorCursor),
