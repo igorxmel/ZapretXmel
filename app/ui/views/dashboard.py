@@ -139,6 +139,15 @@ class DashboardView(QWidget):
 
         self._pill_service = StatusPill("служба", COLORS["text_muted"])
         self._pill_process = StatusPill("winws", COLORS["text_muted"])
+        # «winws: 1» само по себе человеку ничего не говорит: он не обязан
+        # знать, что это за процесс и почему их может быть несколько.
+        self._pill_process.setToolTip(
+            "winws — программа из сборки zapret, которая и делает обход: она "
+            "перехватывает пакеты и меняет их так, чтобы фильтр провайдера не "
+            "понял, куда вы идёте.\n\nЦифра — сколько таких процессов "
+            "работает. Обычно один; второй появляется, когда включён профиль "
+            "приложения."
+        )
         pills = QHBoxLayout()
         pills.setSpacing(SPACE["lg"])
         pills.addWidget(self._pill_service)
@@ -149,7 +158,27 @@ class DashboardView(QWidget):
         self._row_core = KeyValueRow("Версия ядра")
         self._row_mode = KeyValueRow("Режим запуска")
         self._row_strategies = KeyValueRow("Стратегий доступно")
-        for row in (self._row_core, self._row_mode, self._row_strategies):
+
+        # Прокси — вторая включаемая вещь, и у неё своё состояние: он может
+        # работать, но не быть прописанным в самом Telegram, и тогда толку
+        # от него никакого.
+        self._row_proxy = KeyValueRow("Прокси для Telegram")
+        self._row_proxy.setToolTip(
+            "Поднять прокси мало — его ещё нужно добавить в настройках "
+            "Telegram. Кнопка «Открыть в Telegram» на вкладке Telegram "
+            "делает это за вас."
+        )
+
+        # Чтобы не гадали на программу, когда лежит интернет.
+        self._row_speed = KeyValueRow("Сеть сейчас")
+
+        for row in (
+            self._row_core,
+            self._row_mode,
+            self._row_strategies,
+            self._row_proxy,
+            self._row_speed,
+        ):
             body.addWidget(row)
 
         body.addStretch(1)
@@ -440,6 +469,23 @@ class DashboardView(QWidget):
         service_mode = self.controller.settings.run_mode == "service"
         self._row_mode.set_value("служба Windows" if service_mode else "обычный процесс")
         self._row_strategies.set_value(str(status.strategy_count))
+        self._row_proxy.set_value(self._proxy_state(status))
+        self._row_speed.set_value(
+            status.network.label if status.network is not None else "—"
+        )
+
+    @staticmethod
+    def _proxy_state(status: Status) -> str:
+        """Состояние прокси одной строкой — от «нет» до «им пользуются»."""
+        if not status.telegram_installed:
+            return "не установлен"
+
+        version = status.telegram_version or "версия неизвестна"
+        if not status.telegram_running:
+            return f"остановлен · {version}"
+        if status.telegram_connected:
+            return f"работает, Telegram подключён · {version}"
+        return f"работает, но не добавлен в Telegram · {version}"
 
     @staticmethod
     def _bypass_state(status: Status) -> str:

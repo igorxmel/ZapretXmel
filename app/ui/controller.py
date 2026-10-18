@@ -13,7 +13,16 @@ from datetime import datetime
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
-from app.core import coreinfo, foreign, service, strategies, telegram, watch, winws
+from app.core import (
+    coreinfo,
+    foreign,
+    netspeed,
+    service,
+    strategies,
+    telegram,
+    watch,
+    winws,
+)
 from app.core.batfile import StrategySpec
 from app.core.config import Settings
 from app.core.diagnostics import vpn
@@ -49,6 +58,11 @@ class Status:
     profile_action: tuple[str, str] = ("", "")
     telegram_installed: bool = False
     telegram_running: bool = False
+    telegram_version: str = ""
+    # Подключился ли к прокси клиент. Поднять его мало — прокси ещё нужно
+    # прописать в самом Telegram, и об этом забывают.
+    telegram_connected: bool = False
+    network: object = None
     log_tail: list[str] = field(default_factory=list)
 
     @property
@@ -119,6 +133,8 @@ class Controller(QObject):
         # невозможно: следующая же проверка видит игру и включает снова.
         self._profile_declined = ""
         self._telegram_task: Task | None = None
+        # Счётчик скорости: состояние между опросами держит он сам.
+        self._speed = netspeed.Meter()
         self.last_check: object | None = None
         self.last_check_at: datetime | None = None
         self._watch_timer = QTimer(self)
@@ -220,6 +236,10 @@ class Controller(QObject):
         )
 
         own_process_alive = self._process is not None and self._process.is_alive()
+        # Спрашиваем один раз: соединения прокси перебираются тем же
+        # способом, и делать это дважды за опрос незачем.
+        proxy_running = telegram.is_running_anywhere()
+
         status = Status(
             core_present=info.present,
             core_version=info.version,
@@ -232,7 +252,10 @@ class Controller(QObject):
             active_vpn=tunnel.adapter if (tunnel := vpn.detect_fast()) else "",
             foreign_install=str(stranger.root) if stranger else "",
             telegram_installed=telegram.is_installed(),
-            telegram_running=telegram.is_running_anywhere(),
+            telegram_version=telegram.installed_version(),
+            telegram_connected=telegram.has_clients() if proxy_running else False,
+            network=self._speed.read(),
+            telegram_running=proxy_running,
             active_profile=self._profile_name if self._profile_alive() else "",
             profile_action=self._decide_about_profiles(),
             log_tail=list(self._process.output) if self._process else [],

@@ -433,21 +433,34 @@ def build_stylesheet() -> str:
     }}
     QProgressBar::chunk {{ background: {BRAND["orange"]}; border-radius: {r["sm"]}px; }}
 
-    QScrollBar:vertical {{ background: transparent; width: 9px; margin: 0; }}
+    /* Полоса шире самого ползунка: разницу съедают поля, и он не липнет
+       ни к тексту слева, ни к краю окна справа. Без этого он проходил
+       впритык к содержимому и читался как его часть. */
+    QScrollBar:vertical {{
+        background: transparent;
+        width: {s["lg"]}px;
+        margin: {s["xs"]}px 0;
+    }}
     QScrollBar::handle:vertical {{
         background: {c["border_strong"]};
-        border-radius: 4px;
+        border-radius: 3px;
         min-height: 28px;
+        margin: 0 {s["xs"]}px;
     }}
     QScrollBar::handle:vertical:hover {{ background: {c["text_muted"]}; }}
     QScrollBar::add-line, QScrollBar::sub-line {{ height: 0; width: 0; }}
     QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
 
-    QScrollBar:horizontal {{ background: transparent; height: 9px; }}
+    QScrollBar:horizontal {{
+        background: transparent;
+        height: {s["lg"]}px;
+        margin: 0 {s["xs"]}px;
+    }}
     QScrollBar::handle:horizontal {{
         background: {c["border_strong"]};
-        border-radius: 4px;
+        border-radius: 3px;
         min-width: 28px;
+        margin: {s["xs"]}px 0;
     }}
 
     QScrollArea {{ border: none; background: transparent; }}
