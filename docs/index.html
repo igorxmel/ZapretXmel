@@ -25,7 +25,19 @@
 <link rel="canonical" href="https://igorxmel.github.io/ZapretXmel/">
 <link rel="sitemap" type="application/xml" href="sitemap.xml">
 <link rel="icon" href="assets/favicon.png" type="image/png">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=9">
+
+<!-- Тема проставляется до первой отрисовки: иначе у тех, у кого в системе
+     светлое оформление, страница на мгновение мигала бы тёмной. Поэтому
+     скрипт здесь, а не в site.js, который грузится в конце. -->
+<script>
+  (function () {
+    var saved = null;
+    try { saved = localStorage.getItem("theme"); } catch (e) {}
+    var system = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    document.documentElement.dataset.theme = saved || system;
+  })();
+</script>
 
 <!-- Класс ставится до отрисовки: по нему стили прячут блоки, которые
      потом проявит скрипт. Без скрипта всё остаётся видимым. -->
@@ -37,6 +49,8 @@
   <!-- Тот же логотип, что и на главной. Квадратной иконкой он в панели
        превращался в кашу, а горизонтальный баннер читается и мелким. -->
   <a class="bar-name" href="#top"><img src="assets/banner.png" alt="ZapretXmel"></a>
+  <button class="theme-toggle" id="theme-toggle" type="button"
+          title="Светлое или тёмное оформление" aria-label="Сменить оформление">◐</button>
   <a class="button primary" href="https://github.com/igorxmel/ZapretXmel/releases/latest/download/ZapretXmel.exe">Скачать</a>
 </div>
 
@@ -66,7 +80,7 @@
 
 <section class="feature reveal">
   <figure class="shot">
-    <img src="assets/dashboard.png" alt="Главный экран с кнопкой включения">
+    <img data-shot="dashboard" src="assets/dashboard.png" alt="Главный экран с кнопкой включения">
   </figure>
   <div class="feature-text">
     <p class="step"><span>01</span> Включение</p>
@@ -83,7 +97,7 @@
 
 <section class="feature reveal">
   <figure class="shot">
-    <img src="assets/autopick.png" alt="Экран подбора стратегии" loading="lazy">
+    <img data-shot="autopick" src="assets/autopick.png" alt="Экран подбора стратегии" loading="lazy">
   </figure>
   <div class="feature-text">
     <p class="step"><span>02</span> Подбор</p>
@@ -109,7 +123,7 @@
 
 <section class="feature reveal">
   <figure class="shot">
-    <img src="assets/diagnostics.png" alt="Экран диагностики" loading="lazy">
+    <img data-shot="diagnostics" src="assets/diagnostics.png" alt="Экран диагностики" loading="lazy">
   </figure>
   <div class="feature-text">
     <p class="step"><span>03</span> Когда не работает</p>
@@ -129,7 +143,7 @@
 
 <section class="feature reveal">
   <figure class="shot">
-    <img src="assets/updates.png" alt="Экран обновлений" loading="lazy">
+    <img data-shot="updates" src="assets/updates.png" alt="Экран обновлений" loading="lazy">
   </figure>
   <div class="feature-text">
     <p class="step"><span>04</span> Дальше</p>
@@ -149,7 +163,14 @@
     <article>
       <h3>Профили приложений</h3>
       <p>Пропустить через обход отдельную игру или клиент: программа записывает,
-        куда он ходит, и строит из этого фильтр.</p>
+        куда он ходит, и строит из этого фильтр. Профиль поднимается вместе с
+        приложением, и работать их может несколько сразу.</p>
+    </article>
+    <article>
+      <h3>Где рвётся соединение</h3>
+      <p>Проверка по уровням — DNS, адрес, имя сайта, ответ сервера. Отвечает на
+        главный вопрос: поможет ли здесь обход вообще. При подмене DNS не поможет
+        никакая стратегия, а обрыв на имени сайта — это ровно его работа.</p>
     </article>
     <article>
       <h3>Свои стратегии</h3>
@@ -165,6 +186,12 @@
       <h3>Слежение за апстримом</h3>
       <p>Программа следит за релизами Flowseal и сообщает, если в сборке появилось
         то, чего интерфейс ещё не умеет.</p>
+    </article>
+    <article>
+      <h3>Светлое и тёмное</h3>
+      <p>Оформление берётся из Windows, но переключается и вручную — сразу, без
+        перезапуска. Масштаб тоже свой: на ноутбуке окно не обязано быть во весь
+        экран.</p>
     </article>
   </div>
 </section>
@@ -226,6 +253,6 @@
   <img id="lightbox-image" alt="">
 </div>
 
-<script src="site.js?v=5"></script>
+<script src="site.js?v=9"></script>
 </body>
 </html>

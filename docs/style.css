@@ -21,6 +21,12 @@
      остаётся за кнопкой скачивания, а этот — за состоянием, ровно как в
      приложении. Поэтому он живёт в полоске и слове, а не в заливке. */
   --warning: #d9a441;
+  --shadow: rgba(0, 0, 0, 0.45);
+  --grid-line: rgba(255, 255, 255, 0.022);
+  --glow: rgba(245, 160, 0, 0.1);
+  --bar-bg: rgba(11, 11, 12, 0.82);
+  --shot-shadow: 0 30px 70px rgba(0, 0, 0, 0.55);
+  --code-bg: #000;
   --radius: 10px;
   --width: 980px;
 
@@ -31,6 +37,36 @@
     "Roboto Condensed", "Segoe UI", sans-serif;
   --body: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
   --mono: Consolas, "SF Mono", ui-monospace, monospace;
+}
+
+/* Светлая палитра — зеркало тёмной, с теми же ролями у тех же переменных.
+   Значения взяты из app/ui/theme/tokens.py, чтобы страница и программа
+   выглядели одинаково.
+
+   Определена один раз: признак темы проставляет скрипт в <head> ещё до
+   отрисовки, в том числе когда человек ничего не выбирал и тему берут у
+   системы. Второй набор в @media пришлось бы править парой, и он бы
+   разошёлся. */
+:root[data-theme="light"] {
+  --bg: #e8eaee;
+  --surface: #ffffff;
+  --surface-hover: #f0f1f5;
+  --border: #d2d6de;
+  --border-strong: #a8adb8;
+  --text: #16161a;
+  --text-dim: #55555f;
+  --text-muted: #85858f;
+  --warning: #8a5d0a;
+  --shadow: rgba(22, 22, 26, 0.14);
+  /* Сетка на светлом должна быть тёмной, иначе её попросту нет. Свечение
+     наоборот плотнее: на белом оранжевый разбавляется сильнее. */
+  --grid-line: rgba(22, 22, 26, 0.045);
+  --glow: rgba(245, 160, 0, 0.18);
+  --bar-bg: rgba(255, 255, 255, 0.86);
+  --shot-shadow: 0 24px 60px rgba(22, 22, 26, 0.18);
+  /* Чёрная плашка посреди светлого текста выглядит дырой; оранжевый на
+     светло-сером читается не хуже. */
+  --code-bg: #f3f0e8;
 }
 
 * { box-sizing: border-box; }
@@ -68,14 +104,14 @@ body::after {
 
 body::before {
   background:
-    radial-gradient(900px 420px at 50% -120px, rgba(245, 160, 0, 0.1), transparent 70%),
+    radial-gradient(900px 420px at 50% -120px, var(--glow), transparent 70%),
     linear-gradient(var(--bg), var(--bg));
 }
 
 body::after {
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 34px 34px;
   mask-image: linear-gradient(#000 0%, rgba(0, 0, 0, 0.35) 45%, transparent 85%);
 }
@@ -88,7 +124,7 @@ a:not(.button):not(.dot):not(.bar-name) {
 a:not(.button):not(.dot):not(.bar-name):hover { border-color: var(--orange); color: #fff; }
 
 code {
-  background: #000;
+  background: var(--code-bg);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 2px 7px;
@@ -111,7 +147,7 @@ code {
   align-items: center;
   gap: 14px;
   padding: 9px 24px;
-  background: rgba(11, 11, 12, 0.82);
+  background: var(--bar-bg);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
   transform: translateY(-100%);
@@ -312,7 +348,7 @@ p { margin: 0 0 12px; color: var(--text-dim); }
   display: block;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--shot-shadow);
   cursor: zoom-in;
 }
 
@@ -478,4 +514,30 @@ footer p { margin: 0 0 10px; }
 
 @media (max-width: 640px) {
   .lightbox { padding: 16px; }
+}
+
+/* --- переключатель темы ------------------------------------------------ */
+
+/* В верхней полосе рядом со скачиванием: это не настройка, а мелочь на
+   один щелчок, и места под подпись ей не нужно. */
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.theme-toggle:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
 }

@@ -117,6 +117,63 @@ function setupLightbox() {
   });
 }
 
+/**
+ * Переключатель оформления.
+ *
+ * Пока выбора не делали, идём за системой — это решает CSS. Как только
+ * выбрали, запоминаем: иначе при каждом заходе страница возвращалась бы к
+ * системной теме, и выбор выглядел бы неработающим.
+ *
+ * Снимки экранов подменяются вместе с темой: показывать тёмное окно на
+ * светлой странице странно, а файлы у них парные — «-light» рядом.
+ */
+function setupTheme() {
+  const button = document.getElementById("theme-toggle");
+  if (!button) return;
+
+  const dark = matchMedia("(prefers-color-scheme: dark)");
+
+  // Признак уже проставлен скриптом в <head> — до первой отрисовки.
+  const current = () => document.documentElement.dataset.theme || "dark";
+
+  const shots = () => {
+    const light = current() === "light";
+    document.querySelectorAll("img[data-shot]").forEach((image) => {
+      const name = image.dataset.shot;
+      const dark = `assets/${name}.png`;
+      // Светлый снимок есть не у всех экранов: обзор и подбор показывают
+      // название активного VPN, и пересняты они могут быть только с
+      // выключенным туннелем. Нет файла — показываем тёмный, это лучше
+      // битой картинки.
+      image.onerror = () => {
+        image.onerror = null;
+        image.src = dark;
+      };
+      image.src = light ? `assets/${name}-light.png` : dark;
+    });
+  };
+
+  const apply = (theme) => {
+    document.documentElement.dataset.theme = theme;
+    shots();
+  };
+
+  shots();
+
+  // Система могла сменить тему, пока страница открыта. Слушаем только
+  // пока человек не выбрал сам: его выбор важнее.
+  dark.addEventListener("change", (event) => {
+    if (!localStorage.getItem("theme")) apply(event.matches ? "dark" : "light");
+  });
+
+  button.addEventListener("click", () => {
+    const next = current() === "light" ? "dark" : "light";
+    localStorage.setItem("theme", next);
+    apply(next);
+  });
+}
+
+setupTheme();
 showBoosty();
 showVersion();
 setupReveal();
