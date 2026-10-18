@@ -91,3 +91,41 @@ def test_manually_stopped_profile_stays_off(bare: Controller) -> None:
     bare._follow_apps("start", "roblox")
 
     assert bare.started == []
+
+
+SECOND = Profile(
+    name="obsidian",
+    exe=r"C:\Apps\Obsidian.exe",
+    tcp_ports=[443],
+    addresses=["104.26.0.0/16"],
+    auto_start=True,
+)
+
+
+def test_several_profiles_live_side_by_side(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Включение второго профиля не должно гасить первый.
+
+    Раньше контроллер держал одну пару «процесс и имя», и второй профиль
+    молча занимал её место: человек включал профиль игры, потом профиль
+    клиента — и обнаруживал, что игра снова лагает. К WinDivert при этом
+    можно прицепить сколько угодно экземпляров winws.
+    """
+    controller = Controller.__new__(Controller)
+    controller._profiles = {}
+
+    alive = type("Fake", (), {"is_alive": lambda self: True})
+    controller._profiles["roblox"] = alive()
+    controller._profiles["obsidian"] = alive()
+
+    assert controller._alive_profiles() == ("obsidian", "roblox")
+
+
+def test_dead_profile_disappears_from_the_list() -> None:
+    """Процесс мог умереть сам — список не должен обещать обратное."""
+    controller = Controller.__new__(Controller)
+    controller._profiles = {
+        "roblox": type("Fake", (), {"is_alive": lambda self: False})(),
+        "obsidian": type("Fake", (), {"is_alive": lambda self: True})(),
+    }
+
+    assert controller._alive_profiles() == ("obsidian",)

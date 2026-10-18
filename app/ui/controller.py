@@ -53,7 +53,7 @@ class Status:
     # Папка другой установки zapret, если она есть: служба у неё и у нас одна
     # и та же, и без этого состояние на экране относилось бы к ней молча.
     foreign_install: str = ""
-    active_profile: str = ""
+    active_profiles: tuple[str, ...] = ()
     # Что сделать с профилем приложения по итогам опроса: («start»|«stop», имя).
     profile_action: tuple[str, str] = ("", "")
     telegram_installed: bool = False
@@ -107,8 +107,11 @@ class Controller(QObject):
         # Профиль приложения поднимается отдельным экземпляром winws: так
         # основная стратегия остаётся нетронутой, а сломанный профиль
         # выключается одной кнопкой.
-        self._profile_process: WinwsProcess | None = None
-        self._profile_name = ""
+        # Профилей может работать несколько сразу: каждый — свой экземпляр
+        # winws со своим фильтром, а к WinDivert их цепляется сколько
+        # угодно. Раньше здесь была одна пара «процесс и имя», и второй
+        # профиль молча гасил первый.
+        self._profiles: dict[str, WinwsProcess] = {}
         self._busy = False
 
         # Прокси для Telegram живёт столько же, сколько приложение: иначе он
@@ -254,7 +257,7 @@ class Controller(QObject):
             telegram_connected=telegram.has_clients() if proxy_running else False,
             network_label=netspeed.label(),
             telegram_running=proxy_running,
-            active_profile=self._profile_name if self._profile_alive() else "",
+            active_profiles=self._alive_profiles(),
             profile_action=self._decide_about_profiles(),
             log_tail=list(self._process.output) if self._process else [],
         )
@@ -400,11 +403,12 @@ class Controller(QObject):
             if profile is None or not appwatch.is_running(profile.exe, running):
                 setattr(self, attribute, "")
 
+        alive = self._alive_profiles()
         for profile in profiles:
             action = appwatch.decide(
                 profile.exe,
                 auto=True,
-                profile_active=self._profile_name == profile.name and self._profile_alive(),
+                profile_active=profile.name in alive,
                 running=running,
             )
             if action:
@@ -429,7 +433,7 @@ class Controller(QObject):
 
         if action == "stop":
             log.info("Приложение профиля «%s» закрылось — гашу профиль", name)
-            self.stop_profile()
+            self.stop_profile(name)
             self.message.emit(f"Профиль «{name}» выключен вместе с приложением")
             return
 
@@ -446,23 +450,34 @@ class Controller(QObject):
         log.info("Приложение профиля «%s» запущено — поднимаю профиль", name)
         self.start_profile(profile)
 
-    def _profile_alive(self) -> bool:
-        return self._profile_process is not None and self._profile_process.is_alive()
+    def _alive_profiles(self) -> tuple[str, ...]:
+        """Имена работающих профилей. Умершие по дороге отсюда убираются."""
+        for name, process in list(self._profiles.items()):
+            if not process.is_alive():
+                del self._profiles[name]
+        return tuple(sorted(self._profiles))
 
     def start_profile(self, profile) -> None:
-        """Поднимает профиль приложения вторым экземпляром winws."""
+        """Поднимает профиль ещё одним экземпляром winws.
+
+        Прежние профили не гасятся: к WinDivert можно прицепить несколько
+        экземпляров, и человек вправе держать включёнными профиль игры и
+        профиль клиента одновременно.
+        """
         from app.core import appprofile
+
+        if profile.name in self._profiles:
+            return
 
         spec = self.selected_spec()
         if spec is None:
             self.error.emit("Сначала выберите стратегию — из неё берётся способ обхода.")
             return
 
-        # Флаг держится на всё действие: внутри дважды зовётся refresh, а тот
+        # Флаг держится на всё действие: внутри зовётся refresh, а тот
         # публикует состояние и снова спрашивает, не пора ли поднять профиль.
         self._profile_busy = True
         try:
-            self.stop_profile()
             try:
                 built = appprofile.as_spec(profile, spec)
                 process = WinwsProcess(on_output=self.log_line.emit)
@@ -475,8 +490,7 @@ class Controller(QObject):
                 self.error.emit(str(error))
                 return
 
-            self._profile_process = process
-            self._profile_name = profile.name
+            self._profiles[profile.name] = process
             self._profile_failed = ""
             self.message.emit(f"Профиль «{profile.name}» включён")
         finally:
@@ -484,23 +498,24 @@ class Controller(QObject):
 
         self.refresh()
 
-    def stop_profile(self, by_hand: bool = False) -> None:
-        """Гасит профиль. `by_hand` — человек нажал «Выключить».
+    def stop_profile(self, name: str = "", by_hand: bool = False) -> None:
+        """Гасит профиль по имени. Без имени — все сразу.
 
-        Выключенный руками профиль с галочкой «включать вместе с
-        приложением» надо запомнить: игра всё ещё запущена, и следующая же
-        проверка подняла бы его обратно. Со стороны это выглядело так, будто
-        кнопка «Выключить» не работает вовсе.
+        `by_hand` значит, что человек нажал «Выключить». Такой профиль с
+        галочкой «включать вместе с приложением» надо запомнить: приложение
+        всё ещё запущено, и следующая же проверка подняла бы его обратно —
+        со стороны кнопка выглядела неработающей.
         """
-        if by_hand:
-            self._profile_declined = self._profile_name
+        wanted = [name] if name else list(self._profiles)
+        if by_hand and name:
+            self._profile_declined = name
 
         was_busy, self._profile_busy = self._profile_busy, True
         try:
-            if self._profile_process is not None:
-                self._profile_process.stop()
-                self._profile_process = None
-            self._profile_name = ""
+            for item in wanted:
+                process = self._profiles.pop(item, None)
+                if process is not None:
+                    process.stop()
         finally:
             self._profile_busy = was_busy
 
@@ -606,9 +621,9 @@ class Controller(QObject):
         """
         self.stop_polling()
         self.telegram.stop()
-        if self._profile_process is not None:
-            self._profile_process.stop()
-            self._profile_process = None
+        for process in self._profiles.values():
+            process.stop()
+        self._profiles.clear()
         if self._process is not None:
             self._process.stop()
             self._process = None

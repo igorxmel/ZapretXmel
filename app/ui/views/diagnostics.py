@@ -7,17 +7,21 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QPlainTextEdit,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
     QWidget,
 )
 
+from app.core import nettools
 from app.core.diagnostics import collectors, rules
 from app.core.diagnostics.rules import Finding, Severity
 from app.ui.controller import Controller
@@ -92,6 +96,7 @@ class DiagnosticsView(QWidget):
         self._task: Task | None = None
         self._ran = False
         self._ai_window: AiWindow | None = None
+        self._checked_at: datetime | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -134,9 +139,11 @@ class DiagnosticsView(QWidget):
         self._container.body().setAlignment(Qt.AlignmentFlag.AlignTop)
         self._scroll.setWidget(self._container)
 
-        # Результатам отдан весь экран: разбор нейросетью переехал в своё
-        # окно, и делить ширину больше не с чем.
-        layout.addWidget(self._scroll, 1)
+        columns = QHBoxLayout()
+        columns.setSpacing(SPACE["lg"])
+        columns.addWidget(self._scroll, 3)
+        columns.addWidget(self._build_network_card(), 2)
+        layout.addLayout(columns, 1)
 
         self._placeholder = QLabel(
             "Проверка занимает пару секунд: приложение опрашивает службы Windows, "
@@ -146,6 +153,100 @@ class DiagnosticsView(QWidget):
         self._placeholder.setWordWrap(True)
         self._container.body().addWidget(self._placeholder)
         self._container.body().addStretch(1)
+
+    def _with_time(self, text: str) -> str:
+        """Дописывает к итогу время проверки.
+
+        Экран открывают повторно, и без времени непонятно, относится ли
+        «проблем не найдено» к нынешнему состоянию или к тому, что было
+        полчаса назад, до правки настроек.
+        """
+        self._checked_at = datetime.now()
+        return f"{text} · проверено в {self._checked_at:%H:%M}"
+
+    def _build_network_card(self) -> Card:
+        """Проверки и действия, относящиеся к блокировкам.
+
+        Не «всё, что умеет Windows»: `netsh` и `ipconfig` умеют десятки
+        вещей, из которых к обходу относятся четыре. Список из двадцати
+        кнопок помешал бы найти нужную.
+        """
+        card = Card("Сеть")
+        body = card.body()
+
+        hint = QLabel(
+            "Каждое действие отвечает на свой вопрос. Запускается по одному "
+            "— результат появится здесь же."
+        )
+        hint.setObjectName("Muted")
+        hint.setWordWrap(True)
+        body.addWidget(hint)
+
+        self._net_buttons = []
+        for title, tip, worker in (
+            (
+                "Сбросить кэш DNS",
+                "Старые ответы остаются после правки hosts и смены DNS, и "
+                "сайт продолжает не открываться, хотя всё уже настроено",
+                nettools.flush_dns,
+            ),
+            (
+                "Проверить подмену DNS",
+                "Провайдеры отдают для заблокированных доменов свой адрес — "
+                "тогда обход бессилен, соединение уходит не туда",
+                nettools.check_dns,
+            ),
+            (
+                "Трассировка",
+                "Где именно рвётся путь: у вас, у провайдера или дальше",
+                nettools.trace,
+            ),
+            (
+                "Проверить размер пакета",
+                "Слишком большие пакеты режутся молча: страницы "
+                "открываются, а файлы качаются рывками",
+                nettools.check_mtu,
+            ),
+        ):
+            button = QPushButton(title)
+            button.setToolTip(tip)
+            button.clicked.connect(lambda _, run=worker: self._run_net(run))
+            body.addWidget(button)
+            self._net_buttons.append(button)
+
+        self._net_result = QPlainTextEdit()
+        self._net_result.setReadOnly(True)
+        self._net_result.setPlaceholderText("Здесь появится результат")
+        body.addWidget(self._net_result, 1)
+
+        return card
+
+    def _run_net(self, worker) -> None:
+        """Запускает проверку в потоке: ping и tracert идут десятки секунд."""
+        for button in self._net_buttons:
+            button.setEnabled(False)
+        self._net_result.setPlainText("Проверяю…")
+
+        self._net_task = Task(worker)
+        self._net_task.done.connect(self._show_net)
+        self._net_task.failed.connect(self._net_failed)
+        self._net_task.start()
+
+    def _show_net(self, outcome) -> None:
+        for button in self._net_buttons:
+            button.setEnabled(True)
+
+        parts = [f"{outcome.title}: {outcome.verdict}"]
+        if outcome.detail:
+            parts.append(outcome.detail)
+        if outcome.lines:
+            parts.append("\n".join(outcome.lines))
+        self._net_result.setPlainText("\n\n".join(parts))
+
+    def _net_failed(self, message: str) -> None:
+        for button in self._net_buttons:
+            button.setEnabled(True)
+        self._net_result.setPlainText(message)
 
     def _open_ai(self) -> None:
         """Открывает окно разбора. Одно на всё приложение, а не по окну на нажатие."""
@@ -186,13 +287,15 @@ class DiagnosticsView(QWidget):
 
         problems = rules.problems(findings)
         if not problems:
-            self._summary.setText(f"Проблем не найдено, проверок пройдено: {len(findings)}")
+            self._summary.setText(
+                self._with_time(f"Проблем не найдено, проверок пройдено: {len(findings)}")
+            )
             self._summary.setStyleSheet(f"color: {COLORS['success']};")
             return
 
         errors = sum(1 for finding in problems if finding.severity is Severity.ERROR)
         serious = f", из них серьёзных: {errors}" if errors else ""
-        self._summary.setText(f"Найдено проблем: {len(problems)}{serious}")
+        self._summary.setText(self._with_time(f"Найдено проблем: {len(problems)}{serious}"))
         self._summary.setStyleSheet(
             f"color: {COLORS['danger'] if errors else COLORS['warning']};"
         )

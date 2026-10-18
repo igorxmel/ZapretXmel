@@ -57,10 +57,12 @@ LIMITS = (
     "Как это работает: winws не умеет фильтровать по процессу — такого поля нет "
     "на том уровне, где он перехватывает пакеты. Поэтому программа смотрит, куда "
     "ходит выбранное приложение, и собирает фильтр по его портам и адресам.\n\n"
+    "Профилей можно держать включёнными сколько угодно: каждый работает своим "
+    "процессом. Но если два профиля ловят одни и те же порты, пакет пройдёт "
+    "через оба — лучше так не делать.\n\n"
     "Отсюда следствия: другое приложение, которое пойдёт на те же адреса и порты, "
     "попадёт под те же правила; игры с меняющимся пулом серверов потребуют "
-    "повторной записи. Профиль работает отдельным процессом и основную стратегию "
-    "не трогает."
+    "повторной записи. Основную стратегию профили не трогают."
 )
 
 
@@ -72,7 +74,7 @@ class ProfilesView(QWidget):
         self.controller = controller
         self._recorder: Recorder | None = None
         self._recorded_exe = ""
-        self._shown_active = ""
+        self._shown_active: tuple = ()
 
         # Список запущенных программ живёт своей жизнью: его обновляем, пока
         # экран открыт, а не только при переходе на него.
@@ -270,15 +272,17 @@ class ProfilesView(QWidget):
         """
         chosen = self._selected_name()
         self._profiles = appprofile.load_all()
-        active = self.controller.status.active_profile
+        active = self.controller.status.active_profiles
 
         # Работающий профиль — наверх: он единственный, к кому есть вопросы
         # прямо сейчас, а искать его в списке по десятку имён неудобно.
-        self._profiles.sort(key=lambda profile: (profile.name != active, profile.name.lower()))
+        self._profiles.sort(
+            key=lambda profile: (profile.name not in active, profile.name.lower())
+        )
 
         self._list.clear()
         for profile in self._profiles:
-            running = profile.name == active
+            running = profile.name in active
             item = QListWidgetItem(self._profile_label(profile, running))
             if running:
                 item.setForeground(QColor(COLORS["success"]))
@@ -320,16 +324,16 @@ class ProfilesView(QWidget):
 
     def _sync_buttons(self) -> None:
         profile = self._current_profile()
-        active = self.controller.status.active_profile
+        active = self.controller.status.active_profiles
         # Включать уже включённый незачем: кнопка оставалась живой, и нажатие
         # поднимало второй экземпляр winws поверх первого.
-        this_one_runs = bool(profile and profile.name == active)
+        this_one_runs = bool(profile and profile.name in active)
 
         self._apply_button.setEnabled(profile is not None and not this_one_runs)
         self._apply_button.setText("Работает" if this_one_runs else "Включить")
         self._delete_button.setEnabled(profile is not None)
         self._edit_button.setEnabled(profile is not None)
-        self._stop_button.setEnabled(bool(active))
+        self._stop_button.setEnabled(this_one_runs)
 
         self._auto_start.setEnabled(profile is not None and bool(profile.exe))
         self._auto_start.setToolTip(
@@ -368,8 +372,8 @@ class ProfilesView(QWidget):
         закрытием самой игры. Без этого список врал до перехода на другую
         вкладку и обратно.
         """
-        if status.active_profile != self._shown_active:
-            self._shown_active = status.active_profile
+        if status.active_profiles != self._shown_active:
+            self._shown_active = status.active_profiles
             self._reload_profiles()
             return
         self._sync_buttons()
@@ -467,12 +471,10 @@ class ProfilesView(QWidget):
         профиль возвращался через пару секунд, и кнопка выглядела
         неработающей.
         """
-        profile = next(
-            (item for item in self._profiles
-             if item.name == self.controller.status.active_profile),
-            None,
-        )
-        self.controller.stop_profile(by_hand=True)
+        profile = self._current_profile()
+        if profile is None:
+            return
+        self.controller.stop_profile(profile.name, by_hand=True)
 
         if profile is not None and profile.auto_start:
             self._say(
@@ -515,8 +517,8 @@ class ProfilesView(QWidget):
         profile = self._current_profile()
         if profile is None:
             return
-        if profile.name == self.controller.status.active_profile:
-            self.controller.stop_profile()
+        if profile.name in self.controller.status.active_profiles:
+            self.controller.stop_profile(profile.name)
         appprofile.delete(profile.name)
         self._reload_profiles()
 
