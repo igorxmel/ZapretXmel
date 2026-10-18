@@ -12,7 +12,9 @@ from __future__ import annotations
 
 from typing import Final
 
-COLORS: Final[dict[str, str]] = {
+# Тёмная палитра — та, с которой программа начиналась и которая остаётся
+# по умолчанию: обход включают вечером, и светлое окно в темноте слепит.
+DARK: Final[dict[str, str]] = {
     # Поверхности — от самой глубокой к самой приподнятой
     "bg": "#0b0b0c",
     "surface": "#141416",
@@ -36,6 +38,84 @@ COLORS: Final[dict[str, str]] = {
     "accent": "#f2f2f3",
     "accent_hover": "#ffffff",
 }
+
+# Светлая — зеркало тёмной, а не другой интерфейс: те же роли у тех же
+# ключей. Цвета состояний пришлось взять темнее: зелёный и жёлтый, годные
+# на почти чёрном, на белом не читаются вовсе.
+LIGHT: Final[dict[str, str]] = {
+    # Фон заметно темнее карточек: на почти белом они не отделялись от
+    # страницы вовсе, и экран читался как одно сплошное полотно.
+    "bg": "#e8eaee",
+    "surface": "#ffffff",
+    "surface_hover": "#f0f1f5",
+    "elevated": "#ffffff",
+    "sidebar": "#dfe2e8",
+    "border": "#d2d6de",
+    "border_strong": "#a8adb8",
+    "text": "#16161a",
+    "text_dim": "#55555f",
+    "text_muted": "#85858f",
+    "text_inverted": "#ffffff",
+    "success": "#157f4f",
+    "danger": "#c02632",
+    "warning": "#8a5d0a",
+    "info": "#5a6672",
+    # Зеркально тёмной: там основное действие белое на тёмном, здесь —
+    # тёмное на белом.
+    "accent": "#16161a",
+    "accent_hover": "#000000",
+}
+
+# Текущая палитра. Словарь один и тот же на всё приложение: виджеты берут
+# из него цвета по имени, а смена темы его переписывает.
+COLORS: Final[dict[str, str]] = dict(DARK)
+
+THEMES: Final[dict[str, dict[str, str]]] = {"dark": DARK, "light": LIGHT}
+
+_current = "dark"
+
+
+def apply_theme(name: str) -> str:
+    """Переключает палитру. Возвращает применённое имя.
+
+    Меняем содержимое того же словаря, а не ссылку: виджеты уже разобрали
+    `COLORS` по импортам, и подмена ссылки до них бы не дошла.
+    """
+    global _current
+
+    chosen = name if name in THEMES else "dark"
+    COLORS.clear()
+    COLORS.update(THEMES[chosen])
+    _current = chosen
+    return chosen
+
+
+def system_theme() -> str:
+    """Какая тема выбрана в самой Windows.
+
+    Спрашиваем реестр напрямую: Qt о системном оформлении на Windows
+    сообщает не везде одинаково, а ключ тут один и не менялся годами.
+    Не прочитали — считаем тёмной: программу открывают вечером.
+    """
+    try:
+        import winreg
+
+        path = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
+            light, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+    except (ImportError, OSError):
+        return "dark"
+
+    return "light" if light else "dark"
+
+
+def current_theme() -> str:
+    return _current
+
+
+def is_light() -> bool:
+    return _current == "light"
+
 
 SPACE: Final[dict[str, int]] = {
     "xs": 3,

@@ -170,14 +170,18 @@ class DashboardView(QWidget):
         )
 
         # Чтобы не гадали на программу, когда лежит интернет.
-        self._row_speed = KeyValueRow("Сеть сейчас")
+        self._row_network = KeyValueRow("Сеть")
+        self._row_network.setToolTip(
+            "Поднят ли сетевой адаптер. Работает ли интернет на самом деле, "
+            "показывает кнопка «Проверить, работает ли сейчас»."
+        )
 
         for row in (
             self._row_core,
             self._row_mode,
             self._row_strategies,
             self._row_proxy,
-            self._row_speed,
+            self._row_network,
         ):
             body.addWidget(row)
 
@@ -470,9 +474,7 @@ class DashboardView(QWidget):
         self._row_mode.set_value("служба Windows" if service_mode else "обычный процесс")
         self._row_strategies.set_value(str(status.strategy_count))
         self._row_proxy.set_value(self._proxy_state(status))
-        self._row_speed.set_value(
-            status.network.label if status.network is not None else "—"
-        )
+        self._row_network.set_value(status.network_label or "—")
 
     @staticmethod
     def _proxy_state(status: Status) -> str:

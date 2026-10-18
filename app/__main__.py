@@ -21,7 +21,7 @@ from app import logging_setup
 from app.core import elevation, location, paths, singleton
 from app.core.config import Settings
 from app.core.updater import selfupdate
-from app.ui import dialogs, motion
+from app.ui import dialogs, motion, theme
 from app.ui.theme import build_stylesheet
 from app.ui.widgets import WheelGuard
 
@@ -70,6 +70,19 @@ def set_app_identity() -> None:
         ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
     except (AttributeError, OSError):
         log.debug("Не удалось задать AppUserModelID")
+
+
+def apply_chosen_theme() -> None:
+    """Применяет выбранное оформление до того, как собрана таблица стилей."""
+    try:
+        wanted = Settings.load().theme
+    except Exception:  # noqa: BLE001 — настройки битые, значит тема обычная
+        wanted = "dark"
+
+    if wanted == "system":
+        wanted = theme.system_theme()
+
+    log.info("Оформление: %s", theme.apply_theme(wanted))
 
 
 def apply_ui_scale() -> None:
@@ -255,6 +268,10 @@ def main() -> int:
     app.setDesktopFileName("ZapretXmel")
     app.setWindowIcon(QIcon(str(paths.logo_file())))
     app.setQuitOnLastWindowClosed(False)
+
+    # Палитра выбирается до сборки таблицы стилей: она же из неё и
+    # собирается.
+    apply_chosen_theme()
 
     # Стили вешаем на приложение, а не на окно: меню в трее создаётся без
     # родителя и оформление окна до него не доходит.

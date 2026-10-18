@@ -21,8 +21,8 @@ from PyQt6.QtWidgets import (
 from app.core import coreinfo, hosts, ipset, paths, telegram, updates
 from app.core.updater import github, install, selfupdate
 from app.ui.controller import Controller
-from app.ui.theme.tokens import BRAND, COLORS, SPACE
-from app.ui.widgets import Card, KeyValueRow, view_header
+from app.ui.theme.tokens import COLORS, SPACE
+from app.ui.widgets import Card, KeyValueRow, set_markdown, view_header
 from app.ui.workers import AppUpdateWorker, CoreUpdateWorker, Task, TelegramInstallWorker
 
 # Источники обновлений в общей карточке.
@@ -257,13 +257,6 @@ class UpdatesView(QWidget):
         # тёмном фоне его просто не видно. Таблицей стилей приложения это не
         # лечится: текст здесь разбирается как HTML, и цвет ссылок берётся из
         # таблицы стилей самого документа.
-        # Оранжевым — тем же, что и логотип. Это единственное место, где
-        # цвет не обозначает состояние, но ссылка и должна выделяться из
-        # текста, иначе её не отличить от обычных слов.
-        self._changelog.document().setDefaultStyleSheet(
-            f"a {{ color: {BRAND['orange']}; }}"
-            f"code {{ color: {COLORS['text_dim']}; }}"
-        )
         body.addWidget(self._changelog, 1)
 
         # Откат есть только у ядра: его бэкапы мы храним сами, а прокси —
@@ -289,7 +282,7 @@ class UpdatesView(QWidget):
         """Показывает ядро или прокси в той же карточке."""
         self._source = source
         self._rollback_row.setVisible(source == CORE)
-        self._changelog.setMarkdown("")
+        set_markdown(self._changelog, "")
         self._status.setStyleSheet(f"color: {COLORS['text_muted']};")
         self._status.setText("Нажмите «Проверить обновления»")
         self._install_button.setEnabled(False)
@@ -321,7 +314,7 @@ class UpdatesView(QWidget):
         installed = telegram.installed_version()
 
         self._row_latest.set_value(f"{release.version} от {release.published_date}")
-        self._changelog.setMarkdown(release.body or "Описание релиза отсутствует")
+        set_markdown(self._changelog, release.body or "Описание релиза отсутствует")
 
         # Прокси, поставленный до того, как версия стала запоминаться, тоже
         # можно обновить — просто мы не знаем, нужно ли это.
@@ -478,7 +471,7 @@ class UpdatesView(QWidget):
         installed = coreinfo.read_version()
 
         self._row_latest.set_value(f"{release.version} от {release.published_date}")
-        self._changelog.setMarkdown(release.body or "Описание релиза отсутствует")
+        set_markdown(self._changelog, release.body or "Описание релиза отсутствует")
 
         if github.is_newer(release.version, installed):
             self._install_button.setEnabled(True)

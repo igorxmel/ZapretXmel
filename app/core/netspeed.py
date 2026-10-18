@@ -1,108 +1,51 @@
-"""Сколько сейчас принимается и отдаётся по сети.
+"""Есть ли у компьютера связь с сетью.
 
 Нужно на главном экране по одной причине: когда интернет лежит, виноватой
-назначают программу — она ведь «что-то делает с сетью». Строка «сети нет»
-рядом с состоянием обхода снимает этот вопрос раньше, чем он возникнет.
+назначают программу — она ведь «что-то делает с сетью». Строка рядом с
+состоянием обхода снимает этот вопрос раньше, чем он возникнет.
 
-Меряем не пропускную способность канала, а то, что идёт прямо сейчас:
-проверка скорости качала бы десятки мегабайт ради цифры, а счётчики
-интерфейсов уже ведёт сама Windows и стоят они ничего.
+Скорости здесь нет намеренно. Счётчики интерфейсов складываются по всем
+адаптерам сразу, и с включённым VPN один и тот же трафик считался дважды:
+на физическом адаптере и на туннеле. Цифра расходилась с диспетчером задач
+и вводила в заблуждение, а точные значения всё равно смотрят там.
 """
 
 from __future__ import annotations
 
 import logging
-import time
-from dataclasses import dataclass
 
 import psutil
 
 log = logging.getLogger(__name__)
 
-# Ниже этого считаем, что сети нет вовсе: у живого соединения всегда идёт
-# служебный фон, а полный ноль означает оборванный кабель или отключённый
-# адаптер.
-SILENT_BYTES = 0
+# Виртуальные адаптеры подняты всегда и о связи с внешним миром не говорят
+# ничего: петлевой есть и без сети, а туннель VPN живёт, даже когда кабель
+# выдернут. Опознаём по имени — других признаков Windows не даёт.
+VIRTUAL_HINTS = ("loopback", "lo", "pseudo", "wan miniport", "teredo", "isatap")
 
 
-@dataclass(frozen=True)
-class Speed:
-    """Байты в секунду в обе стороны."""
+def online() -> bool:
+    """Поднят ли хоть один настоящий сетевой интерфейс.
 
-    received: float = 0.0
-    sent: float = 0.0
-    online: bool = True
-
-    @property
-    def label(self) -> str:
-        if not self.online:
-            return "сети нет"
-        return f"приём {human(self.received)} · отдача {human(self.sent)}"
-
-
-def human(per_second: float) -> str:
-    """Скорость словами: килобайты до мегабайта, дальше мегабайты."""
-    if per_second < 1024:
-        return f"{per_second:.0f} Б/с"
-    if per_second < 1024 * 1024:
-        return f"{per_second / 1024:.0f} КБ/с"
-    return f"{per_second / (1024 * 1024):.1f} МБ/с"
-
-
-class Meter:
-    """Счётчик скорости между двумя опросами.
-
-    Состояние держится здесь, а не в глобальной переменной: опрос идёт в
-    фоновом потоке, и два измерителя рядом не должны мешать друг другу.
-    """
-
-    def __init__(self):
-        self._at = 0.0
-        self._received = 0
-        self._sent = 0
-
-    def read(self) -> Speed:
-        """Скорость с прошлого вызова. Первый вызов отдаёт нули."""
-        try:
-            counters = psutil.net_io_counters()
-            online = _has_link()
-        except Exception:  # noqa: BLE001 — счётчики не повод падать
-            log.debug("Счётчики сети недоступны", exc_info=True)
-            return Speed(online=False)
-
-        now = time.monotonic()
-        received, sent = counters.bytes_recv, counters.bytes_sent
-
-        previous_at, self._at = self._at, now
-        previous_received, self._received = self._received, received
-        previous_sent, self._sent = self._sent, sent
-
-        passed = now - previous_at
-        if not previous_at or passed <= 0:
-            return Speed(online=online)
-
-        # Счётчики сбрасываются при перезапуске адаптера — отрицательная
-        # разница значит именно это, а не отрицательную скорость.
-        return Speed(
-            received=max(0.0, (received - previous_received) / passed),
-            sent=max(0.0, (sent - previous_sent) / passed),
-            online=online,
-        )
-
-
-def _has_link() -> bool:
-    """Есть ли хоть один поднятый сетевой интерфейс, кроме петлевого.
-
-    Это ответ на вопрос «подключён ли компьютер к сети», а не «работает ли
-    интернет»: второе проверяют пробы по сервисам, и делать это каждые
+    Это ответ на вопрос «подключён ли компьютер», а не «работает ли
+    интернет»: второе проверяют пробы по сервисам, и гонять их каждые
     несколько секунд ради строки на экране незачем.
     """
     try:
         stats = psutil.net_if_stats()
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 — счётчики не повод падать
+        log.debug("Состояние адаптеров недоступно", exc_info=True)
         return True
 
     return any(
-        state.isup and not name.lower().startswith(("loopback", "lo"))
-        for name, state in stats.items()
+        state.isup and not _virtual(name) for name, state in stats.items()
     )
+
+
+def _virtual(name: str) -> bool:
+    low = name.lower()
+    return any(hint in low for hint in VIRTUAL_HINTS)
+
+
+def label() -> str:
+    return "есть подключение" if online() else "сети нет"

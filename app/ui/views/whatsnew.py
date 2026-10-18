@@ -20,7 +20,7 @@ from app import __version__
 from app.core import changelog
 from app.ui.frameless import FramelessWindow
 from app.ui.theme.tokens import SPACE
-from app.ui.widgets import Card, banner_pixmap
+from app.ui.widgets import Card, banner_pixmap, set_markdown
 
 log = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class WhatsNewWindow(FramelessWindow):
         card = Card()
         notes_view = QTextBrowser()
         notes_view.setOpenExternalLinks(True)
-        notes_view.setMarkdown(notes)
+        set_markdown(notes_view, notes)
         card.add(notes_view)
         layout.addWidget(card, 1)
 

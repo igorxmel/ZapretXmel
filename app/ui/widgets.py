@@ -20,7 +20,16 @@ from PyQt6.QtCore import (
     pyqtProperty,
     pyqtSignal,
 )
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPaintEvent, QPen, QPixmap
+from PyQt6.QtGui import (
+    QColor,
+    QIcon,
+    QPainter,
+    QPaintEvent,
+    QPen,
+    QPixmap,
+    QTextCharFormat,
+    QTextCursor,
+)
 from PyQt6.QtWidgets import (
     QAbstractButton,
     QAbstractScrollArea,
@@ -42,7 +51,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.ui import motion
-from app.ui.theme.tokens import BRAND, COLORS, FONT_SIZE, SPACE
+from app.ui.theme.tokens import BRAND, COLORS, FONT_SIZE, SPACE, is_light
 
 
 class Card(QFrame):
@@ -101,6 +110,43 @@ def _blend(start: QColor, end: QColor, ratio: float) -> QColor:
         round(start.green() + (end.green() - start.green()) * ratio),
         round(start.blue() + (end.blue() - start.blue()) * ratio),
     )
+
+
+def set_markdown(view, text: str) -> None:
+    """Показывает размеченный текст и красит ссылки в оранжевый.
+
+    Ни таблица стилей документа, ни палитра виджета для ссылок не работают:
+    первая не доходит, потому что разметка превращается в текст с уже
+    проставленным цветом, вторую перебивает таблица стилей приложения —
+    `QTextBrowser` наследует `QTextEdit`, а правила для него есть. Поэтому
+    красим прямо в документе, после того как текст разобран.
+
+    Оранжевый — единственное место, где цвет не обозначает состояние. Но
+    ссылка обязана отличаться от обычных слов, иначе её не найти: системный
+    синий на тёмном фоне не виден вовсе.
+    """
+    view.document().setDefaultStyleSheet(f"code {{ color: {COLORS['text_dim']}; }}")
+    view.setMarkdown(text)
+
+    document = view.document()
+    highlight = QTextCharFormat()
+    highlight.setForeground(QColor(BRAND["orange"]))
+
+    block = document.begin()
+    while block.isValid():
+        piece = block.begin()
+        while not piece.atEnd():
+            fragment = piece.fragment()
+            if fragment.isValid() and fragment.charFormat().isAnchor():
+                cursor = QTextCursor(document)
+                cursor.setPosition(fragment.position())
+                cursor.setPosition(
+                    fragment.position() + fragment.length(),
+                    QTextCursor.MoveMode.KeepAnchor,
+                )
+                cursor.mergeCharFormat(highlight)
+            piece += 1
+        block = block.next()
 
 
 class WheelGuard(QObject):
@@ -364,7 +410,9 @@ class PowerButton(QAbstractButton):
         glyph = _blend(QColor(COLORS["text_dim"]), QColor(COLORS["text"]), self._fill)
 
         if self.underMouse() and self.isEnabled():
-            ring = ring.lighter(125)
+            # На светлой теме осветлять нечего: кольцо и так светлое, и
+            # подсветка просто растворялась бы в фоне.
+            ring = ring.darker(125) if is_light() else ring.lighter(125)
 
         inset = 5.0
         circle = QRectF(inset, inset, self.width() - inset * 2, self.height() - inset * 2)

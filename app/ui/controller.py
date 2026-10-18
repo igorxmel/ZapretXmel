@@ -62,7 +62,7 @@ class Status:
     # Подключился ли к прокси клиент. Поднять его мало — прокси ещё нужно
     # прописать в самом Telegram, и об этом забывают.
     telegram_connected: bool = False
-    network: object = None
+    network_label: str = ""
     log_tail: list[str] = field(default_factory=list)
 
     @property
@@ -133,8 +133,6 @@ class Controller(QObject):
         # невозможно: следующая же проверка видит игру и включает снова.
         self._profile_declined = ""
         self._telegram_task: Task | None = None
-        # Счётчик скорости: состояние между опросами держит он сам.
-        self._speed = netspeed.Meter()
         self.last_check: object | None = None
         self.last_check_at: datetime | None = None
         self._watch_timer = QTimer(self)
@@ -254,7 +252,7 @@ class Controller(QObject):
             telegram_installed=telegram.is_installed(),
             telegram_version=telegram.installed_version(),
             telegram_connected=telegram.has_clients() if proxy_running else False,
-            network=self._speed.read(),
+            network_label=netspeed.label(),
             telegram_running=proxy_running,
             active_profile=self._profile_name if self._profile_alive() else "",
             profile_action=self._decide_about_profiles(),

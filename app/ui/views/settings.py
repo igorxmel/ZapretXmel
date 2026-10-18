@@ -41,6 +41,13 @@ from app.ui.workers import Task
 
 log = logging.getLogger(__name__)
 
+# Оформление. «Как в Windows» спрашивает систему при каждом запуске.
+THEMES = {
+    "Тёмное": "dark",
+    "Светлое": "light",
+    "Как в Windows": "system",
+}
+
 # Масштаб интерфейса. 0 — не вмешиваться в то, что задано в Windows.
 SCALES = {
     "Как в Windows": 0.0,
@@ -256,6 +263,15 @@ class SettingsView(QWidget):
         self._animations.toggled.connect(self._save_flags)
         body.addWidget(self._animations)
 
+        body.addWidget(QLabel("Оформление"))
+        self._theme = QComboBox()
+        for title in THEMES:
+            self._theme.addItem(title)
+        self._theme.currentTextChanged.connect(lambda title: self._restart_for(
+            "theme", THEMES.get(title, "dark"), f"оформление «{title.lower()}»"
+        ))
+        body.addWidget(self._theme)
+
         body.addWidget(QLabel("Масштаб интерфейса"))
         self._scale = QComboBox()
         for title in SCALES:
@@ -265,7 +281,9 @@ class SettingsView(QWidget):
             "и окно кажется громоздким — возьмите 80%, получится обычный "
             "размер."
         )
-        self._scale.currentTextChanged.connect(self._change_scale)
+        self._scale.currentTextChanged.connect(lambda title: self._restart_for(
+            "ui_scale", SCALES.get(title, 0.0), title.lower()
+        ))
         body.addWidget(self._scale)
 
         self._testing = QCheckBox("Получать тестовые сборки")
@@ -461,6 +479,7 @@ class SettingsView(QWidget):
             self._animations.setChecked(self.controller.settings.animations)
             self._testing.setChecked(self.controller.settings.testing_builds)
             self._select_by_value(self._scale, SCALES, self.controller.settings.ui_scale)
+            self._select_by_value(self._theme, THEMES, self.controller.settings.theme)
             self._shortcut.setEnabled(paths.is_frozen())
             self._shortcut.setToolTip(
                 ""
@@ -565,28 +584,24 @@ class SettingsView(QWidget):
 
         QApplication.quit()
 
-    def _change_scale(self, title: str) -> None:
-        """Запоминает масштаб и предлагает перезапуск.
+    def _restart_for(self, field: str, value, what: str) -> None:
+        """Запоминает настройку и предлагает перезапуск.
 
-        Qt читает масштаб один раз при запуске — поменять его на ходу
-        нельзя, и делать вид, что можно, было бы хуже всего.
+        И тема, и масштаб задаются один раз при запуске: Qt собирает
+        таблицу стилей и считает размеры, когда приложение создаётся.
+        Делать вид, что применилось на ходу, было бы хуже всего.
         """
-        if self._loading:
+        if self._loading or getattr(self.controller.settings, field) == value:
             return
 
-        wanted = SCALES.get(title, 0.0)
-        if wanted == self.controller.settings.ui_scale:
-            return
-
-        self.controller.settings.ui_scale = wanted
+        setattr(self.controller.settings, field, value)
         self.controller.settings.save()
 
         if not dialogs.confirm(
             self,
-            "Масштаб интерфейса",
-            f"Перезапустить программу, чтобы применить {title.lower()}?",
-            "Размер окна Qt задаёт при запуске, поменять его на ходу нельзя. "
-            "Можно и не перезапускать — масштаб применится при следующем "
+            "Нужен перезапуск",
+            f"Перезапустить программу, чтобы применить {what}?",
+            "Можно и не перезапускать — настройка применится при следующем "
             "открытии программы.",
             action="Перезапустить",
         ):

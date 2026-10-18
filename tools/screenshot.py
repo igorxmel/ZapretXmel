@@ -21,7 +21,7 @@ from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 from app.core.config import Settings  # noqa: E402
 from app.ui.shell import MainWindow  # noqa: E402
-from app.ui.theme import build_stylesheet  # noqa: E402
+from app.ui.theme import apply_theme, build_stylesheet  # noqa: E402
 from app.ui.theme.tokens import SIZE  # noqa: E402
 
 VIEWS = (
@@ -40,10 +40,15 @@ VIEWS = (
 
 
 def main() -> int:
-    destination = Path(sys.argv[1] if len(sys.argv) > 1 else "data/screenshots")
+    folders = [arg for arg in sys.argv[1:] if not arg.startswith("--")]
+    destination = Path(folders[0] if folders else "data/screenshots")
     destination.mkdir(parents=True, exist_ok=True)
 
     app = QApplication(sys.argv[:1])
+    # Тема — флагом, а не первым аргументом: тот давно значит папку
+    # назначения, и снимки светлой темы уехали бы в папку «light».
+    theme = "light" if "--light" in sys.argv else "dark"
+    apply_theme(theme)
     app.setStyleSheet(build_stylesheet())
     window = MainWindow(Settings.load())
     window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
@@ -64,7 +69,8 @@ def main() -> int:
             app.processEvents()
             time.sleep(0.05)
 
-        path = destination / f"{name}.png"
+        suffix = "" if theme == "dark" else f"-{theme}"
+        path = destination / f"{name}{suffix}.png"
         window.grab().save(str(path))
         print(f"{path}")
 
