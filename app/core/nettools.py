@@ -31,17 +31,10 @@ log = logging.getLogger(__name__)
 # этом принадлежит крупной сети, адреса которой известны.
 PROBE_DOMAIN = "rutracker.org"
 
-# Куда идти трассировкой. Не «куда угодно»: нужен адрес, который точно
-# отвечает и при этом проходит через весь путь до зарубежных сетей.
-TRACE_TARGET = "1.1.1.1"
+# Куда стучаться. Несколько нарочно: один зашитый адрес у части
+# провайдеров не отвечает вовсе, и проверка молчала бы без причины.
+PING_TARGETS = ("1.1.1.1", "8.8.8.8", "77.88.8.8")
 TRACE_HOPS = 12
-
-# Размеры для подбора MTU, от потолка к низу. 1472 — предел обычного
-# Ethernet с учётом заголовков; через VPN проходит заметно меньше, а у
-# WireGuard-туннелей потолок опускается до 1300 и ниже. Снизу 1172, потому
-# что меньше не бывает у работающего подключения.
-MTU_SIZES = (1472, 1452, 1420, 1372, 1340, 1300, 1272, 1232, 1172)
-
 
 @dataclass
 class Outcome:
@@ -165,8 +158,68 @@ def _resolve_over_https(domain: str) -> list[str]:
     return sorted({item["data"] for item in answers if item.get("type") == 1})
 
 
-def trace(target: str = TRACE_TARGET, hops: int = TRACE_HOPS) -> Outcome:
+def gateway() -> str:
+    """Адрес шлюза по умолчанию.
+
+    Берём из таблицы маршрутизации по числам: заголовки `route print`
+    переведены на язык системы, а строка маршрута по умолчанию начинается
+    с двух нулевых адресов на любой локали.
+    """
+    try:
+        result = _run(["route", "print", "-4", "0.0.0.0"], timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if (
+            len(parts) >= 3
+            and parts[0] == "0.0.0.0"
+            and parts[1] == "0.0.0.0"
+            and re.fullmatch(r"\d+\.\d+\.\d+\.\d+", parts[2])
+        ):
+            return parts[2]
+    return ""
+
+
+def _answers_ping(target: str, wait_ms: int = 1200) -> bool:
+    """Отвечает ли узел на обычный ping. «TTL» в выводе не переводится."""
+    if not target:
+        return False
+    try:
+        result = _run(["ping", "-n", "1", "-w", str(wait_ms), target], timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "TTL=" in result.stdout.upper()
+
+
+def icmp_works() -> bool:
+    """Проходит ли ICMP вообще.
+
+    Спрашиваем сначала шлюз: он в локальной сети, и если молчит даже он,
+    дело не в интернете, а в том, что такие пакеты режутся у нас — брандмауэром
+    или адаптером VPN. Это сплошь и рядом, и двенадцать строк со звёздочками
+    в ответ на трассировку ничего не объясняют.
+    """
+    return any(_answers_ping(host, 900) for host in (gateway(), *PING_TARGETS))
+
+
+def trace(target: str = "", hops: int = TRACE_HOPS) -> Outcome:
     """Показывает путь до узла и где он обрывается."""
+    if not icmp_works():
+        return Outcome(
+            "Трассировка",
+            "ICMP не проходит",
+            "Не отвечает даже шлюз вашей сети, а значит такие запросы режутся "
+            "ещё до выхода наружу — чаще всего брандмауэром или адаптером VPN. "
+            "Трассировка так работать не может, но о блокировках это ничего "
+            "не говорит.",
+        )
+
+    target = target or next(
+        (host for host in PING_TARGETS if _answers_ping(host)), PING_TARGETS[0]
+    )
+
     try:
         result = _run(
             ["tracert", "-d", "-h", str(hops), "-w", "800", target], timeout=90
@@ -177,83 +230,77 @@ def trace(target: str = TRACE_TARGET, hops: int = TRACE_HOPS) -> Outcome:
     lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     # Узлы — строки, начинающиеся с номера шага. Остальное, включая
     # заголовок, переведено на язык системы и разбору не подлежит.
-    hops_seen = [line for line in lines if re.match(r"^\d+\s", line)]
-    lost = [line for line in hops_seen if "*" in line]
+    seen = [line for line in lines if re.match(r"^\d+\s", line)]
+    answered = [line for line in seen if "*" not in line]
 
-    if not hops_seen:
+    if not seen:
         return Outcome("Трассировка", "путь не построился", "\n".join(lines[:4]), "warning")
 
-    verdict = f"пройдено узлов: {len(hops_seen)}"
-    detail = (
-        "Звёздочки — узел не ответил. Несколько подряд в середине пути это "
-        "норма: многие маршрутизаторы молчат намеренно. Тревожно, когда путь "
-        "обрывается на первом же шаге после вашего роутера."
-    )
-    level = "warning" if len(lost) > len(hops_seen) // 2 else "ok"
-    return Outcome("Трассировка", verdict, detail, level, hops_seen)
-
-
-def _answers_ping(target: str) -> bool:
-    """Отвечает ли узел на обычный ping. «TTL» в выводе не переводится."""
-    try:
-        result = _run(["ping", "-n", "1", "-w", "1500", target], timeout=20)
-    except (OSError, subprocess.SubprocessError):
-        return False
-    return "TTL=" in result.stdout.upper()
-
-
-def check_mtu(target: str = TRACE_TARGET) -> Outcome:
-    """Подбирает наибольший размер пакета, который проходит без дробления.
-
-    Сначала проверяем, отвечает ли узел вообще: ICMP режут и провайдеры, и
-    VPN, и тогда ни один размер не пройдёт — но сказать это надо прямо, а
-    не выдавать за найденную неисправность.
-    """
-    if not _answers_ping(target):
+    if not answered:
         return Outcome(
-            "Размер пакета",
-            "проверить нечем",
-            f"Узел {target} не отвечает на ping вовсе. Такие запросы режут "
-            "и провайдеры, и VPN — о вашей сети это ничего не говорит, но и "
-            "размер пакета так не измерить.",
-        )
-
-    passed = 0
-    for size in MTU_SIZES:
-        try:
-            result = _run(["ping", "-n", "1", "-f", "-l", str(size), target], timeout=20)
-        except (OSError, subprocess.SubprocessError) as error:
-            return Outcome("Размер пакета", "проверить не удалось", str(error), "warning")
-
-        # Код возврата у ping нулевой и при потере пакета, поэтому смотрим
-        # на наличие ответа: слово «TTL» в выводе не переводится.
-        if "TTL=" in result.stdout.upper():
-            passed = size
-            break
-
-    if not passed:
-        return Outcome(
-            "Размер пакета",
-            "проходят только совсем мелкие",
-            f"Узел отвечает, но ни один размер от {MTU_SIZES[-1]} байт и "
-            "выше не дошёл. Так бывает при неверно настроенном туннеле — "
-            "страницы при этом открываются, а файлы качаются рывками.",
+            "Трассировка",
+            "ни один узел не ответил",
+            f"До {target} не отозвался никто. Так бывает, когда весь путь "
+            "идёт через туннель или провайдер режет такие запросы.",
             "warning",
         )
 
-    mtu = passed + 28  # заголовки IP и ICMP
-    if mtu >= 1500:
+    return Outcome(
+        "Трассировка",
+        f"ответили {len(answered)} узлов из {len(seen)}",
+        "Звёздочки — узел промолчал. Несколько подряд в середине пути это "
+        "норма: многие маршрутизаторы не отвечают намеренно. Тревожно, когда "
+        "путь обрывается сразу после вашего роутера.",
+        lines=seen,
+    )
+
+
+def check_mtu() -> Outcome:
+    """Показывает размер пакета у сетевых подключений.
+
+    Спрашиваем у системы, а не подбираем пингом: ICMP режут и брандмауэр, и
+    VPN, и подбор тогда не работает вовсе. Системе же этот размер известен
+    точно — она его и назначает.
+    """
+    try:
+        result = _run(["netsh", "interface", "ipv4", "show", "subinterfaces"], timeout=20)
+    except (OSError, subprocess.SubprocessError) as error:
+        return Outcome("Размер пакета", "узнать не удалось", str(error), "warning")
+
+    found: list[tuple[int, str]] = []
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        # Строка начинается с MTU, дальше числа, последним — имя адаптера.
+        if len(parts) < 5 or not parts[0].isdigit():
+            continue
+        mtu = int(parts[0])
+        name = " ".join(parts[4:])
+        # Петлевой интерфейс объявляет заведомо неправдоподобный размер.
+        if mtu > 10000 or "loopback" in name.lower():
+            continue
+        found.append((mtu, name))
+
+    if not found:
+        return Outcome("Размер пакета", "подключений не нашлось", level="warning")
+
+    lines = [f"{name}: {mtu}" for mtu, name in sorted(found)]
+    smallest, where = min(found)
+
+    if smallest >= 1500:
         return Outcome(
             "Размер пакета",
-            f"обычный, {mtu}",
+            "обычный, 1500",
             "Пакеты проходят целиком — размер ничего не ломает.",
+            lines=lines,
         )
 
     return Outcome(
         "Размер пакета",
-        f"уменьшенный, {mtu}",
-        "Пакеты полного размера не проходят. Так бывает через VPN и "
-        "PPPoE-подключения; само по себе это не поломка, но объясняет, "
-        "почему страницы открываются, а крупные файлы качаются рывками.",
-        "warning" if mtu < 1400 else "ok",
+        f"уменьшенный у «{where}»: {smallest}",
+        "Через это подключение пакеты идут меньше обычного. Так устроены "
+        "туннели VPN и подключения по PPPoE — само по себе это не поломка, "
+        "но объясняет, почему страницы открываются, а крупные файлы качаются "
+        "рывками.",
+        "warning" if smallest < 1400 else "ok",
+        lines,
     )
