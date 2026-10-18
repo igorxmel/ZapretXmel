@@ -89,3 +89,52 @@ def test_targets_are_probed_in_parallel_only_when_asked(
 
     assert seen == ["a", "b"]
     assert outcome.total == 2
+
+
+def ping_only(name: str, ok: int, total: int) -> ServiceResult:
+    """Группа из одних пингов — та самая «Public DNS (PING-only)» апстрима."""
+    checks = [CheckResult(name=f"{name}-{i}", ok=i < ok, detail="") for i in range(total)]
+    return ServiceResult(service=name, checks=checks, measures_bypass=False)
+
+
+def test_failed_pings_do_not_make_the_verdict_say_broken() -> None:
+    """winws не трогает ICMP: пинг одинаков с обходом и без него.
+
+    У многих ICMP режет брандмауэр, и вердикт объявлял «не работает Public
+    DNS (PING-only)» при полностью рабочем обходе.
+    """
+    check = quick.QuickCheck(
+        [result("YouTube", 4, 4), ping_only("Public DNS (PING-only)", 0, 4)]
+    )
+
+    assert check.everything_works
+    assert check.broken == []
+    assert "Public DNS" not in check.verdict
+    assert "обхода это не касается" in check.verdict
+
+
+def test_passing_pings_are_not_mentioned_at_all() -> None:
+    """Сказать о пингах стоит только тогда, когда они не прошли."""
+    check = quick.QuickCheck(
+        [result("YouTube", 4, 4), ping_only("Public DNS (PING-only)", 4, 4)]
+    )
+
+    assert check.verdict == "всё работает: YouTube"
+
+
+def test_ping_only_service_is_marked_by_target_kind() -> None:
+    """Признак — формат цели из файла, а не название группы: его переименуют."""
+    pings = Service(
+        name="Public DNS (PING-only)",
+        targets=[services.Target(name="cf", ping_host="1.1.1.1")],
+    )
+    mixed = Service(
+        name="Public DNS (PING-only)",
+        targets=[
+            services.Target(name="cf", ping_host="1.1.1.1"),
+            services.Target(name="site", url="https://example.com"),
+        ],
+    )
+
+    assert not pings.measures_bypass
+    assert mixed.measures_bypass

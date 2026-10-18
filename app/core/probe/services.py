@@ -61,6 +61,8 @@ class ServiceResult:
 
     service: str
     checks: list[CheckResult] = field(default_factory=list)
+    # Говорит ли этот сервис хоть что-нибудь об обходе. См. Service.
+    measures_bypass: bool = True
 
     @property
     def total(self) -> int:
@@ -96,6 +98,25 @@ class Service:
     def size(self) -> int:
         # У Discord три шага; у обычного сервиса — по числу целей.
         return 3 if self.kind == "discord" else len(self.targets)
+
+    @property
+    def measures_bypass(self) -> bool:
+        """Говорит ли этот сервис хоть что-нибудь об обходе.
+
+        Сервис из одних только целей `PING:` — не говорит. winws работает на
+        TCP и UDP и к ICMP не прикасается вовсе: пинг до 1.1.1.1 одинаков и с
+        обходом, и без него. У апстрима такая группа есть («Public DNS
+        (PING-only)») и означает она проверку связи вообще, а не обхода.
+
+        Отличать по признаку из файла целей, а не по названию группы:
+        название апстрим переименует, а `PING:` — это формат.
+
+        Разница не косметическая. ICMP режут и брандмауэр, и адаптеры VPN —
+        у многих не отвечает даже собственный шлюз, и тогда быстрая проверка
+        объявляла «не работает Public DNS (PING-only)». Человек читал это как
+        «обход сломан» и шёл чинить то, что не ломалось.
+        """
+        return self.kind == "discord" or any(not t.is_ping_only for t in self.targets)
 
 
 def user_targets_file() -> Path:
@@ -189,4 +210,6 @@ def check(service: Service, timeout: int = 6, parallel: int = 1) -> ServiceResul
                 )
             )
 
-    return ServiceResult(service=service.name, checks=checks)
+    return ServiceResult(
+        service=service.name, checks=checks, measures_bypass=service.measures_bypass
+    )

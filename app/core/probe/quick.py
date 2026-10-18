@@ -30,8 +30,19 @@ class QuickCheck:
     results: list[ServiceResult] = field(default_factory=list)
 
     @property
+    def judged(self) -> list[ServiceResult]:
+        """Сервисы, по которым вообще можно судить об обходе.
+
+        Группа из одних пингов (у апстрима это «Public DNS (PING-only)») сюда
+        не входит: winws работает на TCP и UDP, к ICMP не прикасается, и её
+        результат одинаков с обходом и без него. Подробнее — в
+        `Service.measures_bypass`.
+        """
+        return [result for result in self.results if result.measures_bypass]
+
+    @property
     def working(self) -> list[str]:
-        return [result.service for result in self.results if result.works]
+        return [result.service for result in self.judged if result.works]
 
     @property
     def broken(self) -> list[str]:
@@ -41,25 +52,40 @@ class QuickCheck:
         которого открывается сайт, но не подключается клиент, работающим не
         назовёшь.
         """
-        return [result.service for result in self.results if not result.works]
+        return [result.service for result in self.judged if not result.works]
 
     @property
     def everything_works(self) -> bool:
-        return bool(self.results) and not self.broken
+        return bool(self.judged) and not self.broken
+
+    @property
+    def no_ping(self) -> bool:
+        """Не прошли пинги — сами по себе это не поломка, но сказать стоит."""
+        return any(
+            not result.measures_bypass and result.dead and result.total
+            for result in self.results
+        )
 
     @property
     def verdict(self) -> str:
-        if not self.results:
+        if not self.judged:
             return "проверять нечего — не нашлось ни одной цели"
+
+        # Про пинги говорим в конце и отдельной оговоркой: иначе человек
+        # читает «не работает Public DNS» как «обход сломан» и идёт чинить
+        # то, что не ломалось. Чаще всего ICMP просто режет брандмауэр.
+        tail = " · пинг не проходит, но обхода это не касается" if self.no_ping else ""
+
         if self.everything_works:
-            return "всё работает: " + ", ".join(self.working)
+            return "всё работает: " + ", ".join(self.working) + tail
         if not self.working:
-            return "не работает ничего из проверенного"
+            return "не работает ничего из проверенного" + tail
         return (
             "не работает: "
             + ", ".join(self.broken)
             + " · работает: "
             + ", ".join(self.working)
+            + tail
         )
 
 

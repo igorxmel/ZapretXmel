@@ -75,12 +75,23 @@ class StrategyScore:
     dpi_results: list[DpiResult] = field(default_factory=list)
 
     @property
+    def judged_services(self) -> list[ServiceResult]:
+        """Сервисы, по которым можно судить об обходе.
+
+        Группа из одних пингов одинакова у всех стратегий — winws к ICMP не
+        прикасается. Победителя она не меняла, но попадала в «даже с ней не
+        работает», и подбор заканчивался выговором за то, чего не чинит.
+        Подробнее — в `services.Service.measures_bypass`.
+        """
+        return [result for result in self.services if result.measures_bypass]
+
+    @property
     def working_services(self) -> list[str]:
-        return [result.service for result in self.services if result.works]
+        return [result.service for result in self.judged_services if result.works]
 
     @property
     def broken_services(self) -> list[str]:
-        return [result.service for result in self.services if not result.works]
+        return [result.service for result in self.judged_services if not result.works]
 
     @property
     def sort_key(self) -> tuple[int, int, int, float]:
@@ -97,9 +108,9 @@ class StrategyScore:
             return "не запустилась"
 
         parts = [f"проверок пройдено {self.ok}"]
-        if self.services:
+        if judged := self.judged_services:
             working = self.working_services
-            parts.insert(0, f"сервисов работает {len(working)} из {len(self.services)}")
+            parts.insert(0, f"сервисов работает {len(working)} из {len(judged)}")
         if self.error:
             parts.append(f"не прошло {self.error}")
         if self.blocked:
@@ -156,7 +167,7 @@ class Report:
         for score in self.strategies:
             if not score.started:
                 continue
-            for result in score.services:
+            for result in score.judged_services:
                 best = winners.get(result.service)
                 if best is None or result.ok_count > best[0]:
                     winners[result.service] = (result.ok_count, score.name)
