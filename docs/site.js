@@ -153,12 +153,30 @@ function setupTheme() {
     });
   };
 
+  // Снимки второго оформления браузер не трогает, пока их не попросят, —
+  // и первое переключение выходило с заминкой: картинка качалась ровно в
+  // этот момент. Просим их заранее, но после того, как страница загрузилась
+  // целиком: четверть мегабайта не должна соперничать с тем, что человек
+  // видит сейчас. Дальше они берутся из кэша, и переключение мгновенно.
+  const warm = () => {
+    const light = current() === "light";
+    document.querySelectorAll("img[data-shot]").forEach((image) => {
+      const other = new Image();
+      other.src = light
+        ? `assets/${image.dataset.shot}.png`
+        : `assets/${image.dataset.shot}-light.png`;
+    });
+  };
+
   const apply = (theme) => {
     document.documentElement.dataset.theme = theme;
     shots();
   };
 
   shots();
+
+  if (document.readyState === "complete") warm();
+  else addEventListener("load", warm, { once: true });
 
   // Система могла сменить тему, пока страница открыта. Слушаем только
   // пока человек не выбрал сам: его выбор важнее.
