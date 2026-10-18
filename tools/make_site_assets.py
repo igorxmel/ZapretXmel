@@ -72,16 +72,25 @@ def resized(source: Path, width: int, target: Path) -> None:
 
 
 def shoot() -> None:
-    """Пересоздаёт снимки экранов перед подготовкой картинок."""
-    print("снимаю экраны приложения…\n")
-    result = subprocess.run(  # noqa: S603 — собственный скрипт проекта
-        [sys.executable, str(ROOT / "tools" / "screenshot.py"), str(SHOTS)],
-        cwd=ROOT,
-        check=False,
-    )
-    if result.returncode != 0:
-        raise SystemExit("не удалось снять экраны")
-    print()
+    """Пересоздаёт снимки экранов перед подготовкой картинок.
+
+    Оба оформления снимаются одним проходом здесь, а не двумя командами
+    руками: светлый набор, снятый отдельно, расходится с тёмным — другая
+    версия в углу, другое состояние службы, а однажды и включённый VPN,
+    название которого видно прямо на экране. Проверка туннеля стоит перед
+    этим вызовом и теперь прикрывает оба набора разом.
+    """
+    for theme in ("dark", "light"):
+        print(f"снимаю экраны приложения ({theme})…\n")
+        extra = [] if theme == "dark" else ["--light"]
+        result = subprocess.run(  # noqa: S603 — собственный скрипт проекта
+            [sys.executable, str(ROOT / "tools" / "screenshot.py"), str(SHOTS), *extra],
+            cwd=ROOT,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise SystemExit(f"не удалось снять экраны ({theme})")
+        print()
 
 
 def social_card(target: Path) -> None:
@@ -182,11 +191,21 @@ def main() -> int:
 
     missing = []
     for name in wanted:
-        source = SHOTS / f"{name}.png"
-        if not source.exists():
-            missing.append(name)
-            continue
-        resized(source, SHOT_WIDTH, TARGET / f"{name}.png")
+        for suffix in ("", "-light"):
+            source = SHOTS / f"{name}{suffix}.png"
+            target = TARGET / f"{name}{suffix}.png"
+            if not source.exists():
+                # Светлый набор не обязателен: страница без него просто
+                # покажет тёмные снимки, а это лучше, чем битая картинка.
+                # Но прошлый светлый снимок тогда убираем: оставленный, он
+                # показывал бы на странице другую версию программы — а один
+                # раз показал и название включённого в тот момент VPN.
+                if suffix:
+                    target.unlink(missing_ok=True)
+                else:
+                    missing.append(name)
+                continue
+            resized(source, SHOT_WIDTH, target)
 
     if missing:
         print(
