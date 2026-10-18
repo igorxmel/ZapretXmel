@@ -518,9 +518,14 @@ footer p { margin: 0 0 10px; }
 
 /* --- переключатель темы ------------------------------------------------ */
 
-/* В верхней полосе рядом со скачиванием: это не настройка, а мелочь на
-   один щелчок, и места под подпись ей не нужно. */
+/* Висит сам по себе и виден всегда. В верхней полосе он был доступен
+   только после прокрутки: она прячется, чтобы не загораживать первый
+   экран, — а оформление переключают как раз на первом экране. */
 .theme-toggle {
+  position: fixed;
+  top: 14px;
+  right: 24px;
+  z-index: 20;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -529,15 +534,32 @@ footer p { margin: 0 0 10px; }
   padding: 0;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  background: transparent;
+  /* Та же подложка, что и у полосы: поверх баннера прозрачная кнопка
+     теряется, а поверх полосы — сливается с ней. */
+  background: var(--bar-bg);
+  backdrop-filter: blur(12px);
   color: var(--text-dim);
   cursor: pointer;
-  font-size: 16px;
   line-height: 1;
 }
 
 .theme-toggle:hover {
-  background: var(--surface-hover);
   color: var(--text);
   border-color: var(--border-strong);
+}
+
+/* Показывается значок текущего оформления, а не того, куда щёлкнут:
+   кнопка отвечает на вопрос «что сейчас», а стрелка переключения в ней и
+   так подразумевается. Выбор стилями, а не скриптом, — иначе до его
+   загрузки видны оба. */
+.theme-toggle .icon-sun { display: none; }
+:root[data-theme="light"] .theme-toggle .icon-moon { display: none; }
+:root[data-theme="light"] .theme-toggle .icon-sun { display: block; }
+
+/* Кнопке скачивания в полосе нужно место, чтобы не уехать под значок. */
+.bar { padding-right: 72px; }
+
+@media (max-width: 640px) {
+  .theme-toggle { top: 10px; right: 16px; }
+  .bar { padding-right: 62px; }
 }
