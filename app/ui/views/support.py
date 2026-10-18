@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import logging
+from html import escape
 
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
@@ -106,12 +107,11 @@ class SupportView(QWidget):
 
         # Тестировщики — отдельной строкой и первыми: поломки, которые они
         # ловят, стоят дороже денег, а узнать о них больше неоткуда.
-        testers = QLabel(
-            "Спасибо любимым тестировщикам: "
-            + ", ".join(f"{name} ♥" for name in TESTERS)
-        )
-        testers.setWordWrap(True)
-        body.addWidget(testers)
+        self._testers = QLabel()
+        self._testers.setTextFormat(Qt.TextFormat.RichText)
+        self._testers.setWordWrap(True)
+        self._paint_testers()
+        body.addWidget(self._testers)
 
         # Помогает не только деньгами: найденная поломка стоит дороже, а
         # звезда — единственный способ для случайного человека сказать, что
@@ -159,8 +159,25 @@ class SupportView(QWidget):
 
     # --- данные ---------------------------------------------------------
 
+    def _paint_testers(self) -> None:
+        """Собирает строку заново — из-за одного красного сердечка.
+
+        Цвет запечён в разметке, а таблица стилей до неё не достаёт: после
+        смены оформления строку приходится пересобирать. Делается это при
+        открытии экрана, потому что тему меняют в настройках, то есть на
+        другом экране.
+
+        Имена экранируются: разметка тут ради сердечка, а не ради них.
+        """
+        heart = f'<span style="color: {COLORS["heart"]};">&#9829;</span>'
+        self._testers.setText(
+            "Спасибо любимым тестировщикам: "
+            + ", ".join(f"{escape(name)} {heart}" for name in TESTERS)
+        )
+
     def reload(self) -> None:
         """Показывает сохранённый список сразу, а свежий подтягивает фоном."""
+        self._paint_testers()
         self._show(supporters.cached())
         self._refresh()
 
