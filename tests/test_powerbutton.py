@@ -63,12 +63,26 @@ def test_busy_without_a_change_plays_nothing(app: QApplication) -> None:
     assert button.get_fill() == 0.0, "кольцо осталось там же, где было"
 
 
-def test_switch_during_busy_is_shown_afterwards(app: QApplication) -> None:
-    """Настоящая смена состояния показывается после снятия занятости."""
+def test_ring_goes_straight_to_the_new_state(app: QApplication) -> None:
+    """Кольцо идёт к цели и не делает лишних остановок по дороге.
+
+    Промежуточные состояния оборачивались морганием: кольцо гасло в серое,
+    заливалось целиком и только потом сливалось обратно — при том, что
+    человек нажал «выключить».
+    """
+    button = PowerButton()
+    button.setChecked(True)
+    button.set_fill(1.0)
+
+    button.setChecked(False)
+
+    assert button.get_fill() == 1.0, "переход начинается оттуда, где кольцо сейчас"
+
+
+def test_button_locks_while_the_ring_moves(app: QApplication) -> None:
+    """Каждое нажатие — работа со службой, накопленные расходятся с видимым."""
     button = PowerButton()
 
-    button.set_busy(True)
     button.setChecked(True)
-    button.set_busy(False)
 
-    assert button.get_fill() < 1.0, "переход только начался, а не прыгнул в конец"
+    assert not button.isEnabled()

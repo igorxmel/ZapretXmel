@@ -297,7 +297,6 @@ class PowerButton(QAbstractButton):
         self._fill = 0.0
         self._settling = False
         self._available = True
-        self._before_busy = 0.0
         self._glow = QPropertyAnimation(self, b"fill", self)
         self._glow.setDuration(RING_FILL_MS)
         self._glow.setEasingCurve(QEasingCurve.Type.InOutCubic)
@@ -310,22 +309,25 @@ class PowerButton(QAbstractButton):
     def _animate_fill(self, on: bool) -> None:
         """Ведёт кольцо к новому состоянию от того, где оно сейчас.
 
-        Отсчёт именно от текущего значения, а не от нуля: по кнопке щёлкают
+        Отсчёт именно от текущего значения, а не от края: по кнопке щёлкают
         быстро и по многу раз, и анимация, начинающая каждый раз сначала,
         дёргала бы кольцо вместо того, чтобы доводить его до места.
 
-        Пока кнопка занята, анимация не идёт: в это время кольцо нарисовано
-        серым и перехода всё равно не видно. Включение службы занимает
-        секунду-две, и переход успевал закончиться целиком за этой серой
-        заглушкой — со стороны кольцо перекрашивалось рывком.
+        Никаких промежуточных состояний у кольца нет — оно просто идёт к
+        цели. Попытка показать «идёт переключение» отдельно оборачивалась
+        морганием: кольцо гасло в серое, потом заливалось целиком и только
+        потом сливалось обратно.
         """
-        if self._busy:
-            return
-
         self._glow.stop()
         self._glow.setDuration(motion.duration(RING_FILL_MS))
         self._glow.setStartValue(self._fill)
         self._glow.setEndValue(1.0 if on else 0.0)
+
+        # Пока кольцо идёт к цели, нажимать нельзя: каждое нажатие — это
+        # работа со службой, и накопленные за секунду выполнялись бы одно
+        # за другим, расходясь с тем, что видно.
+        self._settling = True
+        self._sync_enabled()
         self._glow.start()
 
     def get_fill(self) -> float:
@@ -338,66 +340,30 @@ class PowerButton(QAbstractButton):
     fill = pyqtProperty(float, fget=get_fill, fset=set_fill)
 
     def set_available(self, value: bool) -> None:
-        """Можно ли нажимать вообще — без оглядки на идущий переход.
-
-        Разведено с `setEnabled` нарочно: состояние опрашивается каждые
-        несколько секунд, и опрос, пришедший посреди перехода, иначе
-        разблокировал бы кнопку раньше времени.
-        """
+        """Можно ли нажимать вообще — без оглядки на идущий переход."""
         self._available = value
-        self.setEnabled(value and not self._busy and not self._settling)
-
-    def _settled(self) -> None:
-        """Переход закончился — кнопку снова можно нажимать."""
-        self._settling = False
-        self.setEnabled(self._available and not self._busy)
+        self._sync_enabled()
 
     def set_busy(self, busy: bool) -> None:
-        """Занятая кнопка нарисована серым; переход показываем после неё.
+        """Идёт ли работа. На вид кнопка не меняется — только не нажимается."""
+        self._busy = busy
+        self._sync_enabled()
 
-        Пока идёт переход, нажимать нельзя: по кнопке щёлкают быстро, а
-        каждое нажатие — это включение или выключение обхода, то есть
-        работа со службой. Нажатия, накопленные за секунду, выполнялись бы
-        одно за другим, и состояние расходилось с тем, что видно.
-        """
-        was, self._busy = self._busy, busy
-        self._settling = busy or self._settling
-        self.setEnabled(self._available and not busy and not self._settling)
+    def _settled(self) -> None:
+        self._settling = False
+        self._sync_enabled()
 
-        if busy and not was:
-            # Запоминаем, где кольцо было до работы: сравнить с этим —
-            # единственный способ понять, менялось ли вообще состояние.
-            self._before_busy = self._fill
-            return
-
-        if was and not busy:
-            self._glow.stop()
-            target = 1.0 if self.isChecked() else 0.0
-            if self._before_busy == target:
-                # Состояние не изменилось — показывать нечего. Иначе кнопка
-                # прокси заставляла соседнее кольцо проигрывать выключение.
-                self._fill = target
-                self.update()
-                return
-
-            # Начинаем с противоположного края: состояние сменилось, пока
-            # кнопка была серой, и наливаться кольцу иначе неоткуда.
-            self._fill = 1.0 - target
-            self._animate_fill(self.isChecked())
-
-        self.update()
+    def _sync_enabled(self) -> None:
+        self.setEnabled(self._available and not self._busy and not self._settling)
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 — имя задано Qt
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        if self._busy:
-            ring = glyph = QColor(COLORS["text_muted"])
-        else:
-            ring = QColor(COLORS["border_strong"])
-            glyph = _blend(QColor(COLORS["text_dim"]), QColor(COLORS["text"]), self._fill)
+        ring = QColor(COLORS["border_strong"])
+        glyph = _blend(QColor(COLORS["text_dim"]), QColor(COLORS["text"]), self._fill)
 
-        if self.underMouse() and not self._busy:
+        if self.underMouse() and self.isEnabled():
             ring = ring.lighter(125)
 
         inset = 5.0
@@ -414,7 +380,7 @@ class PowerButton(QAbstractButton):
         # двенадцати часов по часовой стрелке и доходит до полного круга.
         # Смена цвета на тёмном фоне почти не читается — а растущая дуга
         # видна сразу и объясняет, что состояние меняется прямо сейчас.
-        if not self._busy and self._fill > 0.0:
+        if self._fill > 0.0:
             accent = QPen(self._accent, 2.5, cap=Qt.PenCapStyle.RoundCap)
             painter.setPen(accent)
             painter.setBrush(Qt.BrushStyle.NoBrush)
