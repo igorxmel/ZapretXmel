@@ -10,6 +10,7 @@ from app.ui.theme.tokens import (
     apply_theme,
     current_theme,
     is_light,
+    system_theme,
 )
 
 __all__ = [
@@ -22,4 +23,5 @@ __all__ = [
     "current_theme",
     "use_theme",
     "is_light",
+    "system_theme",
 ]
