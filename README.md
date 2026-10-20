@@ -50,8 +50,9 @@ installs and updates it for you, and finds a working strategy by trying them one
 What it adds on top of the bundle: an honest strategy picker (it always measures the
 baseline **without** circumvention first, otherwise the "winner" is whatever didn't break
 anything), per-application profiles, a local MTProto proxy for the Telegram client,
-rule-based diagnostics with an optional AI pass, and a watchdog that notices when your
-strategy stops working.
+layered diagnostics that tell you *where* a connection breaks — DNS, TCP, TLS or an ISP
+stub page — with an optional AI pass, a watchdog that notices when your strategy stops
+working, and an uninstaller that takes the service and the kernel driver with it.
 
 The interface is in Russian only — the problem it solves is specific to Russian ISPs, so
 that is where its users are. [Download the latest release](https://github.com/igorxmel/ZapretXmel/releases/latest)
@@ -59,36 +60,64 @@ that is where its users are. [Download the latest release](https://github.com/ig
 
 </details>
 
-## <img src="assets/icons/sparkle.png" width="22" align="top"> Возможности
-
-- **Включение одной кнопкой** — службой Windows или обычным процессом, плюс значок в трее.
-- **Подбор стратегии перебором** по всем сервисам сразу, с честным замером «без обхода».
-- **Профили приложений** — пропустить через обход отдельную игру или клиент, несколько сразу.
-- **Telegram** через локальный MTProto-прокси: стратегии его не чинят, а это чинит.
-- **Диагностика** по правилам плюс разбор нейросетью или выгрузка пакета для любого чат-бота.
-- **Сетевые проверки** — на каком уровне рвётся соединение: DNS, TCP, TLS или заглушка провайдера.
-- **Сторож** замечает, что стратегия перестала работать, и может переключиться на запасную.
-- **Свои стратегии и списки** — копия готовой под своим именем, сборка из частей, свои цели проверок.
-- **Обновление ядра** с бэкапом и откатом; пользовательские списки переносятся сами.
-- **Светлая и тёмная тема** — по умолчанию как в Windows, переключается без перезапуска.
-- **Удаление за собой** — служба, драйвер и ядро убираются из программы: установщика у неё нет.
-
 <div align="center">
-  <img src="docs/assets/dashboard.png" width="860" alt="Главный экран">
+  <!-- Снимки следуют теме GitHub: тёмное окно на светлой странице выглядит
+    чужим, а светлое на тёмной слепит. Светлый вариант лежит рядом с суффиксом
+    «-light», оба делает tools/site_shots.py одним проходом. В src остаётся
+    тёмный — его покажут те читалки, что про <picture> не знают. -->
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/dashboard-light.png">
+    <img src="docs/assets/dashboard.png" width="860" alt="Главный экран">
+  </picture>
   <p><sub>Обход включается одной кнопкой · <a href="https://igorxmel.github.io/ZapretXmel/">все экраны на странице проекта</a></sub></p>
 </div>
+
+## <img src="assets/icons/sparkle.png" width="22" align="top"> Возможности
+
+**Обход.** Включается одной кнопкой — службой Windows или обычным процессом, плюс
+значок в трее. Стратегия подбирается перебором по всем сервисам сразу, с честным
+замером «без обхода». Отдельную игру или клиент можно пропустить через свой профиль,
+и несколько профилей работают одновременно. Telegram чинится не стратегией, а
+локальным MTProto-прокси — программа ставит его сама.
+
+**Когда не работает.** Проверки системы по правилам, а сверх них — на каком уровне
+рвётся соединение: подмена DNS, обрыв по адресу, фильтрация по имени сайта или
+заглушка провайдера. От этого зависит, поможет ли вообще смена стратегии. Дальше по
+желанию — разбор нейросетью или выгрузка пакета в любой чат-бот руками. Сторож
+замечает, что стратегия отвалилась, и может переключиться на запасную.
+
+**Своё.** Копия готовой стратегии под своим именем, сборка новой из рабочих частей
+нескольких, свои списки и свои цели проверок. Обновление ядра не теряет ничего из
+этого: бэкап, откат и перенос пользовательских файлов.
+
+**Мелочи, которые решают.** Светлая и тёмная тема — по умолчанию как в Windows,
+переключается без перезапуска. Два оформления значка в трее. Удаление за собой:
+служба, драйвер WinDivert и ядро убираются из самой программы, потому что
+установщика у неё нет и из «Программ и компонентов» её не вычистить.
 
 <details>
 <summary><b>Ещё экраны</b> — подбор стратегии, диагностика, стратегии, обновления</summary>
 
 <div align="center">
-  <img src="docs/assets/autopick.png" width="860" alt="Подбор стратегии">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/autopick-light.png">
+    <img src="docs/assets/autopick.png" width="860" alt="Подбор стратегии">
+  </picture>
   <p><sub>Подбор перебирает стратегии по всем сервисам сразу и начинает с замера без обхода</sub></p>
-  <img src="docs/assets/diagnostics.png" width="860" alt="Диагностика">
-  <p><sub>Диагностика: проверки системы по правилам и разбор нейросетью</sub></p>
-  <img src="docs/assets/strategies.png" width="860" alt="Стратегии">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/diagnostics-light.png">
+    <img src="docs/assets/diagnostics.png" width="860" alt="Диагностика">
+  </picture>
+  <p><sub>Диагностика: проверки системы по правилам, сетевые проверки и разбор нейросетью</sub></p>
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/strategies-light.png">
+    <img src="docs/assets/strategies.png" width="860" alt="Стратегии">
+  </picture>
   <p><sub>Стратегии: что именно делает выбранная — по секциям</sub></p>
-  <img src="docs/assets/updates.png" width="860" alt="Обновления">
+  <picture>
+    <source media="(prefers-color-scheme: light)" srcset="docs/assets/updates-light.png">
+    <img src="docs/assets/updates.png" width="860" alt="Обновления">
+  </picture>
   <p><sub>Обновления: ядро, прокси для Telegram и сама программа</sub></p>
 </div>
 
