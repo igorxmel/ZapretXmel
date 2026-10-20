@@ -222,7 +222,7 @@ python -m venv .venv
 .venv\Scripts\python tools/upstream_sync.py
 ```
 
-Устройство проекта и правила — в [CLAUDE.md](CLAUDE.md).
+Устройство проекта и правила — в [AGENTS.md](AGENTS.md).
 
 ## <img src="assets/icons/branch.png" width="22" align="top"> Как помочь
 
