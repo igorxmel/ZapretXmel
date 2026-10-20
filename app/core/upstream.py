@@ -43,6 +43,10 @@ _TARGET_KEY_RE = re.compile(r'^\s*([A-Za-z_]\w*)\s*=\s*"', re.MULTILINE)
 DEFAULT_SOURCES = {
     "core": "Flowseal/zapret-discord-youtube",
     "sidecars": ["Flowseal/tg-ws-proxy"],
+    # Движки, на которых стоит сборка. Своей сборки под zapret2 у Flowseal
+    # пока нет, и подхватить его нам неоткуда — но узнать о переходе хочется
+    # в день, когда он случится, а не через месяц из чужого телеграма.
+    "engines": ["bol-van/zapret", "bol-van/zapret2"],
     "guis": [
         "medvedeff-true/Zapret-GUI",
         "larrriiin/zapret-ui",

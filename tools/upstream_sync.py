@@ -51,7 +51,11 @@ def collect_ideas(previous: dict[str, str]) -> dict[str, str]:
     sources = upstream.load_sources()
     ideas: dict[str, str] = {}
 
-    for repo in [*sources.get("guis", []), *sources.get("sidecars", [])]:
+    for repo in [
+        *sources.get("engines", []),
+        *sources.get("guis", []),
+        *sources.get("sidecars", []),
+    ]:
         try:
             release = github.latest_release(repo)
         except Exception as error:  # noqa: BLE001 — недоступный репозиторий не повод падать
