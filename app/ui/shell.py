@@ -327,6 +327,7 @@ class MainWindow(FramelessWindow):
         self.views["dashboard"].check_updates_requested.connect(self._check_updates_manually)
         self.views["updates"].whats_new_requested.connect(self._open_whats_new)
         self.views["updates"].something_updated.connect(self._start_update_check)
+        self.views["settings"].tray_style_changed.connect(self._tray.refresh_style)
 
         # Разделы, где работа идёт долго, сами говорят о начале и конце.
         for key, title in BUSY_SECTIONS.items():
@@ -335,6 +336,9 @@ class MainWindow(FramelessWindow):
             )
         self.controller.foreign_conflict.connect(self._ask_about_foreign)
         self.controller.watch_alert.connect(self._watch_alert)
+        # Тревога гаснет сама, когда очередная проверка прошла целиком.
+        # Обновление при этом не трогаем: оно никуда не делось.
+        self.controller.watch_calm.connect(lambda: self._tray.set_alert(False))
 
     # --- поведение ------------------------------------------------------
 
@@ -440,6 +444,9 @@ class MainWindow(FramelessWindow):
         И в окне, и в трее: окно может быть свёрнуто, а новость из тех, из-за
         которых человек и полезет в программу.
         """
+        # Отметка на значке остаётся и после того, как уведомление погасло:
+        # его показывают секунд пять, а обход всё это время не работает.
+        self._tray.set_alert(True)
         self._show_toast(message, COLORS["warning"])
         self._tray.showMessage(
             "ZapretXmel",
@@ -556,6 +563,11 @@ class MainWindow(FramelessWindow):
         manual, self._updates_manual = self._updates_manual, False
         self._found_updates = found
 
+        # Тревогу сторожа отметка об обновлении не перебивает — об этом
+        # заботится сам трей. Здесь важно, что пустая проверка её снимает:
+        # обновиться могли и мимо полосы, прямо в разделе.
+        self._tray.set_update(bool(found))
+
         if not found:
             # Полосу надо убрать: обновиться могли и мимо неё — например,
             # поставить новое ядро в разделе «Обновления». Висящее после
@@ -628,6 +640,7 @@ class MainWindow(FramelessWindow):
         """Открывает знакомство — при первом запуске и по кнопке из настроек."""
         self._welcome = WelcomeWindow(self.controller, self)
         self._welcome.navigate.connect(self.navigate)
+        self._welcome.tray_style_changed.connect(self._tray.refresh_style)
         self._welcome.refresh()
         self._welcome.show()
         # Знакомство модальное и всплывает поверх главного окна само, но если

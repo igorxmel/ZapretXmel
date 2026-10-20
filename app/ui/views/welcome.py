@@ -31,6 +31,7 @@ from app.core.updater import github
 from app.ui.frameless import FramelessWindow
 from app.ui.theme import use_theme
 from app.ui.theme.tokens import COLORS, SPACE
+from app.ui.tray import STYLES as TRAY_STYLES
 from app.ui.widgets import Card, Divider, banner_pixmap
 from app.ui.workers import CoreUpdateWorker, Task
 
@@ -96,11 +97,20 @@ def _title_for(value: str) -> str:
     return "Тёмное"
 
 
+def _tray_title_for(value: str) -> str:
+    for title, name in TRAY_STYLES.items():
+        if name == value:
+            return title
+    return "Классика"
+
+
 class WelcomeWindow(FramelessWindow):
     """Окно первого запуска."""
 
     finished = pyqtSignal()
     navigate = pyqtSignal(str)
+    # Значок рисует трей главного окна, и он про это окно не знает.
+    tray_style_changed = pyqtSignal()
 
     def __init__(self, controller, parent: QWidget | None = None):
         super().__init__("Знакомство", compact=True)
@@ -212,6 +222,16 @@ class WelcomeWindow(FramelessWindow):
         self.controller.settings.save()
         use_theme(wanted)
 
+    def _change_tray_style(self, title: str) -> None:
+        """Меняет оформление значка сразу — перерисовать его стоит одной строки."""
+        wanted = TRAY_STYLES.get(title, "classic")
+        if wanted == self.controller.settings.tray_style:
+            return
+
+        self.controller.settings.tray_style = wanted
+        self.controller.settings.save()
+        self.tray_style_changed.emit()
+
     def _build_steps(self) -> Card:
         card = Card()
         body = card.body()
@@ -283,6 +303,25 @@ class WelcomeWindow(FramelessWindow):
         self._theme.currentTextChanged.connect(self._change_theme)
         theme_row.addWidget(self._theme, 1)
         body.addLayout(theme_row)
+
+        # Значок в трее — здесь по той же причине: программу чаще держат
+        # свёрнутой, и значок человек увидит раньше, чем большинство экранов.
+        tray_row = QHBoxLayout()
+        tray_row.setSpacing(SPACE["sm"])
+        tray_row.addWidget(QLabel("Значок в трее"))
+
+        self._tray_style = QComboBox()
+        for title in TRAY_STYLES:
+            self._tray_style.addItem(title)
+        self._tray_style.setCurrentText(_tray_title_for(self.controller.settings.tray_style))
+        self._tray_style.setToolTip(
+            "«Классика» — логотип с цветными точками состояния. "
+            "«Современный» — значок залит цветом целиком, и в мелком размере "
+            "его видно лучше."
+        )
+        self._tray_style.currentTextChanged.connect(self._change_tray_style)
+        tray_row.addWidget(self._tray_style, 1)
+        body.addLayout(tray_row)
 
         body.addStretch(1)
         return card

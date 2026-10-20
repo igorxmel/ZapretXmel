@@ -69,6 +69,14 @@ def icon_file() -> Path:
     return assets_dir() / "logo.ico"
 
 
+def tray_icon_file(name: str) -> Path:
+    """Готовый значок трея из набора «современный».
+
+    Нарезаются `tools/make_tray_icons.py` из одного листа; имена там же.
+    """
+    return assets_dir() / "tray" / f"{name}.png"
+
+
 def location_file() -> Path:
     """Указатель на место установки. Лежит рядом с программой."""
     return app_root() / "location.txt"

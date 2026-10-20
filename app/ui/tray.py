@@ -1,19 +1,37 @@
 """Значок в системном трее.
 
-Иконка рисуется в коде, а не берётся из файла: так приложение остаётся одним
-исполняемым файлом без внешних ресурсов, а цвет значка сразу показывает,
-включён обход или нет.
+Оформления два, и выбирает человек. «Классика» рисуется в коде — логотип и
+точки состояния в углу; «современный» берёт готовые картинки из `assets/tray`,
+где цветом залит весь значок. Спор тут не разрешить за пользователя: первый
+вариант узнаваем, второй различим в шестнадцати пикселях, и каждому важно своё.
+
+Поверх состояния значок может нести отметку: кружок с круговой стрелкой —
+есть обновление, восклицательный знак — сторож заметил, что обход перестал
+работать. Обе вещи программа и так знает, но узнать о них можно было только
+открыв окно, а в трей её сворачивают именно чтобы не открывать.
 """
 
 from __future__ import annotations
+
+import logging
 
 from PyQt6.QtCore import QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
+from app.core import paths
 from app.ui.controller import Controller, Status
 from app.ui.theme.tokens import BRAND, COLORS
 from app.ui.widgets import logo_pixmap
+
+log = logging.getLogger(__name__)
+
+# Оформления значка: подпись для человека — значение для настроек. Порядок
+# тот же, что в выпадающем списке, поэтому словарь, а не две константы.
+STYLES: dict[str, str] = {
+    "Классика": "classic",
+    "Современный": "modern",
+}
 
 
 def app_icon() -> QIcon:
@@ -22,7 +40,66 @@ def app_icon() -> QIcon:
     return QIcon(pixmap) if not pixmap.isNull() else QIcon()
 
 
-def build_icon(active: bool, proxy: bool = False) -> QIcon:
+def choose_badge(has_alert: bool, has_update: bool) -> str:
+    """Какую отметку показать, когда их просится сразу две.
+
+    Тревога важнее обновления: обход, который не работает, — причина, по
+    которой программу открывают, а новая версия подождёт до вечера.
+    """
+    if has_alert:
+        return "alert"
+    return "update" if has_update else ""
+
+
+def build_icon(
+    active: bool,
+    proxy: bool = False,
+    style: str = "classic",
+    badge: str = "",
+) -> QIcon:
+    """Значок для трея в выбранном оформлении.
+
+    Стилей два, и они решают разные задачи. «Классика» рисуется на месте:
+    логотип и точки состояния в углу — значок остаётся узнаваемым тем же,
+    что на панели задач. «Современный» — готовые картинки, где цветом залит
+    весь значок: в трее он показывается в шестнадцать пикселей, и пятно
+    целиком читается там, где точка в углу уже не видна.
+
+    Выбор за человеком, потому что спорно: одному важнее узнаваемость,
+    другому — различимость на глаз в мелком размере.
+    """
+    if style == "modern":
+        icon = _modern_icon(active, proxy, badge)
+        if icon is not None:
+            return icon
+        # Набора нет (старая установка, обрезанная сборка) — молча рисуем
+        # классику: значок трея слишком мелкая вещь, чтобы из-за неё ругаться.
+        log.debug("Набор значков «современный» не найден, рисую классику")
+
+    return _classic_icon(active, proxy)
+
+
+def _modern_icon(active: bool, proxy: bool, badge: str) -> QIcon | None:
+    """Готовая картинка из набора; None — если набора нет."""
+    if active and proxy:
+        state = "both"
+    elif active:
+        state = "bypass"
+    elif proxy:
+        state = "telegram"
+    else:
+        state = "off"
+
+    suffix = f"-{badge}" if badge in ("update", "alert") else ""
+    path = paths.tray_icon_file(f"{state}{suffix}")
+    if not path.exists():
+        return None
+
+    pixmap = QPixmap(str(path))
+    return QIcon(pixmap) if not pixmap.isNull() else None
+
+
+def _classic_icon(active: bool, proxy: bool = False) -> QIcon:
     """Значок для трея: логотип и точки состояния в углу.
 
     Точка рисуется только на то, что работает: зелёная — обход, голубая —
@@ -85,7 +162,18 @@ class Tray(QSystemTrayIcon):
         super().__init__(parent)
         self.controller = controller
 
-        self.setIcon(build_icon(False))
+        # Последнее известное состояние: отметки приходят не вместе с ним, а
+        # когда случатся, и перерисовать значок надо, ничего не потеряв.
+        self._active = False
+        self._proxy = False
+        # Два независимых признака, а не одно поле «какая отметка». С одним
+        # полем приходилось решать приоритет прямо в месте записи, и тогда
+        # прошедшая проверка сторожа не могла снять тревогу, не затерев
+        # заодно обновление.
+        self._has_update = False
+        self._has_alert = False
+
+        self.setIcon(self._icon())
         self.setToolTip("ZapretXmel")
 
         menu = QMenu()
@@ -162,8 +250,32 @@ class Tray(QSystemTrayIcon):
         if self.controller.status.is_active:
             self.controller.restart()
 
+    def _icon(self) -> QIcon:
+        return build_icon(
+            self._active,
+            self._proxy,
+            style=self.controller.settings.tray_style,
+            badge=choose_badge(self._has_alert, self._has_update),
+        )
+
+    def set_update(self, found: bool) -> None:
+        """Есть ли обновление — программы, ядра или прокси."""
+        self._has_update = found
+        self.setIcon(self._icon())
+
+    def set_alert(self, broken: bool) -> None:
+        """Заметил ли сторож, что обход перестал работать."""
+        self._has_alert = broken
+        self.setIcon(self._icon())
+
+    def refresh_style(self) -> None:
+        """Перерисовывает значок после смены оформления в настройках."""
+        self.setIcon(self._icon())
+
     def apply_status(self, status: Status) -> None:
-        self.setIcon(build_icon(status.is_active, status.telegram_running))
+        self._active = status.is_active
+        self._proxy = status.telegram_running
+        self.setIcon(self._icon())
         self._toggle_action.setText("Выключить обход" if status.is_active else "Включить обход")
         self._toggle_action.setEnabled(status.core_present)
 

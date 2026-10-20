@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PyQt6.QtCore import QUrl
+from PyQt6.QtCore import QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
@@ -37,6 +37,7 @@ from app.ui import dialogs, motion
 from app.ui.controller import Controller
 from app.ui.theme import use_theme
 from app.ui.theme.tokens import COLORS, SPACE
+from app.ui.tray import STYLES as TRAY_ICON_STYLES
 from app.ui.widgets import Card, Divider, KeyValueRow, view_header
 from app.ui.workers import Task
 
@@ -48,6 +49,10 @@ THEMES = {
     "Светлое": "light",
     "Как в Windows": "system",
 }
+
+# Оформление значка в трее берётся оттуда, где он и рисуется: держать
+# подписи в двух местах — верный способ развести их по содержанию.
+TRAY_STYLES = TRAY_ICON_STYLES
 
 # Масштаб интерфейса. 0 — не вмешиваться в то, что задано в Windows.
 SCALES = {
@@ -106,6 +111,9 @@ IPSET_HINTS = {
 
 class SettingsView(QWidget):
     """Настройки приложения и параметры сборки zapret."""
+
+    # Значок рисует трей, а не этот экран: просим перерисовать его сам.
+    tray_style_changed = pyqtSignal()
 
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
@@ -270,6 +278,19 @@ class SettingsView(QWidget):
             self._theme.addItem(title)
         self._theme.currentTextChanged.connect(self._change_theme)
         body.addWidget(self._theme)
+
+        body.addWidget(QLabel("Значок в трее"))
+        self._tray_style = QComboBox()
+        for title in TRAY_STYLES:
+            self._tray_style.addItem(title)
+        self._tray_style.setToolTip(
+            "«Классика» — логотип с цветными точками состояния, тот же, что "
+            "на панели задач. «Современный» — значок залит цветом целиком: "
+            "в трее он показывается в шестнадцать пикселей, и пятно видно "
+            "там, где точку уже не разглядеть."
+        )
+        self._tray_style.currentTextChanged.connect(self._change_tray_style)
+        body.addWidget(self._tray_style)
 
         body.addWidget(QLabel("Масштаб интерфейса"))
         self._scale = QComboBox()
@@ -479,6 +500,9 @@ class SettingsView(QWidget):
             self._testing.setChecked(self.controller.settings.testing_builds)
             self._select_by_value(self._scale, SCALES, self.controller.settings.ui_scale)
             self._select_by_value(self._theme, THEMES, self.controller.settings.theme)
+            self._select_by_value(
+                self._tray_style, TRAY_STYLES, self.controller.settings.tray_style
+            )
             self._shortcut.setEnabled(paths.is_frozen())
             self._shortcut.setToolTip(
                 ""
@@ -582,6 +606,24 @@ class SettingsView(QWidget):
             return
 
         QApplication.quit()
+
+    def _change_tray_style(self, title: str) -> None:
+        """Меняет оформление значка в трее сразу.
+
+        Перезапуск тут не нужен и был бы издевательством: значок
+        перерисовывается одной строкой, а выбирают его как раз на глаз —
+        посмотрели, не понравилось, вернули обратно.
+        """
+        if self._loading:
+            return
+
+        wanted = TRAY_STYLES.get(title, "classic")
+        if wanted == self.controller.settings.tray_style:
+            return
+
+        self.controller.settings.tray_style = wanted
+        self.controller.settings.save()
+        self.tray_style_changed.emit()
 
     def _change_theme(self, title: str) -> None:
         """Меняет оформление сразу, без перезапуска."""
