@@ -316,8 +316,8 @@ class WelcomeWindow(FramelessWindow):
         self._tray_style.setCurrentText(_tray_title_for(self.controller.settings.tray_style))
         self._tray_style.setToolTip(
             "«Классика» — логотип с цветными точками состояния. "
-            "«Современный» — значок залит цветом целиком, и в мелком размере "
-            "его видно лучше."
+            "«Современный» — упрощённый логотип покрупнее, в мелком размере "
+            "он читается лучше."
         )
         self._tray_style.currentTextChanged.connect(self._change_tray_style)
         tray_row.addWidget(self._tray_style, 1)

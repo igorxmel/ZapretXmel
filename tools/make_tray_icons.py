@@ -1,22 +1,25 @@
-"""Нарезает значки трея из одного листа.
+"""Готовит упрощённый логотип для значка в трее.
 
-Художник отдаёт их сеткой 4×3 в одном файле, а Qt нужен отдельный файл на
-состояние. Резать руками в редакторе — значит делать это заново при каждой
-правке листа и каждый раз по-своему обрезать поля.
+Исходник — `tools/tray-logo.webp`: тот же замок с хмелем, но без тонкой обводки и
+мелких деталей, которые в шестнадцати пикселях сливаются в кашу. Из него
+делается `assets/tray-logo.png`.
 
     python tools/make_tray_icons.py
 
-Столбцы — состояние обхода и прокси, строки — значок поверх него:
+Что делает скрипт и почему именно это:
 
-      обход    оба    Telegram   ничего
-      ────────────────────────────────
-      green    both   telegram   off        просто состояние
-      …-update                              есть обновление
-      …-alert                               сторож заметил поломку
+- **Обрезает по рисунку.** Вокруг замка в исходнике пустое поле, и каждый его
+  процент — это процент крошечного значка, потраченный впустую. Трей показывает
+  шестнадцать пикселей, и значок должен занимать весь кадр.
+- **Кладёт в квадрат, не растягивая.** Замок выше, чем шире; растянуть его до
+  квадрата значило бы исказить рисунок.
+- **Фон не вырезает.** Исходник уже с настоящей прозрачностью, в том числе в
+  отверстии дужки. Заливка от краёв туда бы не добралась, а порог по белому
+  съел бы блики на металле.
 
-Каждая клетка обрезается по своему содержимому и кладётся в квадрат: в
-исходнике значки стоят неровно, и без обрезки они прыгали бы в трее на
-пиксель-другой друг относительно друга.
+Кружки состояния и отметки сюда не входят: они рисуются в коде на каждый размер
+значка отдельно (`app/ui/tray.py`), иначе пришлось бы хранить по картинке на
+каждое сочетание состояний.
 """
 
 from __future__ import annotations
@@ -29,102 +32,35 @@ from PyQt6.QtGui import QImage, QPainter
 from PyQt6.QtWidgets import QApplication
 
 ROOT = Path(__file__).resolve().parents[1]
-SHEET = ROOT / "tools" / "tray-sheet.png"
-TARGET = ROOT / "assets" / "tray"
+SOURCE = ROOT / "tools" / "tray-logo.webp"
+TARGET = ROOT / "assets" / "tray-logo.png"
 
-COLUMNS = ("bypass", "both", "telegram", "off")
-ROWS = ("", "-update", "-alert")
+# Больше шестнадцати и тридцати двух трею не нужно, но при системном масштабе
+# он просит и крупнее. Уменьшать Qt умеет, увеличивать без мыла — нет.
+SIZE = 256
 
-# Значок в трее Windows показывается в 16 или 32 пикселя, но на экранах с
-# увеличением просят и 48. Берём с запасом: уменьшать Qt умеет, увеличивать
-# без мыла — нет.
-SIZE = 128
-
-# Поля нет нарочно. Трей показывает значок в шестнадцати пикселях и сам
-# отбивает соседей друг от друга; каждый процент поля — процент и без того
-# крошечной картинки, потраченный на пустоту.
-MARGIN = 0.0
-
-# Пиксель считается закрашенным начиная с этой прозрачности. Края сглажены,
-# и у самой кромки альфа падает почти до нуля — порог должен быть низким,
-# иначе обводка обрезается вместе с фоном.
+# Пиксель считается рисунком начиная с этой непрозрачности. Края сглажены, и у
+# самой кромки альфа падает почти до нуля: порог низкий, иначе обводка обрезалась
+# бы вместе с фоном.
 OPAQUE = 8
 
 
-def bands(filled: list[bool]) -> list[tuple[int, int]]:
-    """Разбивает строку признаков на полосы подряд идущих закрашенных."""
-    found: list[tuple[int, int]] = []
-    start: int | None = None
-    for index, flag in enumerate(filled):
-        if flag and start is None:
-            start = index
-        elif not flag and start is not None:
-            found.append((start, index - 1))
-            start = None
-    if start is not None:
-        found.append((start, len(filled) - 1))
-    return found
-
-
-def grid(image: QImage) -> tuple[list[tuple[int, int]], list[tuple[int, int]]]:
-    """Находит настоящие границы клеток — по пустым полосам между значками.
-
-    Ровную сетку считать нельзя, и это выяснилось не сразу: значки на листе
-    стоят с разными промежутками, и деление ширины на четыре отрезало
-    у верхнего ряда пятнадцать пикселей снизу, а у нижнего восемь сверху.
-    Со стороны значок выглядел целым — просто чуть обрубленным по краю.
-
-    Заодно это переживёт новый лист: художник переставит значки или добавит
-    строку, и резать по-прежнему будет по ним, а не по арифметике.
-    """
-    width, height = image.width(), image.height()
-
-    # Шаг в два пикселя: полоса между значками заведомо шире, а проход по
-    # полутора миллионам точек в лоб занимает минуты.
-    rows = [
-        any(image.pixelColor(x, y).alpha() > OPAQUE for x in range(0, width, 2))
-        for y in range(height)
-    ]
-    columns = [
-        any(image.pixelColor(x, y).alpha() > OPAQUE for y in range(0, height, 2))
-        for x in range(width)
-    ]
-
-    return bands(rows), bands(columns)
-
-
-def content_box(image: QImage, rect: QRect) -> QRect:
-    """Обрезает клетку по тому, что в ней нарисовано.
-
-    Полосы уже отделили значки друг от друга, но внутри своей полосы значок
-    всё ещё стоит не по центру: без этой обрезки они прыгали бы в трее на
-    пиксель-другой друг относительно друга.
-    """
-    left, top = rect.right(), rect.bottom()
-    right, bottom = rect.left(), rect.top()
-
-    for y in range(rect.top(), rect.bottom() + 1):
-        for x in range(rect.left(), rect.right() + 1):
+def content_box(image: QImage) -> QRect:
+    """Прямоугольник, в котором есть хоть что-то нарисованное."""
+    left, top = image.width(), image.height()
+    right = bottom = -1
+    for y in range(image.height()):
+        for x in range(image.width()):
             if image.pixelColor(x, y).alpha() > OPAQUE:
                 left, right = min(left, x), max(right, x)
                 top, bottom = min(top, y), max(bottom, y)
-
     if right < left or bottom < top:
-        raise SystemExit(f"пустая клетка в листе: {rect}")
+        raise SystemExit("в исходнике нет ни одного непрозрачного пикселя")
     return QRect(left, top, right - left + 1, bottom - top + 1)
 
 
 def square(image: QImage, box: QRect) -> QImage:
-    """Кладёт вырезанное в квадрат, не растягивая и не обрезая.
-
-    Растянуть до квадрата было бы заманчиво — значок занял бы всю клетку, —
-    но значки разной ширины поплыли бы каждый по-своему, и один и тот же
-    рисунок в соседних состояниях выглядел бы по-разному.
-    """
     side = max(box.width(), box.height())
-    pad = int(side * MARGIN)
-    side += pad * 2
-
     canvas = QImage(side, side, QImage.Format.Format_ARGB32)
     canvas.fill(Qt.GlobalColor.transparent)
 
@@ -149,36 +85,24 @@ def square(image: QImage, box: QRect) -> QImage:
 
 
 def main() -> int:
-    if not SHEET.exists():
-        raise SystemExit(f"нет листа со значками: {SHEET.relative_to(ROOT)}")
+    if not SOURCE.exists():
+        raise SystemExit(f"нет исходника: {SOURCE.relative_to(ROOT)}")
 
-    # Qt без поднятого приложения не умеет ни читать PNG, ни рисовать.
+    # Qt без поднятого приложения не умеет ни читать картинки, ни рисовать.
     app = QApplication(sys.argv[:1])
 
-    sheet = QImage(str(SHEET)).convertToFormat(QImage.Format.Format_ARGB32)
-    if sheet.isNull():
-        raise SystemExit(f"не удалось прочитать {SHEET}")
+    source = QImage(str(SOURCE)).convertToFormat(QImage.Format.Format_ARGB32)
+    if source.isNull():
+        raise SystemExit(f"не удалось прочитать {SOURCE}")
 
-    TARGET.mkdir(parents=True, exist_ok=True)
+    box = content_box(source)
+    print(f"рисунок занимает {box.width()}x{box.height()} из {source.width()}x{source.height()}")
 
-    row_bands, column_bands = grid(sheet)
-    if len(row_bands) != len(ROWS) or len(column_bands) != len(COLUMNS):
-        raise SystemExit(
-            f"на листе {len(row_bands)} строк и {len(column_bands)} столбцов, "
-            f"а ожидается {len(ROWS)} и {len(COLUMNS)}"
-        )
-
-    for row, suffix in enumerate(ROWS):
-        top, bottom = row_bands[row]
-        for column, state in enumerate(COLUMNS):
-            left, right = column_bands[column]
-            cell = QRect(left, top, right - left + 1, bottom - top + 1)
-            icon = square(sheet, content_box(sheet, cell))
-
-            path = TARGET / f"{state}{suffix}.png"
-            if not icon.save(str(path)):
-                raise SystemExit(f"не удалось записать {path}")
-            print(f"{path.relative_to(ROOT)}  ({path.stat().st_size // 1024} КБ)")
+    icon = square(source, box)
+    TARGET.parent.mkdir(parents=True, exist_ok=True)
+    if not icon.save(str(TARGET)):
+        raise SystemExit(f"не удалось записать {TARGET}")
+    print(f"{TARGET.relative_to(ROOT)}  ({TARGET.stat().st_size // 1024} КБ)")
 
     app.quit()
     return 0

@@ -1,11 +1,12 @@
 """Значок в системном трее.
 
-Оформления два, и выбирает человек. «Классика» рисуется в коде — логотип и
-точки состояния в углу; «современный» берёт готовые картинки из `assets/tray`,
-где цветом залит весь значок. Спор тут не разрешить за пользователя: первый
-вариант узнаваем, второй различим в шестнадцати пикселях, и каждому важно своё.
+Оформления два, и выбирает человек. У обоих значок рисуется в коде одинаково —
+логотип, кружки состояния в углу и отметка, — а отличается только логотип:
+«классика» берёт полный, «современный» — упрощённый из `assets/tray-logo.png`,
+растянутый на весь кадр. Спор тут не разрешить за пользователя: первый
+вариант узнаваем, второй читается в шестнадцати пикселях, и каждому важно своё.
 
-Поверх состояния значок может нести отметку: кружок с круговой стрелкой —
+Поверх состояния значок может нести отметку: кружок со стрелкой вверх —
 есть обновление, восклицательный знак — сторож заметил, что обход перестал
 работать. Обе вещи программа и так знает, но узнать о них можно было только
 открыв окно, а в трей её сворачивают именно чтобы не открывать.
@@ -15,8 +16,8 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QRectF, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap
+from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
+from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
 from app.core import paths
@@ -25,6 +26,14 @@ from app.ui.theme.tokens import BRAND, COLORS
 from app.ui.widgets import logo_pixmap
 
 log = logging.getLogger(__name__)
+
+# Размеры, в которых рисуется значок. Трей просит шестнадцать или тридцать
+# два пикселя, а при масштабе системы — больше; готовый рисунок под каждый
+# лучше, чем один, сжатый на лету.
+ICON_SIZES = (16, 20, 24, 32, 48, 64, 128)
+
+# Цвет обводки отметки — тот же почти чёрный, что у контура самого логотипа.
+OUTLINE = "#16161a"
 
 # Оформления значка: подпись для человека — значение для настроек. Порядок
 # тот же, что в выпадающем списке, поэтому словарь, а не две константы.
@@ -59,48 +68,53 @@ def build_icon(
 ) -> QIcon:
     """Значок для трея в выбранном оформлении.
 
-    Стилей два, и они решают разные задачи. «Классика» рисуется на месте:
-    логотип и точки состояния в углу — значок остаётся узнаваемым тем же,
-    что на панели задач. «Современный» — готовые картинки, где цветом залит
-    весь значок: в трее он показывается в шестнадцать пикселей, и пятно
-    целиком читается там, где точка в углу уже не видна.
+    Устроено у обоих одинаково — логотип, кружки состояния в углу и отметка, —
+    различается только сам логотип. «Классика» берёт полный, тот же, что на
+    панели задач. «Современный» берёт упрощённый: без тонкой обводки и мелких
+    деталей, которые в шестнадцати пикселях сливаются в кашу, и растянутый на
+    весь кадр — в трее значок и так крошечный, а пустое поле вокруг отнимает у
+    него ещё несколько пикселей.
 
     Выбор за человеком, потому что спорно: одному важнее узнаваемость,
     другому — различимость на глаз в мелком размере.
     """
     if style == "modern":
-        icon = _modern_icon(active, proxy, badge)
-        if icon is not None:
-            return icon
-        # Набора нет (старая установка, обрезанная сборка) — молча рисуем
+        logo = _modern_logo()
+        if logo is not None:
+            return _compose(lambda size: logo, True, active, proxy, badge)
+        # Картинки нет (старая установка, обрезанная сборка) — молча рисуем
         # классику: значок трея слишком мелкая вещь, чтобы из-за неё ругаться.
-        log.debug("Набор значков «современный» не найден, рисую классику")
+        log.debug("Упрощённый логотип не найден, рисую классику")
 
-    return _classic_icon(active, proxy)
+    return _compose(logo_pixmap, False, active, proxy, badge)
 
 
-def _modern_icon(active: bool, proxy: bool, badge: str) -> QIcon | None:
-    """Готовая картинка из набора; None — если набора нет."""
-    if active and proxy:
-        state = "both"
-    elif active:
-        state = "bypass"
-    elif proxy:
-        state = "telegram"
-    else:
-        state = "off"
-
-    suffix = f"-{badge}" if badge in ("update", "alert") else ""
-    path = paths.tray_icon_file(f"{state}{suffix}")
+def _modern_logo() -> QPixmap | None:
+    """Упрощённый логотип из `assets/tray-logo.png`; None — если его нет."""
+    path = paths.tray_logo_file()
     if not path.exists():
         return None
-
     pixmap = QPixmap(str(path))
-    return QIcon(pixmap) if not pixmap.isNull() else None
+    return None if pixmap.isNull() else pixmap
 
 
-def _classic_icon(active: bool, proxy: bool = False) -> QIcon:
-    """Значок для трея: логотип и точки состояния в углу.
+def _compose(logo_for, fill: bool, active: bool, proxy: bool, badge: str) -> QIcon:
+    """Собирает значок во всех размерах, которые может запросить трей.
+
+    Отдельный рисунок на каждый размер, а не один, сжатый системой: толщина
+    обводки кружков и отметки считается от размера, и сжатая картинка давала
+    бы на шестнадцати пикселях размытую кашу.
+    """
+    icon = QIcon()
+    for size in ICON_SIZES:
+        icon.addPixmap(_paint(size, logo_for(size), fill, active, proxy, badge))
+    return icon
+
+
+def _paint(
+    size: int, logo: QPixmap, fill: bool, active: bool, proxy: bool, badge: str
+) -> QPixmap:
+    """Один размер. Все длины — доли от размера, опорный кадр — 64 пикселя.
 
     Точка рисуется только на то, что работает: зелёная — обход, голубая —
     прокси для Telegram. Серая точка значит, что не работает ничего, и
@@ -110,7 +124,7 @@ def _classic_icon(active: bool, proxy: bool = False) -> QIcon:
     Когда не работает ничего, логотип ещё и приглушается: значок остаётся
     узнаваемым, но не притворяется работающим.
     """
-    size = 64
+    k = size / 64
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
 
@@ -118,14 +132,16 @@ def _classic_icon(active: bool, proxy: bool = False) -> QIcon:
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
 
-    logo = logo_pixmap(size)
     if logo.isNull():
-        painter.setPen(QPen(QColor(COLORS["text_dim"]), 6))
-        painter.drawEllipse(QRectF(10, 10, size - 20, size - 20))
+        painter.setPen(QPen(QColor(COLORS["text_dim"]), 6 * k))
+        painter.drawEllipse(QRectF(10 * k, 10 * k, size - 20 * k, size - 20 * k))
     else:
         if not (active or proxy):
             painter.setOpacity(0.45)
-        painter.drawPixmap(0, 0, logo)
+        if fill:
+            painter.drawPixmap(QRectF(0, 0, size, size), logo, QRectF(logo.rect()))
+        else:
+            painter.drawPixmap(0, 0, logo)
         painter.setOpacity(1.0)
 
     # Порядок тот же, что у кнопок на главном экране: сначала обход, потом
@@ -140,16 +156,65 @@ def _classic_icon(active: bool, proxy: bool = False) -> QIcon:
 
     # Крупнее: в трее значок уменьшается до 16 пикселей, и прежние
     # точки превращались в неразличимые крапинки.
-    dot = 24.0
-    painter.setPen(QPen(QColor(COLORS["bg"]), 4))
+    dot = 24.0 * k
+    painter.setPen(QPen(QColor(COLORS["bg"]), 4 * k))
     for index, colour in enumerate(reversed(dots)):
         painter.setBrush(QColor(colour))
-        left = size - dot - 1 - index * (dot + 4)
-        painter.drawEllipse(QRectF(left, size - dot - 2, dot, dot))
+        left = size - dot - 1 * k - index * (dot + 4 * k)
+        painter.drawEllipse(QRectF(left, size - dot - 2 * k, dot, dot))
+
+    if badge in ("update", "alert"):
+        _paint_badge(painter, size, k, badge)
 
     painter.end()
+    return pixmap
 
-    return QIcon(pixmap)
+
+def _paint_badge(painter: QPainter, size: int, k: float, badge: str) -> None:
+    """Отметка в правом верхнем углу: стрелка вверх или восклицательный знак.
+
+    Углы заняты по смыслу: снизу то, что работает сейчас, сверху — то, что
+    требует внимания. Рисуется путями, а не символом шрифта: у глифов свои
+    поля, из-за которых они садятся в круге мимо центра.
+    """
+    diameter = 26.0 * k
+    box = QRectF(size - diameter - 1 * k, 1 * k, diameter, diameter)
+    centre = box.center()
+    radius = diameter / 2
+
+    # Тревога красная, обновление белое: по цвету их различить проще, чем по
+    # символу, который в шестнадцати пикселях — всего несколько точек.
+    alert = badge == "alert"
+    # Обводка тёмная всегда, а не цвета темы приложения: трей рисуется на панели
+    # задач Windows, и её тема с темой приложения не связана. Белый круг со
+    # светлой обводкой на светлой панели пропал бы вместе с рисунком.
+    painter.setPen(QPen(QColor(OUTLINE), 3 * k))
+    painter.setBrush(QColor(COLORS["danger"] if alert else "#ffffff"))
+    painter.drawEllipse(box)
+
+    ink = QColor("#ffffff" if alert else OUTLINE)
+    if alert:
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(ink)
+        stem = QRectF(centre.x() - 0.14 * radius, centre.y() - 0.62 * radius,
+                      0.28 * radius, 0.74 * radius)
+        painter.drawRoundedRect(stem, 0.12 * radius, 0.12 * radius)
+        dot = 0.17 * radius
+        painter.drawEllipse(QPointF(centre.x(), centre.y() + 0.54 * radius), dot, dot)
+        return
+
+    # Стрелка вверх. Круговая стрелка «обновить» в шестнадцати пикселях сливается
+    # в кольцо и читается как часы, а толстая стрелка вверх узнаётся при любом
+    # размере: наконечник и ножка — всего две простые фигуры.
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(ink)
+    painter.drawPolygon(QPolygonF([
+        QPointF(centre.x(), centre.y() - 0.66 * radius),
+        QPointF(centre.x() - 0.54 * radius, centre.y() - 0.02 * radius),
+        QPointF(centre.x() + 0.54 * radius, centre.y() - 0.02 * radius),
+    ]))
+    painter.drawRect(QRectF(centre.x() - 0.18 * radius, centre.y() - 0.08 * radius,
+                            0.36 * radius, 0.7 * radius))
 
 
 class Tray(QSystemTrayIcon):

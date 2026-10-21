@@ -69,12 +69,12 @@ def icon_file() -> Path:
     return assets_dir() / "logo.ico"
 
 
-def tray_icon_file(name: str) -> Path:
-    """Готовый значок трея из набора «современный».
+def tray_logo_file() -> Path:
+    """Упрощённый логотип для значка в трее («современное» оформление).
 
-    Нарезаются `tools/make_tray_icons.py` из одного листа; имена там же.
+    Готовится `tools/make_tray_icons.py` из исходника в `tools/`.
     """
-    return assets_dir() / "tray" / f"{name}.png"
+    return assets_dir() / "tray-logo.png"
 
 
 def location_file() -> Path:
