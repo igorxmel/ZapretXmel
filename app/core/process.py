@@ -34,6 +34,33 @@ CLOSE_TIMEOUT = 1.5
 
 _WM_CLOSE = 0x0010
 
+# Значок tg-ws-proxy держится на pystray, и своё окно она закрывает не по
+# WM_CLOSE: диспетчер сообщений такого обработчика не знает и возвращает ноль,
+# окно остаётся жить. Отсюда и брался фантом в трее — процесс убивали силой,
+# не дав ему убрать значок. Свой цикл сообщений pystray завершает по
+# WM_USER + 10, после чего сама вызывает Shell_NotifyIcon(NIM_DELETE).
+_WM_TRAY_STOP = 0x0400 + 10
+_TRAY_WINDOW_SUFFIX = "SystemTrayIcon"
+_CLASS_NAME_LENGTH = 256
+
+
+def _close_message(class_name: str) -> int:
+    """Каким сообщением просить окно процесса закрыться.
+
+    Опознаём по окончанию имени класса, а не по точному имени: pystray
+    составляет его как «<имя приложения><номер>SystemTrayIcon», и номер
+    меняется от запуска к запуску.
+    """
+    if class_name.endswith(_TRAY_WINDOW_SUFFIX):
+        return _WM_TRAY_STOP
+    return _WM_CLOSE
+
+
+def _window_class(user32, window) -> str:
+    buffer = ctypes.create_unicode_buffer(_CLASS_NAME_LENGTH)
+    length = user32.GetClassNameW(window, buffer, _CLASS_NAME_LENGTH)
+    return buffer.value[:length] if length > 0 else ""
+
 
 def ask_to_close(pid: int) -> bool:
     """Просит окна процесса закрыться. False — просить было нечего.
@@ -50,6 +77,18 @@ def ask_to_close(pid: int) -> bool:
         return False
 
     user32 = ctypes.windll.user32
+    # Без argtypes ctypes передаёт дескриптор окна как 32-битное число и на
+    # 64-битной системе может обрезать его.
+    user32.GetClassNameW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetClassNameW.restype = ctypes.c_int
+    user32.PostMessageW.argtypes = [
+        wintypes.HWND,
+        wintypes.UINT,
+        wintypes.WPARAM,
+        wintypes.LPARAM,
+    ]
+    user32.PostMessageW.restype = wintypes.BOOL
+
     asked = False
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -58,7 +97,8 @@ def ask_to_close(pid: int) -> bool:
         owner = wintypes.DWORD()
         user32.GetWindowThreadProcessId(window, ctypes.byref(owner))
         if owner.value == pid:
-            user32.PostMessageW(window, _WM_CLOSE, 0, 0)
+            message = _close_message(_window_class(user32, window))
+            user32.PostMessageW(window, message, 0, 0)
             asked = True
         return True
 
