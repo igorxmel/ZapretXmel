@@ -73,3 +73,13 @@ def find(title: str) -> int:
         return int(user32.FindWindowW(None, title) or 0)
     except (AttributeError, OSError):
         return 0
+
+
+def is_visible(hwnd: int) -> bool:
+    """Показано ли окно на экране. Скрытое в трей — нет, хотя дескриптор живой."""
+    try:
+        user32 = ctypes.windll.user32
+        user32.IsWindowVisible.argtypes = [wintypes.HWND]
+        return bool(user32.IsWindowVisible(wintypes.HWND(hwnd)))
+    except (AttributeError, OSError):
+        return False

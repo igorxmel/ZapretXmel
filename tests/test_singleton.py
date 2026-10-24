@@ -21,6 +21,10 @@ def unique_name(monkeypatch: pytest.MonkeyPatch) -> str:
     name = f"Local\\ZapretXmel.Test.{uuid.uuid4().hex}"
     monkeypatch.setattr(singleton, "MUTEX_NAME", name)
     monkeypatch.setattr(singleton, "_handle", None)
+    # И событие тоже: с настоящим именем тест подал бы сигнал живой программе,
+    # если она у человека в этот момент запущена, и поднял бы её окно.
+    monkeypatch.setattr(singleton, "ACTIVATE_EVENT_NAME", f"{name}.Activate")
+    monkeypatch.setattr(singleton, "_event", None)
     return name
 
 
@@ -75,5 +79,76 @@ def test_handle_is_kept_alive(unique_name: str) -> None:
     assert singleton._handle, "дескриптор должен остаться в модуле"
 
 
-def test_focus_does_not_fail_without_window() -> None:
+def test_focus_does_not_fail_without_window(unique_name: str) -> None:
     assert singleton.focus_existing("окна с таким заголовком нет") is False
+
+
+# --- повторный запуск при окне в трее ---------------------------------------
+
+
+def test_activation_event_roundtrip(unique_name: str) -> None:
+    """Второй запуск подаёт сигнал, первый его получает — и ровно один раз."""
+    assert singleton.acquire()
+
+    assert singleton.signal_existing()
+    assert singleton.wait_activation(500) is True
+    assert singleton.wait_activation(50) is False, "автосброс: один сигнал — один показ"
+
+
+def test_signal_without_a_listener_reports_failure(unique_name: str) -> None:
+    """Экземпляр прошлой версии события не создаёт: подавать сигнал некому."""
+    assert singleton.signal_existing() is False
+
+
+def test_signal_sent_early_is_not_lost(unique_name: str) -> None:
+    """Слушатель стартует позже мьютекса, и сигнал в промежутке не должен пропасть."""
+    singleton.acquire()
+    singleton.signal_existing()
+
+    assert singleton.wait_activation(500) is True
+
+
+def test_focus_uses_the_event_and_leaves_the_window_to_its_owner(
+    unique_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.core import foreground
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("окно показали снаружи, в обход Qt")
+
+    singleton.acquire()
+    monkeypatch.setattr(foreground, "force", forbidden)
+
+    assert singleton.focus_existing() is True
+
+
+def test_refused_foreground_is_not_taken_for_a_hung_instance(
+    unique_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows отказывает в переносе окна вперёд постоянно: это не зависание.
+
+    Раньше отказ принимали за «окна нет» и предлагали завершить процесс.
+    """
+    from app.core import foreground
+
+    monkeypatch.setattr(foreground, "find", lambda title: 777)
+    monkeypatch.setattr(foreground, "is_visible", lambda hwnd: True)
+    monkeypatch.setattr(foreground, "force", lambda hwnd: False)
+
+    assert singleton.focus_existing() is True
+
+
+def test_hidden_window_is_never_shown_from_outside(
+    unique_name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Спрятанное в трей окно так показывать нельзя: оно не отвечает на нажатия."""
+    from app.core import foreground
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("скрытое окно показано в обход Qt")
+
+    monkeypatch.setattr(foreground, "find", lambda title: 777)
+    monkeypatch.setattr(foreground, "is_visible", lambda hwnd: False)
+    monkeypatch.setattr(foreground, "force", forbidden)
+
+    assert singleton.focus_existing() is False

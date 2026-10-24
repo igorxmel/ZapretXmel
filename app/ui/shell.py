@@ -22,6 +22,7 @@ from app import __version__
 from app.core import foreground, updates
 from app.core.config import Settings
 from app.ui import dialogs, motion
+from app.ui.activation import ActivationListener
 from app.ui.controller import Controller, Status
 from app.ui.frameless import FramelessWindow
 from app.ui.theme.tokens import BRAND, COLORS, SIZE, SPACE
@@ -107,6 +108,12 @@ class MainWindow(FramelessWindow):
         self._build_ui()
         self._build_tray()
         self._connect()
+
+        # Повторный запуск не открывает второе окно, а просит это, — и показывать
+        # его надлежит самому окну, иначе свёрнутое в трей не оживает (см. activation.py).
+        self._activation = ActivationListener(self)
+        self._activation.activated.connect(self.present)
+        self._activation.start()
 
         self.controller.start_polling()
         QTimer.singleShot(0, self._first_run)
@@ -718,6 +725,7 @@ class MainWindow(FramelessWindow):
             self.hide()
             return
 
+        self._activation.stop()
         self.controller.shutdown()
         self._tray.hide()
         event.accept()

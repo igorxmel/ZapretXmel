@@ -5,8 +5,16 @@
 предсказать нельзя.
 
 Поэтому первый запуск занимает именованный мьютекс, а второй, обнаружив его,
-поднимает уже открытое окно и тихо выходит. Мьютекс освобождается системой при
-завершении процесса — даже если тот упал, так что «залипнуть» он не может.
+просит открытый экземпляр показать окно и тихо выходит. Мьютекс освобождается
+системой при завершении процесса — даже если тот упал, так что «залипнуть» он
+не может.
+
+Окно показывает **сам первый экземпляр**, по именованному событию. Раньше второй
+запуск находил окно по заголовку и показывал его снаружи, через Windows API. С
+окном, спрятанным в трей, так делать нельзя: Qt считает его скрытым и ничего не
+знает про показ в обход себя, окно появляется, но не отвечает на нажатия, а
+`SetForegroundWindow` при этом нередко возвращает отказ, который принимали за
+«окна нет» и объявляли прошлый запуск зависшим.
 """
 
 from __future__ import annotations
@@ -29,11 +37,19 @@ log = logging.getLogger(__name__)
 # сеансом: на сервере терминалов у каждого пользователя будет своя копия.
 MUTEX_NAME = "Local\\ZapretXmel.SingleInstance"
 
+# Событие, которым второй запуск просит первый показать окно. Тот же префикс
+# Local\\ по той же причине: у каждого сеанса своя копия.
+ACTIVATE_EVENT_NAME = "Local\\ZapretXmel.Activate"
+
+_EVENT_MODIFY_STATE = 0x0002
+_WAIT_OBJECT_0 = 0
+
 _ERROR_ALREADY_EXISTS = 183
 
 # Мьютекс держится в переменной модуля намеренно: если дать сборщику мусора
 # закрыть его, защита исчезнет посреди работы программы.
 _handle: int | None = None
+_event: int | None = None
 
 
 def acquire() -> bool:
@@ -56,10 +72,73 @@ def acquire() -> bool:
         if not _handle:
             return True  # не смогли проверить — пускаем, это меньшее зло
 
-        return kernel32.GetLastError() != _ERROR_ALREADY_EXISTS
+        won = kernel32.GetLastError() != _ERROR_ALREADY_EXISTS
+        if won:
+            _create_activation_event()
+        return won
     except (AttributeError, OSError):
         log.debug("Проверка повторного запуска недоступна")
         return True
+
+
+def _create_activation_event() -> None:
+    """Создаёт событие, на которое отзовётся окно. Автосброс: одно подача — один показ."""
+    global _event
+
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.CreateEventW.restype = wintypes.HANDLE
+        kernel32.CreateEventW.argtypes = [
+            wintypes.LPVOID, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR,
+        ]
+        if _event:
+            kernel32.CloseHandle(_event)
+        _event = kernel32.CreateEventW(None, False, False, ACTIVATE_EVENT_NAME)
+    except (AttributeError, OSError):
+        log.debug("Событие показа окна недоступно")
+        _event = None
+
+
+def signal_existing() -> bool:
+    """Просит запущенный экземпляр показать окно. False — слушателя нет.
+
+    Нет его у экземпляров прошлых версий и у того, что ещё не успел
+    подняться: событие создаётся вместе с мьютексом, а слушатель стартует
+    позже, и подача, пришедшая раньше, не пропадает — событие остаётся
+    взведённым, пока его не заберут.
+    """
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenEventW.restype = wintypes.HANDLE
+        kernel32.OpenEventW.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.LPCWSTR]
+        kernel32.SetEvent.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+
+        handle = kernel32.OpenEventW(_EVENT_MODIFY_STATE, False, ACTIVATE_EVENT_NAME)
+        if not handle:
+            return False
+        try:
+            return bool(kernel32.SetEvent(handle))
+        finally:
+            kernel32.CloseHandle(handle)
+    except (AttributeError, OSError):
+        return False
+
+
+def wait_activation(timeout_ms: int) -> bool:
+    """Ждёт просьбу показать окно. True — просьба пришла. Для потока-слушателя."""
+    if not _event:
+        # Ждать нечего: пауза нужна, чтобы слушатель не крутился вхолостую.
+        import time
+
+        time.sleep(timeout_ms / 1000)
+        return False
+    try:
+        kernel32 = ctypes.windll.kernel32
+        kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        return kernel32.WaitForSingleObject(_event, timeout_ms) == _WAIT_OBJECT_0
+    except (AttributeError, OSError):
+        return False
 
 
 def other_instances() -> list[int]:
@@ -110,15 +189,24 @@ def terminate_others(timeout: float = 5.0) -> int:
 
 
 def focus_existing(title: str = "ZapretXmel") -> bool:
-    """Поднимает окно уже запущенного экземпляра.
+    """Просит запущенный экземпляр показать окно. False — достучаться не вышло.
 
-    Окно ищется по заголовку: свой заголовок мы задаём сами и знаем точно.
-    Свёрнутый в трей экземпляр окно сохраняет — просто скрытым, и найти его
-    по заголовку по-прежнему можно. False означает, что окна нет вовсе:
-    либо экземпляр ещё поднимается, либо он завис.
+    Первым делом — событие: окно покажет сам экземпляр, средствами Qt, и это
+    работает и для спрятанного в трей. Прямой показ через Windows API остаётся
+    только для экземпляров прошлых версий, у которых слушателя нет, и только для
+    **видимого** окна: скрытое так показывать нельзя, оно появляется, но Qt о
+    нём не знает и оно не отвечает на нажатия.
+
+    Нашлось окно, но вывести его вперёд система отказалась — это не «окна нет».
+    Foreground-замок Windows отказывает постоянно, и принимать отказ за зависание
+    значило гонять человека через вопрос «завершить процесс?» без причины.
     """
+    if signal_existing():
+        return True
+
     window = foreground.find(title)
-    if not window:
+    if not window or not foreground.is_visible(window):
         return False
 
-    return foreground.force(window)
+    foreground.force(window)
+    return True
