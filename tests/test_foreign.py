@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
@@ -169,3 +170,30 @@ def test_other_processes_are_ignored(own_root: Path, monkeypatch: pytest.MonkeyP
     )
 
     assert foreign.detect() is None
+
+
+def test_repeated_detection_is_written_once(
+    own_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Опрос идёт каждые несколько секунд — строка не должна повторяться.
+
+    У одного пользователя эта запись заняла почти весь журнал: её писали
+    каждые три секунды, пока работала чужая установка, и найти в файле
+    что-то другое стало нельзя.
+    """
+    monkeypatch.setattr(foreign.service, "is_installed", lambda: False)
+    monkeypatch.setattr(
+        foreign.psutil,
+        "process_iter",
+        lambda _attrs: [FakeProcess("winws.exe", "D:\\zapret\\bin\\winws.exe")],
+    )
+    monkeypatch.setattr(foreign, "_reported", None)
+
+    with caplog.at_level(logging.INFO, logger=foreign.log.name):
+        foreign.detect()
+        foreign.detect()
+
+    assert len(caplog.records) == 1
+    assert "D:\\zapret" in caplog.records[0].getMessage()

@@ -32,6 +32,30 @@ log = logging.getLogger(__name__)
 # дальше идут аргументы, среди которых встречаются и свои пробелы.
 _EXE_RE = re.compile(r'^"?(.+?\.exe)"?(?:\s|$)', re.IGNORECASE)
 
+# Какую установку уже написали в журнал. Опрос состояния идёт каждые несколько
+# секунд, и без этой отметки одна и та же строка повторялась тысячами: журнал
+# рос на сотни килобайт, а найти в нём что-то другое становилось нельзя.
+_reported: tuple[str, bool, bool] | None = None
+
+
+def _report(found: ForeignInstall) -> None:
+    """Пишет о чужой установке один раз, а не на каждом опросе."""
+    global _reported
+
+    signature = (str(found.root), found.by_service, found.by_process)
+    if signature == _reported:
+        return
+
+    _reported = signature
+    log.info("Найдена чужая установка zapret: %s (%s)", found.root, found.source)
+
+
+def _forget_report() -> None:
+    """Забывает прошлую запись: установка пропала и может вернуться."""
+    global _reported
+
+    _reported = None
+
 
 @dataclass(frozen=True)
 class ForeignInstall:
@@ -114,6 +138,7 @@ def detect() -> ForeignInstall | None:
         foreign.setdefault(executable, {})["by_process"] = True
 
     if not foreign:
+        _forget_report()
         return None
 
     # Если следов несколько, служба важнее: именно она переживает перезагрузку
@@ -127,5 +152,5 @@ def detect() -> ForeignInstall | None:
         by_service=marks.get("by_service", False),
         by_process=marks.get("by_process", False),
     )
-    log.info("Найдена чужая установка zapret: %s (%s)", found.root, found.source)
+    _report(found)
     return found
