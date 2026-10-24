@@ -335,6 +335,7 @@ class MainWindow(FramelessWindow):
         self.views["updates"].whats_new_requested.connect(self._open_whats_new)
         self.views["updates"].something_updated.connect(self._start_update_check)
         self.views["settings"].tray_style_changed.connect(self._tray.refresh_style)
+        self.controller.status_changed.connect(self.views["telegram"].on_status)
 
         # Разделы, где работа идёт долго, сами говорят о начале и конце.
         for key, title in BUSY_SECTIONS.items():

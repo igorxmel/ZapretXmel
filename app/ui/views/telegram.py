@@ -172,21 +172,35 @@ class TelegramView(QWidget):
                 "и кладётся в папку приложения, не трогая вашу установку, если она есть."
             )
 
-        self._show_connection(state)
+        self._show_connection(state.running, self.controller.status.telegram_connected)
 
-    def _show_connection(self, state) -> None:
+    def on_status(self, status) -> None:
+        """Обновляет надпись о подключении, когда опрос принёс новое состояние.
+
+        Раньше надпись считалась один раз — при открытии вкладки. Человек
+        открывал её, видел «Telegram ещё не подключился», нажимал «Открыть в
+        Telegram», клиент подключался, а надпись так и оставалась жёлтой, пока
+        не уйдёшь со вкладки и не вернёшься. Опрос состояния и так идёт в фоне
+        каждые несколько секунд и уже знает ответ.
+        """
+        self._show_connection(status.telegram_running, status.telegram_connected)
+
+    def _show_connection(self, running: bool, connected: bool) -> None:
         """Говорит, дошло ли дело до самого Telegram.
 
         Запущенный прокси сам по себе ничего не чинит: пока человек не
         добавит его в настройки Telegram, трафик идёт мимо. Прямо спросить
         клиент нельзя, зато видно установленное соединение с нашим портом.
+
+        Ответ берётся готовым из опроса, а не спрашивается здесь: список
+        соединений читается долго, и в потоке интерфейса ему не место.
         """
-        if not state.running:
+        if not running:
             self._connection.setVisible(False)
             return
 
         self._connection.setVisible(True)
-        if telegram.has_clients(state.port):
+        if connected:
             self._connection.setText("Telegram подключён к прокси — всё на месте")
             self._connection.setStyleSheet(f"color: {COLORS['success']};")
             return
