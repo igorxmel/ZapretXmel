@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from app.core import appprofile
@@ -129,3 +131,71 @@ def test_dead_profile_disappears_from_the_list() -> None:
     }
 
     assert controller._alive_profiles() == ("obsidian",)
+
+
+def _watch_result(active: bool, broken: list[str]):
+    """Зовёт обработчик сторожа на заглушке и собирает его сигналы.
+
+    Настоящий `Controller` поднимает Qt и таймеры, а проверяется здесь только
+    выбор между тревогой и спокойствием — он к Qt не относится.
+    """
+    events: list[str] = []
+    controller = SimpleNamespace(
+        status=SimpleNamespace(is_active=active, active_vpn="", active_strategy="general"),
+        settings=SimpleNamespace(
+            watch_autoswitch=False, favorites=[], selected_strategy="general"
+        ),
+        _watch_tried=["tried"],
+        remember_check=lambda check: None,
+        watch_calm=SimpleNamespace(emit=lambda: events.append("calm")),
+        watch_alert=SimpleNamespace(emit=lambda message, switched: events.append("alert")),
+    )
+    Controller._watch_result(controller, SimpleNamespace(broken=broken))
+    return events, controller
+
+
+def test_active_bypass_with_broken_services_raises_the_alert() -> None:
+    events, controller = _watch_result(active=True, broken=["YouTube"])
+
+    assert events == ["alert"]
+    assert controller._watch_tried == ["tried"], "попытки не сбрасываются до победы"
+
+
+def test_disabled_bypass_clears_the_alert() -> None:
+    """Выключенный обход не тревога, даже если без него сервисы закрыты.
+
+    Сторож молчит в этом случае, но обработчик смотрел на список сломанных
+    сервисов, а не на решение «говорить не о чем». Красная отметка в трее
+    из-за этого не гасла после выключения обхода: следующая проверка снова
+    находила закрытый YouTube и не считала это спокойствием.
+    """
+    events, controller = _watch_result(active=False, broken=["YouTube"])
+
+    assert events == ["calm"]
+    assert controller._watch_tried == [], "следующая поломка начнётся с чистого листа"
+
+
+def _remember_check(everything_works: bool):
+    events: list[str] = []
+    controller = SimpleNamespace(
+        check_done=SimpleNamespace(emit=lambda check: None),
+        watch_calm=SimpleNamespace(emit=lambda: events.append("calm")),
+    )
+    Controller.remember_check(
+        controller, SimpleNamespace(everything_works=everything_works)
+    )
+    return events
+
+
+def test_passing_quick_check_clears_the_alert_immediately() -> None:
+    """Ручная проверка тоже снимает тревогу, не дожидаясь сторожа.
+
+    После выключения чужого zapret человек нажимает «Проверить», видит «всё
+    работает», а красная отметка остаётся: снимал её только сторож, до
+    очередного запуска которого проходит до пятнадцати минут.
+    """
+    assert _remember_check(everything_works=True) == ["calm"]
+
+
+def test_failing_quick_check_does_not_clear_the_alert() -> None:
+    assert _remember_check(everything_works=False) == []

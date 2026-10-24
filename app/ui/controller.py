@@ -187,6 +187,11 @@ class Controller(QObject):
         self.last_check = check
         self.last_check_at = datetime.now()
         self.check_done.emit(check)
+        # Человек только что убедился, что всё работает, — красной отметке
+        # в трее здесь делать нечего. Ждать ради этого сторожа незачем: он
+        # ходит раз в несколько минут.
+        if check.everything_works:
+            self.watch_calm.emit()
 
     def _watch_result(self, check) -> None:
         """Решает, что делать с результатом проверки."""
@@ -202,17 +207,17 @@ class Controller(QObject):
             tried=self._watch_tried,
         )
 
-        if not decision.broken:
+        if decision.quiet:
             # Всё в порядке — счётчик попыток можно обнулить: следующая
-            # поломка начнётся с чистого листа.
+            # поломка начнётся с чистого листа. Сюда же попадает выключенный
+            # обход: проверка находит закрытые сервисы, но ломаться было
+            # нечему, и тревогу надо снять. Иначе красная отметка висит до
+            # перезапуска, хотя обход давно выключен.
             self._watch_tried.clear()
             # И сказать об этом вслух: отметку на значке трея снимать больше
             # некому, а не гаснущая тревога через день читается как часть
             # картинки, а не как новость.
             self.watch_calm.emit()
-            return
-
-        if decision.quiet:
             return
 
         self.watch_alert.emit(decision.message, bool(decision.switch_to))
