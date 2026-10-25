@@ -599,3 +599,6 @@ footer p { margin: 0 0 10px; }
 .faq li { margin-bottom: 10px; }
 .faq li:last-child { margin-bottom: 0; }
 .faq strong { color: var(--text); font-weight: 600; }
+
+/* Ссылка #faq не должна уходить под верхнюю полосу. */
+.faq { scroll-margin-top: 72px; }
