@@ -40,6 +40,47 @@ LAYER_HOSTS = ("rutracker.org", "www.youtube.com", "example.com")
 PING_TARGETS = ("1.1.1.1", "8.8.8.8", "77.88.8.8")
 TRACE_HOPS = 12
 
+# Свободный сайт для сравнения: если не открывается и он, дело не в блокировке,
+# а в самом соединении. Берётся, когда человек проверяет свой адрес.
+CONTROL_HOST = "example.com"
+
+# Допустимое имя узла: буквы, цифры, дефис, точки. Начало с дефиса не пускаем
+# вовсе: введённое попадает в аргументы `tracert`, и «-h 1» стало бы ключом.
+_HOST_RE = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))*$")
+_MAX_HOST = 253
+
+
+def normalize_host(text: str) -> str:
+    """Приводит введённое человеком к имени узла. Пусто — если на адрес не похоже.
+
+    Принимает то, что люди вставляют на деле: адрес целиком с протоколом и путём
+    (`https://instagram.com/user`), с портом, с заглавными буквами, кириллическое
+    имя (`пример.рф`). Возвращает чистое имя без всего лишнего.
+
+    Строгость здесь не придирка. Имя уходит в командную строку `tracert` и в
+    запросы; пропустить в него пробел или дефис в начале значило бы дать
+    человеку, сам того не зная, передать программе чужой ключ.
+    """
+    value = text.strip().lower()
+    if not value:
+        return ""
+
+    value = re.sub(r"^[a-z][a-z0-9+.-]*://", "", value)
+    value = value.split("/")[0].split("?")[0].split("#")[0]
+    value = value.rsplit("@", 1)[-1]
+    if value.count(":") == 1:  # порт; у адресов IPv6 двоеточий больше, их не берём
+        value = value.split(":")[0]
+    value = value.strip(".")
+
+    try:
+        value = value.encode("idna").decode("ascii")
+    except UnicodeError:
+        return ""
+
+    if not value or len(value) > _MAX_HOST or not _HOST_RE.match(value):
+        return ""
+    return value
+
 @dataclass
 class Outcome:
     """Что получилось. `ok` — всё хорошо, `warning` — есть на что смотреть."""
@@ -49,6 +90,28 @@ class Outcome:
     detail: str = ""
     level: str = "ok"
     lines: list[str] = field(default_factory=list)
+
+
+def flush_command() -> list[str]:
+    return ["ipconfig", "/flushdns"]
+
+
+def trace_command(target: str, hops: int = TRACE_HOPS) -> list[str]:
+    return ["tracert", "-d", "-h", str(hops), "-w", "800", target]
+
+
+def mtu_command() -> list[str]:
+    return ["netsh", "interface", "ipv4", "show", "subinterfaces"]
+
+
+def shown(args: list[str]) -> str:
+    """Команда так, как её набрали бы в консоли — для подсказки на кнопке.
+
+    Строится из тех же списков аргументов, которые запускаются, а не пишется
+    отдельной строкой: иначе подсказка рано или поздно описывала бы не то, что
+    кнопка делает.
+    """
+    return " ".join(args)
 
 
 def _run(args: list[str], timeout: int = 40) -> subprocess.CompletedProcess:
@@ -72,7 +135,7 @@ def flush_dns() -> Outcome:
     код возврата: разбирать его по русским или английским словам нельзя.
     """
     try:
-        result = _run(["ipconfig", "/flushdns"], timeout=20)
+        result = _run(flush_command(), timeout=20)
     except (OSError, subprocess.SubprocessError) as error:
         return Outcome("Кэш DNS", "не удалось сбросить", str(error), "warning")
 
@@ -162,15 +225,18 @@ def _resolve_over_https(domain: str) -> list[str]:
     return sorted({item["data"] for item in answers if item.get("type") == 1})
 
 
-def where_blocked() -> Outcome:
-    """Проверяет на нескольких сайтах, на каком уровне рвётся связь.
+def where_blocked(host: str = "") -> Outcome:
+    """Проверяет, на каком уровне рвётся связь: на своём адресе или на типичных.
 
     Берём и заведомо режущийся сайт, и заведомо свободный: без второго
-    нельзя отличить «провайдер фильтрует» от «интернета нет вовсе».
+    нельзя отличить «провайдер фильтрует» от «интернета нет вовсе». С адресом
+    человека то же правило: рядом с ним проверяется свободный, иначе «не
+    открывается» ничего не говорит.
     """
     from app.core.probe import layers
 
-    results = [layers.check(host, _resolve_over_https(host)) for host in LAYER_HOSTS]
+    hosts = (host, CONTROL_HOST) if host and host != CONTROL_HOST else LAYER_HOSTS
+    results = [layers.check(name, _resolve_over_https(name)) for name in hosts]
     lines = [result.label for result in results]
 
     # Вердикт даём по самому «глубокому» найденному уровню: именно он
@@ -262,9 +328,7 @@ def trace(target: str = "", hops: int = TRACE_HOPS) -> Outcome:
     )
 
     try:
-        result = _run(
-            ["tracert", "-d", "-h", str(hops), "-w", "800", target], timeout=90
-        )
+        result = _run(trace_command(target, hops), timeout=90)
     except (OSError, subprocess.SubprocessError) as error:
         return Outcome("Трассировка", "не удалось выполнить", str(error), "warning")
 
@@ -304,7 +368,7 @@ def check_mtu() -> Outcome:
     точно — она его и назначает.
     """
     try:
-        result = _run(["netsh", "interface", "ipv4", "show", "subinterfaces"], timeout=20)
+        result = _run(mtu_command(), timeout=20)
     except (OSError, subprocess.SubprocessError) as error:
         return Outcome("Размер пакета", "узнать не удалось", str(error), "warning")
 

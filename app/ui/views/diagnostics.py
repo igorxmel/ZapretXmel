@@ -14,6 +14,7 @@ from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPlainTextEdit,
     QPushButton,
     QScrollArea,
@@ -182,43 +183,76 @@ class DiagnosticsView(QWidget):
         hint.setWordWrap(True)
         body.addWidget(hint)
 
-        self._net_buttons = []
-        for title, tip, worker in (
+        # Свой адрес для трёх проверок, которым он нужен. Без него они берут
+        # типичные сайты, и на вопрос «а у меня Instagram откроется?» ответить
+        # было нечем: адрес вводить было некуда.
+        self._site = QLineEdit()
+        self._site.setPlaceholderText("Свой сайт, например instagram.com (необязательно)")
+        self._site.setToolTip(
+            "Подмена DNS, «Где рвётся» и трассировка проверят этот адрес. "
+            "Пусто — возьмут типичные сайты."
+        )
+        self._site.textChanged.connect(self._refresh_tips)
+        self._site.returnPressed.connect(self._run_default)
+        body.addWidget(self._site)
+
+        # (название, пояснение, как это выглядит в консоли, что запустить, нужен ли адрес)
+        # Подсказка строится из тех же списков аргументов, которые запускаются:
+        # написанная отдельной строкой, она рано или поздно описывала бы не то,
+        # что кнопка делает.
+        self._net_actions = (
             (
                 "Сбросить кэш DNS",
                 "Старые ответы остаются после правки hosts и смены DNS, и "
                 "сайт продолжает не открываться, хотя всё уже настроено",
-                nettools.flush_dns,
+                lambda site: nettools.shown(nettools.flush_command()),
+                lambda host: nettools.flush_dns(),
+                False,
             ),
             (
                 "Проверить подмену DNS",
                 "Провайдеры отдают для заблокированных доменов свой адрес — "
-                "тогда обход бессилен, соединение уходит не туда",
-                nettools.check_dns,
+                "тогда обход бессилен, соединение уходит не туда. Программа "
+                "сверяет ответ системы с ответом по DNS-over-HTTPS, которого "
+                "консоль не умеет, поэтому ближайшее в консоли — лишь половина "
+                "проверки",
+                lambda site: f"nslookup {site}  и  nslookup {site} 1.1.1.1",
+                lambda host: nettools.check_dns(host or nettools.PROBE_DOMAIN),
+                True,
             ),
             (
                 "Где рвётся соединение",
                 "Проверяет по уровням — DNS, адрес, имя сайта, ответ "
-                "сервера — и говорит, поможет ли здесь обход вообще",
-                nettools.where_blocked,
+                "сервера — и говорит, поможет ли здесь обход вообще. Идёт по "
+                "порядку и останавливается на первом отказе",
+                lambda site: f"Test-NetConnection {site} -Port 443  и  curl.exe -v https://{site}",
+                lambda host: nettools.where_blocked(host),
+                True,
             ),
             (
                 "Трассировка",
                 "Где именно рвётся путь: у вас, у провайдера или дальше",
-                nettools.trace,
+                lambda site: nettools.shown(nettools.trace_command(site)),
+                lambda host: nettools.trace(host),
+                True,
             ),
             (
                 "Проверить размер пакета",
                 "Слишком большие пакеты режутся молча: страницы "
                 "открываются, а файлы качаются рывками",
-                nettools.check_mtu,
+                lambda site: nettools.shown(nettools.mtu_command()),
+                lambda host: nettools.check_mtu(),
+                False,
             ),
-        ):
+        )
+
+        self._net_buttons = []
+        for title, _tip, _command, worker, _needs_site in self._net_actions:
             button = QPushButton(title)
-            button.setToolTip(tip)
             button.clicked.connect(lambda _, run=worker: self._run_net(run))
             body.addWidget(button)
             self._net_buttons.append(button)
+        self._refresh_tips()
 
         self._net_result = QPlainTextEdit()
         self._net_result.setReadOnly(True)
@@ -227,13 +261,42 @@ class DiagnosticsView(QWidget):
 
         return card
 
+    def _site_host(self) -> str:
+        """Нормализованный адрес из поля. Пусто — поле пустое или это не адрес."""
+        return nettools.normalize_host(self._site.text())
+
+    def _refresh_tips(self) -> None:
+        """Подсказка кнопки: пояснение и то, как это выглядит в консоли.
+
+        Адрес в команде подставляется живьём, из поля, — человек видит именно ту
+        строку, которую набрал бы руками.
+        """
+        site = self._site_host() or "<сайт>"
+        for button, (_title, tip, command, _worker, _needs) in zip(
+            self._net_buttons, self._net_actions, strict=True
+        ):
+            button.setToolTip(f"{tip}\n\nВ консоли: {command(site)}")
+
+    def _run_default(self) -> None:
+        """Enter в поле — «Где рвётся»: из трёх проверок с адресом она главная."""
+        self._net_buttons[2].click()
+
     def _run_net(self, worker) -> None:
         """Запускает проверку в потоке: ping и tracert идут десятки секунд."""
+        raw = self._site.text().strip()
+        host = self._site_host()
+        if raw and not host:
+            self._net_result.setPlainText(
+                f"«{raw}» не похоже на адрес сайта. Нужно имя вроде instagram.com — "
+                "без пробелов и без лишних знаков."
+            )
+            return
+
         for button in self._net_buttons:
             button.setEnabled(False)
         self._net_result.setPlainText("Проверяю…")
 
-        self._net_task = Task(worker)
+        self._net_task = Task(lambda: worker(host))
         self._net_task.done.connect(self._show_net)
         self._net_task.failed.connect(self._net_failed)
         self._net_task.start()
