@@ -53,7 +53,21 @@ CARD_BANNER_WIDTH = 760
 # важное держится в стороне от краёв. Это не карточка для мессенджеров: у той другая
 # пропорция, и на GitHub она встала бы с полями.
 PREVIEW_SIZE = (1280, 640)
-PREVIEW_BANNER_WIDTH = 640
+PREVIEW_BANNER_WIDTH = 880
+
+# GitHub показывает не всю картинку, а центральную полосу примерно 2,7:1 — сверху и
+# снизу срезается около восьмой части. Всё, что должно быть видно, держится внутри
+# неё: в первой версии строка со ссылкой внизу и верх логотипа оказались обрезаны.
+PREVIEW_SAFE = (100, 540)
+
+# Моноширинный, «терминальный»: на странице репозитория картинка соседствует с
+# кодом, и такой шрифт читается как своя. Он должен стоять в системе — для
+# картинки, которую рисуют раз в несколько месяцев, тащить шрифт в репозиторий
+# незачем; запасные нужны, чтобы без него скрипт не упал, а нарисовал похоже.
+PREVIEW_FONTS = ("Fira Code", "Cascadia Code", "Consolas")
+
+# Поле слева и справа: GitHub подрезает картинку и по бокам на узких экранах.
+PREVIEW_MARGIN = 70
 
 # Экраны для карусели. Остальные не годятся для публичной страницы: на
 # Telegram видна ссылка с секретом прокси, в логах и настройках — пути с
@@ -157,6 +171,27 @@ def social_card(target: Path) -> None:
     print(f"{target.relative_to(ROOT)}  ({target.stat().st_size // 1024} КБ)")
 
 
+def trimmed(image: QImage, threshold: int = 8) -> QImage:
+    """Обрезает прозрачные поля по краям.
+
+    В файле баннера под рисунком запас прозрачных пикселей, и расстояние до текста
+    ниже получалось не тем, что задано в коде: на глаз логотип и подпись висели
+    по отдельности. После обрезки зазор считается от самого рисунка.
+    """
+    width, height = image.width(), image.height()
+    rows = [
+        y for y in range(height)
+        if any(image.pixelColor(x, y).alpha() > threshold for x in range(0, width, 3))
+    ]
+    columns = [
+        x for x in range(width)
+        if any(image.pixelColor(x, y).alpha() > threshold for y in range(0, height, 3))
+    ]
+    if not rows or not columns:
+        return image
+    return image.copy(columns[0], rows[0], columns[-1] - columns[0] + 1, rows[-1] - rows[0] + 1)
+
+
 def social_preview(target: Path) -> None:
     """Рисует картинку для репозитория: баннер, слоган и список возможностей."""
     from app.ui.theme.tokens import BRAND, COLORS
@@ -187,31 +222,64 @@ def social_preview(target: Path) -> None:
     banner = QImage(str(ASSETS / "banner.png"))
     if banner.isNull():
         raise SystemExit("не удалось прочитать assets/banner.png")
-    banner = banner.scaledToWidth(PREVIEW_BANNER_WIDTH, Qt.TransformationMode.SmoothTransformation)
-    painter.drawImage(QPointF((width - banner.width()) / 2, 64), banner)
+    banner = trimmed(banner)
 
-    def line(text: str, top: int, family: str, pixels: int, colour: str, bold: bool = False):
+    # Группа — баннер и две строки под ним — собирается в одну колонку и ставится по
+    # центру безопасной полосы. Расстояния между частями малы нарочно: чем ближе они,
+    # тем больше читается как одно целое, а не как три отдельные вещи.
+    from PyQt6.QtGui import QFontDatabase, QFontMetrics
+
+    installed = set(QFontDatabase.families())
+    family = next((name for name in PREVIEW_FONTS if name in installed), "Consolas")
+
+    features = "обход блокировок  ·  подбор стратегии  ·  прокси для Telegram  ·  диагностика"
+
+    # Кегль общий у обеих строк — слоган не должен быть ни крупнее, ни мельче второй
+    # строки — и подбирается по ширине самой длинной: задать число и надеяться
+    # нельзя, в первой версии строка вылезла за края и обрезала «о» в слове «обход».
+    size = 28
+    while size > 14:
+        probe = QFont(family)
+        probe.setPixelSize(size)
+        if QFontMetrics(probe).horizontalAdvance(features) <= width - 2 * PREVIEW_MARGIN:
+            break
+        size -= 1
+
+    gap_banner, gap_lines = 14, 4
+    row = round(size * 1.6)
+    low, high = PREVIEW_SAFE
+    room = high - low - 10  # небольшой запас внутри безопасной полосы
+
+    # Баннер как можно крупнее, но так, чтобы вся колонка влезла в безопасную полосу.
+    text_height = gap_banner + row * 2 + gap_lines
+    ratio = banner.width() / banner.height()
+    banner_width = min(PREVIEW_BANNER_WIDTH, (room - text_height) * ratio)
+    banner = banner.scaledToWidth(round(banner_width), Qt.TransformationMode.SmoothTransformation)
+
+    stack = banner.height() + text_height
+    top = low + (high - low - stack) / 2
+
+    painter.drawImage(QPointF((width - banner.width()) / 2, top), banner)
+
+    def line(text: str, y: float, colour: str, bold: bool) -> None:
         font = QFont(family)
-        font.setPixelSize(pixels)
-        font.setWeight(QFont.Weight.DemiBold if bold else QFont.Weight.Normal)
+        font.setPixelSize(size)
+        font.setWeight(QFont.Weight.Bold if bold else QFont.Weight.Normal)
         painter.setFont(font)
         painter.setPen(QColor(colour))
         painter.drawText(
-            QRectF(60, top, width - 120, pixels * 1.8),
+            QRectF(PREVIEW_MARGIN, y, width - 2 * PREVIEW_MARGIN, row),
             int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
             text,
         )
 
-    line("Свободный интернет каждому", 346, "Segoe UI", 52, COLORS["text"], bold=True)
-    line(
-        "обход блокировок  ·  подбор стратегии  ·  прокси для Telegram  ·  диагностика",
-        430, "Consolas", 20, COLORS["text_dim"],
+    first = top + banner.height() + gap_banner
+    line("Свободный интернет каждому", first, COLORS["text"], bold=True)
+    line(features, first + row + gap_lines, COLORS["text_dim"], bold=False)
+    print(
+        f"баннер {banner.width()}x{banner.height()}; кегль {size}; шрифт: {family}; "
+        f"колонка {round(top)}–{round(top + stack)} из безопасных {low}–{high}"
     )
-
-    # Единственный оранжевый акцент, как и на самом сайте.
-    painter.fillRect(QRectF(width / 2 - 60, 494, 120, 4), QColor(BRAND["orange"]))
-
-    line("github.com/igorxmel/ZapretXmel", 548, "Consolas", 18, COLORS["text_muted"])
     painter.end()
 
     if not image.save(str(target)):
