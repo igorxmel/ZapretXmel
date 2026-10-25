@@ -191,7 +191,76 @@ function setupTheme() {
   });
 }
 
+/*
+ * Плавное раскрытие вопросов.
+ *
+ * У <details> высота прыгает: браузер просто убирает и возвращает содержимое, и
+ * средствами одного CSS это анимируется не везде (новый способ работает только в
+ * Chrome). Поэтому высота меняется скриптом. Без скрипта и при включённой в системе
+ * настройке «уменьшить движение» остаётся обычное мгновенное поведение: вопросы
+ * от этого не пропадают и не ломаются.
+ *
+ * Быстрый повторный щелчок не должен дёргать блок. Новая анимация стартует с той
+ * высоты, на которой блок сейчас, а не с прежнего края.
+ */
+function setupFaq() {
+  const reduced = matchMedia("(prefers-reduced-motion: reduce)");
+  const DURATION = 240;
+
+  // Высота блока в нужном состоянии. Состояние переключается и возвращается
+  // синхронно, до отрисовки: на экране этого не видно, а измерить иначе нельзя.
+  const heightWhen = (details, open) => {
+    const was = details.open;
+    details.open = open;
+    const height = details.getBoundingClientRect().height;
+    details.open = was;
+    return height;
+  };
+
+  document.querySelectorAll(".faq details").forEach((details) => {
+    const summary = details.querySelector("summary");
+    let animation = null;
+
+    summary.addEventListener("click", (event) => {
+      if (reduced.matches || !details.animate) return;
+      event.preventDefault();
+
+      // Блок «открывается», если он закрыт или прямо сейчас закрывается.
+      const opening = !details.open || details.classList.contains("closing");
+      const from = details.getBoundingClientRect().height;
+
+      // Старую анимацию снимаем до измерения: пока она держит блок на промежуточной
+      // высоте, «конечная» высота измерилась бы той же промежуточной, и разворот шёл
+      // бы из середины в середину, а потом блок прыгал.
+      if (animation) animation.cancel();
+      const to = heightWhen(details, opening);
+
+      details.open = true;
+      details.classList.toggle("closing", !opening);
+      details.style.overflow = "hidden";
+
+      // fill: "forwards" держит конечную высоту до тех пор, пока не сменится само
+      // состояние. Без него между концом анимации и обработчиком окончания блок на
+      // кадр возвращался к полной высоте — при закрытии это вспышка в самом конце.
+      const current = details.animate(
+        { height: [`${from}px`, `${to}px`] },
+        { duration: DURATION, easing: "cubic-bezier(0.2, 0.7, 0.2, 1)", fill: "forwards" },
+      );
+      animation = current;
+
+      current.onfinish = () => {
+        details.open = opening;
+        details.classList.remove("closing");
+        details.style.overflow = "";
+        current.cancel(); // конечная высота теперь обычная, удерживать её незачем
+        if (animation === current) animation = null;
+      };
+    });
+  });
+}
+
 setupTheme();
+setupFaq();
 showBoosty();
 showVersion();
 setupReveal();
