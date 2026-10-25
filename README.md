@@ -1,6 +1,8 @@
 <div align="center">
   <img src="assets/banner.png" width="560" alt="ZapretXmel">
 
+  <h3>Свободный интернет каждому</h3>
+
   <p>
     <strong>Обход блокировок в одном окне: ядро
     <a href="https://github.com/Flowseal/zapret-discord-youtube">zapret в сборке Flowseal</a>,
