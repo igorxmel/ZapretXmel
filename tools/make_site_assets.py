@@ -23,7 +23,7 @@ from pathlib import Path
 # Изображения готовятся средствами Qt, который и так есть в проекте:
 # тащить ради нескольких картинок ещё одну библиотеку незачем.
 from PyQt6.QtCore import QPointF, QRectF, Qt
-from PyQt6.QtGui import QColor, QFont, QImage, QPainter, QRadialGradient
+from PyQt6.QtGui import QColor, QFont, QImage, QPainter, QPen, QRadialGradient
 from PyQt6.QtWidgets import QApplication
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -47,6 +47,13 @@ SHOT_WIDTH = 1320
 # подложку, и прозрачный фон логотипа становится белым пятном.
 CARD_SIZE = (1200, 630)
 CARD_BANNER_WIDTH = 760
+
+# Картинка для настроек репозитория GitHub (Settings → General → Social preview).
+# GitHub рекомендует 1280×640 и по краям подрезает и добавляет поля, поэтому всё
+# важное держится в стороне от краёв. Это не карточка для мессенджеров: у той другая
+# пропорция, и на GitHub она встала бы с полями.
+PREVIEW_SIZE = (1280, 640)
+PREVIEW_BANNER_WIDTH = 640
 
 # Экраны для карусели. Остальные не годятся для публичной страницы: на
 # Telegram видна ссылка с секретом прокси, в логах и настройках — пути с
@@ -150,7 +157,78 @@ def social_card(target: Path) -> None:
     print(f"{target.relative_to(ROOT)}  ({target.stat().st_size // 1024} КБ)")
 
 
+def social_preview(target: Path) -> None:
+    """Рисует картинку для репозитория: баннер, слоган и список возможностей."""
+    from app.ui.theme.tokens import BRAND, COLORS
+
+    width, height = PREVIEW_SIZE
+    image = QImage(width, height, QImage.Format.Format_ARGB32)
+    image.fill(QColor(COLORS["bg"]))
+
+    painter = QPainter(image)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+    painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+
+    # Сетка, как у фона сайта: та же инженерная нота и опора для взгляда.
+    painter.setPen(QPen(QColor(255, 255, 255, 9), 1))
+    for x in range(0, width, 40):
+        painter.drawLine(x, 0, x, height)
+    for y in range(0, height, 40):
+        painter.drawLine(0, y, width, y)
+
+    glow = QRadialGradient(QPointF(width / 2, 40), width * 0.62)
+    glow.setColorAt(0.0, QColor(BRAND["orange"]).darker(150))
+    glow.setColorAt(1.0, QColor(0, 0, 0, 0))
+    painter.setOpacity(0.30)
+    painter.fillRect(0, 0, width, height, glow)
+    painter.setOpacity(1.0)
+
+    banner = QImage(str(ASSETS / "banner.png"))
+    if banner.isNull():
+        raise SystemExit("не удалось прочитать assets/banner.png")
+    banner = banner.scaledToWidth(PREVIEW_BANNER_WIDTH, Qt.TransformationMode.SmoothTransformation)
+    painter.drawImage(QPointF((width - banner.width()) / 2, 64), banner)
+
+    def line(text: str, top: int, family: str, pixels: int, colour: str, bold: bool = False):
+        font = QFont(family)
+        font.setPixelSize(pixels)
+        font.setWeight(QFont.Weight.DemiBold if bold else QFont.Weight.Normal)
+        painter.setFont(font)
+        painter.setPen(QColor(colour))
+        painter.drawText(
+            QRectF(60, top, width - 120, pixels * 1.8),
+            int(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter),
+            text,
+        )
+
+    line("Свободный интернет каждому", 346, "Segoe UI", 52, COLORS["text"], bold=True)
+    line(
+        "обход блокировок  ·  подбор стратегии  ·  прокси для Telegram  ·  диагностика",
+        430, "Consolas", 20, COLORS["text_dim"],
+    )
+
+    # Единственный оранжевый акцент, как и на самом сайте.
+    painter.fillRect(QRectF(width / 2 - 60, 494, 120, 4), QColor(BRAND["orange"]))
+
+    line("github.com/igorxmel/ZapretXmel", 548, "Consolas", 18, COLORS["text_muted"])
+    painter.end()
+
+    if not image.save(str(target)):
+        raise SystemExit(f"не удалось записать {target}")
+    print(f"{target.relative_to(ROOT)}  ({target.stat().st_size // 1024} КБ)")
+
+
 def main() -> int:
+    # Только картинка для репозитория: без перерисовки всего остального и без
+    # снимков экранов, а значит и без проверки на VPN.
+    if "--preview" in sys.argv:
+        app = QApplication(sys.argv[:1])
+        TARGET.mkdir(parents=True, exist_ok=True)
+        social_preview(TARGET / "social-preview.png")
+        app.quit()
+        return 0
+
     # С --shoot снимки делаются тут же. Без него берутся те, что уже лежат
     # в data/screenshots.
     if "--shoot" in sys.argv:
