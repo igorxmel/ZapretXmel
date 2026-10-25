@@ -134,6 +134,12 @@ class WelcomeWindow(FramelessWindow):
         banner.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         layout.addWidget(banner)
 
+        # Слоган проекта — тот же, что в шапке сайта и в заголовке страницы.
+        slogan = QLabel("Свободный интернет каждому")
+        slogan.setObjectName("ViewTitle")
+        slogan.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        layout.addWidget(slogan)
+
         subtitle = QLabel(
             "Обход блокировок без батников и консоли. Ниже пять шагов — "
             "любой можно пропустить и вернуться к нему позже."
