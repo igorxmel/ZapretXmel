@@ -174,15 +174,6 @@ certutil -hashfile ZapretXmel.exe SHA256
 и, если доверяете, добавьте папку программы в исключения. Антивирус, удаливший
 `WinDivert64.sys`, ломает обход — диагностика об этом скажет отдельной строкой.
 
-## <img src="assets/icons/sparkle.png" width="22" align="top"> Частые вопросы
-
-Ответы собраны в [FAQ.md](FAQ.md) и [на сайте](https://igorxmel.github.io/ZapretXmel/#faq). О чём там:
-
-- [Что такое ZapretXmel?](FAQ.md#что-такое-zapretxmel)
-- [Это VPN? Заработают ли Instagram, ChatGPT и другие сервисы, недоступные из России?](FAQ.md#это-vpn-заработают-ли-instagram-chatgpt-и-другие-сервисы-недоступные-из-россии)
-- [Включил обход, а всё равно не работает. Почему?](FAQ.md#включил-обход-а-всё-равно-не-работает-почему)
-- [Программа не открывается: курсор моргнул и всё](FAQ.md#программа-не-открывается-курсор-моргнул-и-всё)
-
 ## <img src="assets/icons/target.png" width="22" align="top"> Что уходит нейросети
 
 > [!IMPORTANT]
@@ -283,6 +274,15 @@ Pull request'ы открыты, и мелкие тоже — опечатка в
 - [Noktomezo/ZapretInteractive](https://github.com/Noktomezo/ZapretInteractive) и
   [medvedeff-true/Zapret-GUI](https://github.com/medvedeff-true/Zapret-GUI) — соседние
   оболочки, у которых было чему поучиться
+
+## <img src="assets/icons/sparkle.png" width="22" align="top"> Частые вопросы
+
+Ответы собраны в [FAQ.md](FAQ.md) и [на сайте](https://igorxmel.github.io/ZapretXmel/#faq). О чём там:
+
+- [Что такое ZapretXmel?](FAQ.md#что-такое-zapretxmel)
+- [Это VPN? Заработают ли Instagram, ChatGPT и другие сервисы, недоступные из России?](FAQ.md#это-vpn-заработают-ли-instagram-chatgpt-и-другие-сервисы-недоступные-из-россии)
+- [Включил обход, а всё равно не работает. Почему?](FAQ.md#включил-обход-а-всё-равно-не-работает-почему)
+- [Программа не открывается: курсор моргнул и всё](FAQ.md#программа-не-открывается-курсор-моргнул-и-всё)
 
 ## <img src="assets/icons/hop.png" width="22" align="top"> Поддержка
 
