@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import shutil
 import subprocess
 import sys
@@ -34,6 +35,68 @@ from app import __version__  # noqa: E402
 NAME = "ZapretXmel"
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
+
+
+def version_numbers(version: str) -> tuple[int, int, int, int]:
+    """«0.1.51» → (0, 1, 51, 0). Хвосты вроде `d` и `-rc.1` в числа не идут.
+
+    У ресурса версии Windows ровно четыре числа, а у нас в номере бывают и
+    буквенный суффикс (правка поверх апстрима), и пре-релиз.
+    """
+    found = [int(part) for part in re.findall(r"\d+", version.split("-")[0])[:3]]
+    found += [0] * (4 - len(found))
+    return tuple(found)  # type: ignore[return-value]
+
+
+def version_resource(version: str) -> str:
+    """Текст ресурса версии для `--version-file`.
+
+    Без него у `.exe` пустые «Издатель», «Описание» и «Версия» в свойствах файла.
+    Неподписанный файл, который просит права администратора, грузит драйвер и
+    ничего о себе не сообщает, выглядит для эвристик антивируса подозрительнее
+    такого же с заполненными полями и ссылкой на репозиторий. Это не защита и не
+    обход чего-либо: честные метаданные, какие есть у любой обычной программы.
+    """
+    from PyInstaller.utils.win32.versioninfo import (
+        FixedFileInfo,
+        StringFileInfo,
+        StringStruct,
+        StringTable,
+        VarFileInfo,
+        VarStruct,
+        VSVersionInfo,
+    )
+
+    numbers = version_numbers(version)
+    strings = [
+        ("CompanyName", "ZapretXmel project"),
+        ("FileDescription", "ZapretXmel - graphical shell for the zapret DPI bypass"),
+        ("FileVersion", version),
+        ("InternalName", NAME),
+        ("LegalCopyright", "Licensed under GPL-3.0-only"),
+        ("OriginalFilename", f"{NAME}.exe"),
+        ("ProductName", NAME),
+        ("ProductVersion", version),
+        ("Comments", "https://github.com/igorxmel/ZapretXmel"),
+    ]
+    info = VSVersionInfo(
+        ffi=FixedFileInfo(
+            filevers=numbers,
+            prodvers=numbers,
+            mask=0x3F,
+            flags=0x0,
+            OS=0x40004,  # Windows NT
+            fileType=0x1,  # приложение
+            subtype=0x0,
+            date=(0, 0),
+        ),
+        kids=[
+            # 0409 — английский (США), 04B0 — Unicode.
+            StringFileInfo([StringTable("040904B0", [StringStruct(k, v) for k, v in strings])]),
+            VarFileInfo([VarStruct("Translation", [0x409, 1200])]),
+        ],
+    )
+    return str(info)
 
 
 def ensure_dependencies() -> None:
@@ -63,6 +126,10 @@ def build() -> Path:
     for directory in (DIST, BUILD):
         shutil.rmtree(directory, ignore_errors=True)
 
+    BUILD.mkdir(parents=True, exist_ok=True)
+    version_file = BUILD / "version_info.txt"
+    version_file.write_text(version_resource(__version__), encoding="utf-8")
+
     command = [
         sys.executable,
         "-m",
@@ -71,6 +138,11 @@ def build() -> Path:
         "--clean",
         "--onefile",
         "--windowed",
+        # UPX сжимает исполняемый файл упаковщиком, и именно упакованные файлы
+        # антивирусы подозревают первыми. Выигрыш — несколько мегабайт, цена —
+        # ложные срабатывания; PyInstaller берёт UPX сам, если тот есть в PATH.
+        "--noupx",
+        f"--version-file={version_file}",
         f"--name={NAME}",
         f"--icon={ROOT / 'assets' / 'logo.ico'}",
         # Картинки нужны в собранном виде: logo для значка и трея,
