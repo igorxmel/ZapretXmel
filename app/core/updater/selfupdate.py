@@ -23,7 +23,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from app import __version__
-from app.core import process
+from app.core import process, singleton
 from app.core.updater import github
 
 log = logging.getLogger(__name__)
@@ -192,7 +192,7 @@ def restart() -> None:
     """
     try:
         subprocess.Popen(  # noqa: S603 — собственный файл
-            [str(executable())],
+            [str(executable()), singleton.RESTART_FLAG],
             close_fds=True,
             cwd=str(executable().parent),
             env=process.child_environment(),

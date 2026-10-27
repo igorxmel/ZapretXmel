@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app import logging_setup
-from app.core import paths, process
+from app.core import paths, process, singleton
 
 log = logging.getLogger(__name__)
 
@@ -308,7 +308,7 @@ def restart(executable: Path) -> None:
     """
     try:
         subprocess.Popen(  # noqa: S603 — собственный файл
-            [str(executable)],
+            [str(executable), singleton.RESTART_FLAG],
             close_fds=True,
             cwd=str(executable.parent),
             env=process.child_environment(),

@@ -152,3 +152,22 @@ def test_hidden_window_is_never_shown_from_outside(
     monkeypatch.setattr(foreground, "force", forbidden)
 
     assert singleton.focus_existing() is False
+
+
+def test_restart_flag_is_passed_by_both_restarts(monkeypatch, tmp_path) -> None:
+    """После обновления прежний экземпляр ещё держит окно и мьютекс.
+
+    Без признака новый принимал его за живой, просил показаться и выходил —
+    а прежний тут же закрывался, и не оставалось ни одного экземпляра.
+    """
+    from app.core import location
+    from app.core.updater import selfupdate
+
+    launched: list[list[str]] = []
+    monkeypatch.setattr("subprocess.Popen", lambda args, **_: launched.append(args))
+    monkeypatch.setattr(selfupdate, "executable", lambda: tmp_path / "Z.exe")
+
+    selfupdate.restart()
+    location.restart(tmp_path / "Z.exe")
+
+    assert all(singleton.RESTART_FLAG in args for args in launched) and len(launched) == 2
