@@ -95,14 +95,42 @@ def test_fast_detection_quiet_on_plain_ethernet(monkeypatch: pytest.MonkeyPatch)
         lambda: {"Ethernet": [Addr(socket.AF_INET, "192.168.1.50")]},
     )
 
+    monkeypatch.setattr(vpn, "_descriptions", {})
+    monkeypatch.setattr(vpn, "_adapter_descriptions", lambda: {"Ethernet": "Realtek PCIe GbE"})
+
     assert vpn.detect_fast() is None
+
+
+def test_fast_detection_knows_tunnel_with_neutral_name(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Clash Verge называет адаптер «Meta»: по имени не узнать, по описанию — да."""
+    monkeypatch.setattr(vpn, "outbound_address", lambda: "198.18.0.1")
+    monkeypatch.setattr(
+        vpn.psutil, "net_if_addrs", lambda: {"Meta": [Addr(socket.AF_INET, "198.18.0.1")]}
+    )
+    monkeypatch.setattr(vpn, "_descriptions", {})
+    monkeypatch.setattr(vpn, "_adapter_descriptions", lambda: {"Meta": "Meta Tunnel"})
+
+    found = vpn.detect_fast()
+
+    assert found is not None
+    assert found.label == "Meta (Meta Tunnel)"
+
+
+def test_adapter_descriptions_are_asked_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Опрос идёт каждые секунды: PowerShell на каждом шаге недопустим."""
+    calls: list[int] = []
+    monkeypatch.setattr(vpn, "_descriptions", {})
+    monkeypatch.setattr(vpn, "_adapter_descriptions", lambda: calls.append(1) or {})
+
+    vpn.adapter_description("Ethernet")
+    vpn.adapter_description("Ethernet")
+
+    assert len(calls) == 1
 
 
 def test_detect_prefers_default_route(monkeypatch: pytest.MonkeyPatch) -> None:
     """Маршрут по умолчанию — точный ответ на вопрос, куда уходит трафик."""
-    monkeypatch.setattr(
-        vpn, "_default_route_adapter", lambda: ("AmneziaVPN", "WireGuard Tunnel")
-    )
+    monkeypatch.setattr(vpn, "_default_route_adapter", lambda: ("AmneziaVPN", "WireGuard Tunnel"))
 
     found = vpn.detect()
 
@@ -127,6 +155,7 @@ def test_detect_falls_back_when_powershell_is_silent(monkeypatch: pytest.MonkeyP
 
 def test_detect_quiet_when_route_is_ordinary(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(vpn, "_default_route_adapter", lambda: ("Ethernet", "Realtek PCIe GbE"))
+    monkeypatch.setattr(vpn, "_descriptions", {"Ethernet": "Realtek PCIe GbE"})
     monkeypatch.setattr(vpn, "outbound_address", lambda: "192.168.1.50")
     monkeypatch.setattr(
         vpn.psutil,

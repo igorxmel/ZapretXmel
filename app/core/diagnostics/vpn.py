@@ -137,15 +137,61 @@ def _default_route_adapter() -> tuple[str, str]:
     return alias.strip(), description.strip()
 
 
-def detect_fast() -> VpnInfo | None:
-    """Быстрая проверка без внешних вызовов — для опроса состояния по таймеру.
+# Описания адаптеров по их именам. Имя адаптера клиент выбирает сам: у Clash
+# Verge оно «Meta», и узнать туннель можно только по описанию («Meta Tunnel»).
+# PowerShell зовём один раз на каждое новое имя, а не при каждом опросе.
+_descriptions: dict[str, str] = {}
 
-    Запускать PowerShell каждые несколько секунд накладно, а узнать адаптер по
-    исходящему адресу можно мгновенно. Подробное описание адаптера при этом
-    недоступно, поэтому для диагностики используется полный `detect`.
+
+def _adapter_descriptions() -> dict[str, str]:
+    command = (
+        "Get-NetAdapter -ErrorAction SilentlyContinue | "
+        "ForEach-Object { $_.Name + '|' + $_.InterfaceDescription }"
+    )
+    try:
+        completed = subprocess.run(  # noqa: S603 — фиксированная команда без пользовательского ввода
+            ["powershell", "-NoProfile", "-Command", command],
+            capture_output=True,
+            timeout=20,
+            creationflags=CREATE_NO_WINDOW,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return {}
+
+    found: dict[str, str] = {}
+    for line in _decode(completed.stdout).splitlines():
+        name, _, description = line.partition("|")
+        if name.strip():
+            found[name.strip()] = description.strip()
+    return found
+
+
+def adapter_description(adapter: str) -> str:
+    if adapter not in _descriptions:
+        _descriptions.update(_adapter_descriptions())
+        # Не нашли — запоминаем пустоту, чтобы не звать PowerShell снова и снова.
+        _descriptions.setdefault(adapter, "")
+    return _descriptions[adapter]
+
+
+def detect_fast() -> VpnInfo | None:
+    """Быстрая проверка для опроса состояния по таймеру.
+
+    Адаптер узнаётся по исходящему адресу мгновенно. Описание адаптера
+    запрашивается один раз на имя и дальше берётся из памяти: без него не
+    узнать туннель, названный клиентом нейтрально («Meta», «Clash»).
     """
     adapter = adapter_for_address(outbound_address())
-    return VpnInfo(adapter=adapter) if adapter and looks_like_tunnel(adapter) else None
+    if not adapter:
+        return None
+    if looks_like_tunnel(adapter):
+        return VpnInfo(adapter=adapter)
+
+    description = adapter_description(adapter)
+    if looks_like_tunnel(description):
+        return VpnInfo(adapter=adapter, description=description)
+    return None
 
 
 def detect() -> VpnInfo | None:
@@ -159,8 +205,4 @@ def detect() -> VpnInfo | None:
     if alias and looks_like_tunnel(alias, description):
         return VpnInfo(adapter=alias, description=description)
 
-    fallback = adapter_for_address(outbound_address())
-    if fallback and looks_like_tunnel(fallback):
-        return VpnInfo(adapter=fallback)
-
-    return None
+    return detect_fast()
