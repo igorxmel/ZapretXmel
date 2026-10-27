@@ -12,13 +12,14 @@ import ctypes
 import logging
 import os
 import sys
+import threading
 import time
 
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
 from app import logging_setup
-from app.core import elevation, location, paths, singleton
+from app.core import autostart, elevation, location, paths, singleton
 from app.core.config import Settings
 from app.core.updater import selfupdate
 from app.ui import dialogs, motion, theme
@@ -300,6 +301,10 @@ def main() -> int:
         # происходит, причём сколько угодно раз подряд.
         elif not revive_stuck_instance():
             return 0
+
+    # Задачи автозапуска из прежних версий не стартовали от батареи. Чиним в
+    # фоне: вызов планировщика медленный, а окно ждать его не должно.
+    threading.Thread(target=autostart.repair, name="autostart-repair", daemon=True).start()
 
     settings = Settings.load()
     motion.set_enabled(settings.animations)
