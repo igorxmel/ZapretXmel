@@ -22,9 +22,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-import psutil
-
-from app.core import paths, service, winws
+from app.core import paths, processes, service, winws
 
 log = logging.getLogger(__name__)
 
@@ -118,18 +116,12 @@ def detect() -> ForeignInstall | None:
         if executable is not None and not _is_ours(executable):
             foreign.setdefault(executable, {})["by_service"] = True
 
-    # Перебираем процессы сами, а не через `winws.find_instances`: там
-    # запрашиваются ещё и командные строки, а их psutil добывает чтением
-    # чужой памяти. Для опроса раз в несколько секунд это дорого, и нам
-    # здесь достаточно пути к файлу.
-    for process in psutil.process_iter(["name", "exe"]):
-        try:
-            if (process.info["name"] or "").lower() != winws.PROCESS_NAME:
-                continue
-            path = process.info["exe"]
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-
+    # Не через `winws.find_instances`: там запрашиваются ещё и командные
+    # строки, а их psutil добывает чтением чужой памяти. Для опроса раз в
+    # несколько секунд это дорого, и нам здесь достаточно пути к файлу —
+    # причём только у процессов с нужным именем.
+    for pid in processes.pids_named(winws.PROCESS_NAME):
+        path = processes.executable(pid)
         if not path:
             continue
         executable = Path(path)

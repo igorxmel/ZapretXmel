@@ -16,6 +16,7 @@ Telegram Desktop не ходит по TLS с SNI, поэтому обычные 
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import secrets
@@ -26,7 +27,7 @@ from urllib.parse import urlencode
 
 import psutil
 
-from app.core import paths
+from app.core import paths, processes
 from app.core import process as managed
 from app.core.process import ManagedProcess
 from app.core.updater import github
@@ -190,15 +191,12 @@ def running_instances() -> list[int]:
     копились их значки, а порт занимал самый первый.
     """
     ours = executable()
-    found = []
-    for process in psutil.process_iter(["exe", "pid"]):
-        try:
-            path = process.info["exe"]
-            if path and Path(path) == ours:
-                found.append(process.info["pid"])
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-    return found
+    # Сначала по имени — это дёшево; путь спрашиваем только у совпавших.
+    return [
+        pid
+        for pid in processes.pids_named(EXECUTABLE)
+        if (path := processes.executable(pid)) and Path(path) == ours
+    ]
 
 
 def is_running_anywhere() -> bool:
@@ -215,15 +213,10 @@ def kill_running(timeout: float = 5.0) -> int:
     Ищем по пути, а не по имени: чужую установку tg-ws-proxy, живущую
     где-то ещё, мы не трогаем.
     """
-    ours = executable()
     victims: list[psutil.Process] = []
-    for process in psutil.process_iter(["exe"]):
-        try:
-            path = process.info["exe"]
-            if path and Path(path) == ours:
-                victims.append(process)
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
+    for pid in running_instances():
+        with contextlib.suppress(psutil.NoSuchProcess, psutil.AccessDenied):
+            victims.append(psutil.Process(pid))
 
     # Сначала по-хорошему: прокси держит свой значок в трее Windows и
     # убирает его сам при закрытии. Убитый насмерть, он оставляет фантом.
@@ -298,12 +291,14 @@ def install(release: github.Release | None = None, progress=None, on_bytes=None)
 class TelegramProxy:
     """Управляемый экземпляр tg-ws-proxy."""
 
-    def __init__(self, on_output=None):
-        self._process = ManagedProcess(on_output=on_output)
-
-    @property
-    def output(self):
-        return self._process.output
+    def __init__(self):
+        # Вывод прокси не перехватываем. Раньше он шёл к нам по каналу, и
+        # прокси жил на поводке у программы: стоило ей подвиснуть и перестать
+        # читать канал, как тот переполнялся, прокси замирал на записи
+        # очередной строки — и Telegram вставал вместе с ним. Читать там
+        # нечего: прокси сам пишет журнал в `TgWsProxy_data/proxy.log`, а у
+        # нас его строки только засоряли вывод winws.
+        self._process = ManagedProcess(capture=False)
 
     def is_running(self) -> bool:
         return self._process.is_alive()

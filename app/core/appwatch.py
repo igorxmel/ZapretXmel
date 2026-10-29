@@ -15,26 +15,22 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-import psutil
+from app.core import processes
 
 log = logging.getLogger(__name__)
 
 
-def running_executables() -> set[str]:
-    """Пути всех запущенных программ, приведённые к нижнему регистру.
+def running_executables(wanted: list[str]) -> set[str]:
+    """Пути запущенных программ из `wanted`, приведённые к нижнему регистру.
 
-    Один проход по процессам: сравнивать по пути, а не по имени файла,
-    важно — `game.exe` в двух разных установках это две разные программы.
+    Сравнивать по пути, а не по имени файла, важно — `game.exe` в двух разных
+    установках это две разные программы. Но путь у каждого процесса —
+    отдельное дорогое обращение, а опрос идёт каждые несколько секунд.
+    Поэтому путь спрашиваем только у процессов с подходящим именем файла.
     """
-    found: set[str] = set()
-    for process in psutil.process_iter(["exe"]):
-        try:
-            path = process.info["exe"]
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-        if path:
-            found.add(path.lower())
-    return found
+    names = {Path(path).name.lower() for path in wanted if path}
+    candidates = [pid for pid, name in processes.all_names() if name.lower() in names]
+    return {path.lower() for pid in candidates if (path := processes.executable(pid))}
 
 
 def is_running(executable: str, running: set[str]) -> bool:

@@ -119,7 +119,7 @@ class Controller(QObject):
 
         # Прокси для Telegram живёт столько же, сколько приложение: иначе он
         # останавливался бы при каждом переключении экрана.
-        self.telegram = TelegramProxy(on_output=self.log_line.emit)
+        self.telegram = TelegramProxy()
 
         self._poll_task: Task | None = None
         self._timer = QTimer(self)
@@ -403,7 +403,7 @@ class Controller(QObject):
         if not profiles:
             return ("", "")
 
-        running = appwatch.running_executables()
+        running = appwatch.running_executables([item.exe for item in profiles])
 
         # Приложение закрыли — забываем, что запуск профиля не удался:
         # в следующий раз попробовать стоит, причина могла быть разовой.

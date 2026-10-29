@@ -16,7 +16,7 @@ from pathlib import Path
 
 import psutil
 
-from app.core import lists, paths
+from app.core import lists, paths, processes
 from app.core.batfile import StrategySpec
 from app.core.process import CREATE_NO_WINDOW, ManagedProcess
 
@@ -59,14 +59,7 @@ def count_instances() -> int:
     добывает их через обращение к памяти каждого процесса, и на опросе раз в
     несколько секунд это заметно подтормаживает систему.
     """
-    total = 0
-    for process in psutil.process_iter(["name"]):
-        try:
-            if (process.info["name"] or "").lower() == PROCESS_NAME:
-                total += 1
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-    return total
+    return len(processes.pids_named(PROCESS_NAME))
 
 
 def is_running() -> bool:

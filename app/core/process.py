@@ -239,11 +239,19 @@ def child_environment() -> dict[str, str]:
 class ManagedProcess:
     """Дочерний процесс без консольного окна, с перехватом вывода."""
 
-    def __init__(self, on_output: Callable[[str], None] | None = None, buffer_size: int = 500):
+    def __init__(
+        self,
+        on_output: Callable[[str], None] | None = None,
+        buffer_size: int = 500,
+        capture: bool = True,
+    ):
         self._process: subprocess.Popen[str] | None = None
         self._job: int | None = None
         self._reader: threading.Thread | None = None
         self._on_output = on_output
+        # Без перехвата вывод уходит в никуда, и процесс не зависит от того,
+        # успеваем ли мы его читать (см. `TelegramProxy`).
+        self._capture = capture
         self.output: deque[str] = deque(maxlen=buffer_size)
 
     @property
@@ -261,8 +269,8 @@ class ManagedProcess:
         self._process = subprocess.Popen(  # noqa: S603 — команда собирается приложением
             command,
             cwd=str(cwd) if cwd else None,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stdout=subprocess.PIPE if self._capture else subprocess.DEVNULL,
+            stderr=subprocess.STDOUT if self._capture else subprocess.DEVNULL,
             stdin=subprocess.DEVNULL,
             text=True,
             encoding="utf-8",
@@ -275,8 +283,9 @@ class ManagedProcess:
         if self._job:
             assign_to_job(self._job, self._process.pid)
 
-        self._reader = threading.Thread(target=self._pump_output, daemon=True)
-        self._reader.start()
+        if self._capture:
+            self._reader = threading.Thread(target=self._pump_output, daemon=True)
+            self._reader.start()
 
     def _pump_output(self) -> None:
         process = self._process

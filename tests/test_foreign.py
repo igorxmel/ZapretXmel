@@ -70,11 +70,19 @@ def test_unexpected_layout_falls_back_to_the_file_folder() -> None:
 # --- обнаружение --------------------------------------------------------
 
 
+def _running(monkeypatch: pytest.MonkeyPatch, *found: tuple[str, str]) -> None:
+    """Подменяет список процессов: пары (имя, путь к файлу)."""
+    monkeypatch.setattr(
+        foreign.processes, "all_names", lambda: [(pid, name) for pid, (name, _) in enumerate(found)]
+    )
+    monkeypatch.setattr(foreign.processes, "executable", lambda pid: found[pid][1])
+
+
 def test_nothing_found_when_system_is_clean(
     own_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(foreign.service, "is_installed", lambda: False)
-    monkeypatch.setattr(foreign.psutil, "process_iter", lambda _attrs: [])
+    _running(monkeypatch)
 
     assert foreign.detect() is None
 
@@ -88,7 +96,7 @@ def test_service_pointing_elsewhere_is_foreign(
         "installed_binpath",
         lambda: '"D:\\zapret\\bin\\winws.exe" --wf-tcp=80,443',
     )
-    monkeypatch.setattr(foreign.psutil, "process_iter", lambda _attrs: [])
+    _running(monkeypatch)
 
     found = foreign.detect()
 
@@ -104,25 +112,16 @@ def test_our_own_service_is_not_foreign(own_root: Path, monkeypatch: pytest.Monk
     monkeypatch.setattr(
         foreign.service, "installed_binpath", lambda: f'"{paths.winws_exe()}" --wf-tcp=80,443'
     )
-    monkeypatch.setattr(foreign.psutil, "process_iter", lambda _attrs: [])
+    _running(monkeypatch)
 
     assert foreign.detect() is None
-
-
-class FakeProcess:
-    def __init__(self, name: str, exe: str):
-        self.info = {"name": name, "exe": exe}
 
 
 def test_running_process_from_another_folder_is_foreign(
     own_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(foreign.service, "is_installed", lambda: False)
-    monkeypatch.setattr(
-        foreign.psutil,
-        "process_iter",
-        lambda _attrs: [FakeProcess("winws.exe", "D:\\zapret\\bin\\winws.exe")],
-    )
+    _running(monkeypatch, ("winws.exe", "D:\\zapret\\bin\\winws.exe"))
 
     found = foreign.detect()
 
@@ -133,11 +132,7 @@ def test_running_process_from_another_folder_is_foreign(
 
 def test_our_own_process_is_not_foreign(own_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(foreign.service, "is_installed", lambda: False)
-    monkeypatch.setattr(
-        foreign.psutil,
-        "process_iter",
-        lambda _attrs: [FakeProcess("winws.exe", str(paths.winws_exe()))],
-    )
+    _running(monkeypatch, ("winws.exe", str(paths.winws_exe())))
 
     assert foreign.detect() is None
 
@@ -148,11 +143,7 @@ def test_service_wins_over_process(own_root: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(
         foreign.service, "installed_binpath", lambda: '"D:\\zapret\\bin\\winws.exe"'
     )
-    monkeypatch.setattr(
-        foreign.psutil,
-        "process_iter",
-        lambda _attrs: [FakeProcess("winws.exe", "E:\\other\\bin\\winws.exe")],
-    )
+    _running(monkeypatch, ("winws.exe", "E:\\other\\bin\\winws.exe"))
 
     found = foreign.detect()
 
@@ -163,11 +154,7 @@ def test_service_wins_over_process(own_root: Path, monkeypatch: pytest.MonkeyPat
 
 def test_other_processes_are_ignored(own_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(foreign.service, "is_installed", lambda: False)
-    monkeypatch.setattr(
-        foreign.psutil,
-        "process_iter",
-        lambda _attrs: [FakeProcess("chrome.exe", "C:\\Chrome\\chrome.exe")],
-    )
+    _running(monkeypatch, ("chrome.exe", "C:\\Chrome\\chrome.exe"))
 
     assert foreign.detect() is None
 
@@ -184,11 +171,7 @@ def test_repeated_detection_is_written_once(
     что-то другое стало нельзя.
     """
     monkeypatch.setattr(foreign.service, "is_installed", lambda: False)
-    monkeypatch.setattr(
-        foreign.psutil,
-        "process_iter",
-        lambda _attrs: [FakeProcess("winws.exe", "D:\\zapret\\bin\\winws.exe")],
-    )
+    _running(monkeypatch, ("winws.exe", "D:\\zapret\\bin\\winws.exe"))
     monkeypatch.setattr(foreign, "_reported", None)
 
     with caplog.at_level(logging.INFO, logger=foreign.log.name):
