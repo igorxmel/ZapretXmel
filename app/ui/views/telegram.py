@@ -32,6 +32,8 @@ class TelegramView(QWidget):
     # Долгая работа: боковое меню рисует кружок, а трей сообщает о
     # завершении, если окно успели свернуть.
     busy_changed = pyqtSignal(bool)
+    # Прокси поставлен или обновлён: напоминание о его обновлении пора снять.
+    something_updated = pyqtSignal()
 
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
@@ -244,6 +246,7 @@ class TelegramView(QWidget):
         self._status.setStyleSheet(f"color: {COLORS['success']};")
         self._status.setText(f"Установлена версия {version}")
         self.reload()
+        self.something_updated.emit()
 
     def _toggle(self) -> None:
         proxy = self.controller.telegram

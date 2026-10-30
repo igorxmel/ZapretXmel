@@ -531,6 +531,8 @@ class UpdatesView(QWidget):
         self.reload()
         self.controller.message.emit(f"Выполнен откат на версию {version}")
         self.controller.refresh()
+        # После отката ядро снова старое — об этом должно напоминать.
+        self.something_updated.emit()
 
     def _update_ipset(self) -> None:
         self._status.setText("Скачиваю список IP-адресов…")
@@ -564,6 +566,7 @@ class UpdatesView(QWidget):
         self._status.setStyleSheet(f"color: {COLORS['success']};")
         self._status.setText(f"Прокси обновлён до версии {version}")
         self.reload()
+        self.something_updated.emit()
 
     def _proxy_failed(self, message: str) -> None:
         self._progress.hide()

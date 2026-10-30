@@ -125,3 +125,18 @@ def test_summary_names_everything_found() -> None:
 
 def test_summary_of_nothing_is_empty() -> None:
     assert updates.summary([]) == ""
+
+
+def test_recheck_after_install_brings_no_news() -> None:
+    """Поставили прокси — ядро осталось старым, но это уже не новость."""
+    core = updates.Available(updates.CORE, "1.10.3", "1.11.0", "updates")
+    proxy = updates.Available(updates.PROXY, "1.0", "1.1", "telegram")
+
+    assert updates.news([core], known=[core, proxy]) == []
+
+
+def test_newer_release_is_news_again() -> None:
+    known = [updates.Available(updates.CORE, "1.10.3", "1.11.0", "updates")]
+    newer = updates.Available(updates.CORE, "1.10.3", "1.12.0", "updates")
+
+    assert updates.news([newer], known=known) == [newer]

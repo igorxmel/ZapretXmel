@@ -86,6 +86,8 @@ class MainWindow(FramelessWindow):
         self._quitting = False
         self._updates_task: Task | None = None
         self._updates_manual = False
+        # Перепроверка после установки: снимает поставленное, но не шумит.
+        self._updates_quiet = False
         # Последняя находка: её отдают экранам, чтобы те не спрашивали
         # GitHub о том же самом второй раз.
         self._found_updates: list = []
@@ -333,7 +335,8 @@ class MainWindow(FramelessWindow):
         self.views["dashboard"].install_proxy_requested.connect(self._install_proxy)
         self.views["dashboard"].check_updates_requested.connect(self._check_updates_manually)
         self.views["updates"].whats_new_requested.connect(self._open_whats_new)
-        self.views["updates"].something_updated.connect(self._start_update_check)
+        self.views["updates"].something_updated.connect(self._recheck_after_install)
+        self.views["telegram"].something_updated.connect(self._recheck_after_install)
         self.views["settings"].tray_style_changed.connect(self._tray.refresh_style)
         self.controller.status_changed.connect(self.views["telegram"].on_status)
 
@@ -562,13 +565,26 @@ class MainWindow(FramelessWindow):
         self._updates_task.failed.connect(self._updates_failed)
         self._updates_task.start()
 
+    def _recheck_after_install(self) -> None:
+        """Перепроверяет обновления после установки чего-то из них.
+
+        Без этого полоса, подсветка «Обновлений» и отметка в трее держались
+        до следующей плановой проверки — то есть до двух часов после того,
+        как обновляться стало не на что.
+        """
+        self._updates_quiet = True
+        self._start_update_check()
+
     def _updates_failed(self, message: str) -> None:
+        self._updates_quiet = False
         if self._updates_manual:
             self._updates_manual = False
             self._show_toast(f"Не удалось проверить: {message}", COLORS["danger"])
 
     def _updates_found(self, found: list) -> None:
         manual, self._updates_manual = self._updates_manual, False
+        quiet, self._updates_quiet = self._updates_quiet, False
+        fresh = updates.news(found, self._found_updates)
         self._found_updates = found
 
         # Тревогу сторожа отметка об обновлении не перебивает — об этом
@@ -587,8 +603,14 @@ class MainWindow(FramelessWindow):
             return
 
         text = updates.summary(found)
-
         self._update_text.setText(text)
+
+        # После установки остальное уже видели в разделе: полосу, которую
+        # закрыли, обратно не выставляем и в трей не пишем — если только не
+        # появилось что-то новое.
+        if quiet and not fresh and not manual:
+            return
+
         self._update_banner.show()
 
         # Пункт меню подсвечивается: человек может закрыть полосу, но

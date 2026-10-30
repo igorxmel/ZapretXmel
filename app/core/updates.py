@@ -103,6 +103,17 @@ def check_all(testing: bool = False) -> list[Available]:
     return found
 
 
+def news(found: list[Available], known: list[Available]) -> list[Available]:
+    """Находки, о которых прошлая проверка не знала.
+
+    Перепроверка после установки находит то же, что и раньше, минус
+    поставленное. Сообщать об этом заново незачем: человек только что был в
+    разделе обновлений и видел всё сам.
+    """
+    seen = {(item.what, item.latest) for item in known}
+    return [item for item in found if (item.what, item.latest) not in seen]
+
+
 def summary(found: list[Available]) -> str:
     """Короткая строка для уведомления."""
     if not found:
