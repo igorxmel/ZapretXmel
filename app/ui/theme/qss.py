@@ -525,6 +525,26 @@ def build_stylesheet() -> str:
 
     QScrollArea {{ border: none; background: transparent; }}
 
+    /* Выпадающие версии в окне «что нового». */
+    QPushButton#VersionToggle {{
+        background: transparent;
+        border: none;
+        border-radius: {r["md"]}px;
+        color: {c["text_dim"]};
+        font-weight: 600;
+        padding: {s["xs"]}px {s["sm"]}px;
+        text-align: left;
+    }}
+
+    QPushButton#VersionToggle:hover {{ background: {c["surface_hover"]}; color: {c["text"]}; }}
+    QPushButton#VersionToggle:checked {{ color: {c["text"]}; }}
+
+    QTextBrowser#VersionNotes {{
+        background: transparent;
+        border: none;
+        padding: 0px {s["sm"]}px;
+    }}
+
     QMenu {{
         background: {c["elevated"]};
         border: 1px solid {c["border_strong"]};

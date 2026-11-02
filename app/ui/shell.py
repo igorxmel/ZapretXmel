@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app import __version__
-from app.core import foreground, updates
+from app.core import changelog, foreground, updates
 from app.core.config import Settings
 from app.ui import dialogs, motion
 from app.ui.activation import ActivationListener
@@ -652,14 +652,14 @@ class MainWindow(FramelessWindow):
 
     def _open_whats_new(self) -> None:
         """Открывает окно по кнопке — независимо от того, видели его или нет."""
-        notes = whatsnew.notes_for_current_version()
-        if not notes:
+        entries = changelog.history(__version__)
+        if not entries:
             self._show_toast(
                 f"Для версии {__version__} описания изменений нет", COLORS["text_muted"]
             )
             return
 
-        self._whats_new = whatsnew.WhatsNewWindow(notes, self)
+        self._whats_new = whatsnew.WhatsNewWindow(entries, f"Версия {__version__}", parent=self)
         self._whats_new.show()
         foreground.force(int(self._whats_new.winId()))
 
@@ -680,12 +680,17 @@ class MainWindow(FramelessWindow):
         if not show:
             return
 
-        notes = whatsnew.notes_for_current_version()
-        if not notes:
+        entries = changelog.since(seen, __version__)
+        if not entries:
             log.info("Нет описания изменений для версии %s", __version__)
             return
 
-        self._whats_new = whatsnew.WhatsNewWindow(notes, self)
+        self._whats_new = whatsnew.WhatsNewWindow(
+            entries,
+            f"Обновились до {__version__}",
+            whatsnew.skipped_text(seen, entries),
+            parent=self,
+        )
         self._whats_new.show()
         foreground.force(int(self._whats_new.winId()))
 

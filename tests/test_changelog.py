@@ -140,3 +140,84 @@ def test_prerelease_prefers_its_own_section_when_it_exists() -> None:
     text = "## 1.1.0-rc.1\n\nПробная сборка.\n\n## 1.1.0\n\nЧто-то починили.\n"
 
     assert changelog.section(text, "1.1.0-rc.1") == "Пробная сборка."
+
+
+# --- всё, что вышло с прошлого обновления ---------------------------------
+
+HISTORY = (
+    "# Что менялось\n\nВступление.\n\n"
+    "## 0.1.10\n\nдесятая\n\n"
+    "## 0.1.9\n\n### Добавлено\n\n- девятая\n\n"
+    "## 0.1.8\n\n\n"
+    "## 0.1.7\n\nседьмая\n\n"
+    "## 0.1.6\n\nшестая\n"
+)
+
+
+@pytest.fixture
+def history_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / changelog.FILENAME).write_text(HISTORY, encoding="utf-8")
+    monkeypatch.setattr(paths, "assets_dir", lambda: tmp_path / "нет")
+    monkeypatch.setattr(paths, "app_root", lambda: tmp_path)
+
+
+def _versions(entries: list[changelog.Entry]) -> list[str]:
+    return [entry.version for entry in entries]
+
+
+def test_skipped_versions_are_all_listed(history_file: None) -> None:
+    """Обновились через несколько версий: рассказать надо обо всех."""
+    assert _versions(changelog.since("0.1.6", "0.1.10")) == ["0.1.10", "0.1.9", "0.1.7"]
+
+
+def test_ordinary_update_lists_one_version(history_file: None) -> None:
+    assert _versions(changelog.since("0.1.9", "0.1.10")) == ["0.1.10"]
+
+
+def test_versions_compare_as_numbers_not_text(history_file: None) -> None:
+    """По тексту 0.1.10 старее 0.1.9, и список выходил бы пустым."""
+    assert "0.1.10" in _versions(changelog.since("0.1.9", "0.1.10"))
+    assert "0.1.9" not in _versions(changelog.since("0.1.9", "0.1.10"))
+
+
+def test_without_a_mark_only_current_version_is_listed(history_file: None) -> None:
+    assert _versions(changelog.since("", "0.1.10")) == ["0.1.10"]
+
+
+def test_rollback_tells_only_about_current_version(history_file: None) -> None:
+    assert _versions(changelog.since("0.1.10", "0.1.7")) == ["0.1.7"]
+
+
+def test_prerelease_is_listed_once_under_its_own_number(history_file: None) -> None:
+    """Раздел тестовой сборки называется номером обычной версии."""
+    found = changelog.since("0.1.9", "0.1.10-rc.1")
+
+    assert _versions(found) == ["0.1.10-rc.1"]
+    assert found[0].notes == "десятая"
+
+
+def test_history_is_complete_and_starts_from_current(history_file: None) -> None:
+    assert _versions(changelog.history("0.1.9")) == ["0.1.9", "0.1.7", "0.1.6"]
+
+
+def test_real_changelog_is_parsed_whole() -> None:
+    """Разделы не должны теряться и перемешиваться в настоящем файле."""
+    from app import __version__
+
+    found = changelog.history(__version__)
+
+    assert found[0].version == __version__
+    assert len(found) > 50
+    assert all(entry.notes for entry in found)
+    assert "## " not in found[0].notes.replace("### ", "")
+
+
+def test_skip_note_appears_only_for_several_versions() -> None:
+    from app.ui.views.whatsnew import skipped_text
+
+    one = [changelog.Entry("0.1.10", "x")]
+    two = [*one, changelog.Entry("0.1.9", "y")]
+
+    assert skipped_text("0.1.9", one) == ""
+    assert skipped_text("", two) == ""
+    assert "0.1.8" in skipped_text("0.1.8", two) and "2" in skipped_text("0.1.8", two)
