@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import QUrl, pyqtSignal
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QDesktopServices, QFont, QFontMetrics
 from PyQt6.QtWidgets import (
     QApplication,
     QButtonGroup,
+    QCheckBox,
     QComboBox,
     QHBoxLayout,
     QLabel,
@@ -26,8 +27,20 @@ from app.ui.widgets import Card, KeyValueRow, set_markdown, view_header
 from app.ui.workers import AppUpdateWorker, CoreUpdateWorker, Task, TelegramInstallWorker
 
 # Источники обновлений в общей карточке.
-CORE = "core"
-PROXY = "proxy"
+CORE = updates.SOURCE_CORE
+PROXY = updates.SOURCE_PROXY
+
+# Чьё обновление показывать в общей карточке.
+_CARD_SOURCES = {updates.CORE: CORE, updates.PROXY: PROXY}
+
+IGNORE_HINT = (
+    "Убирает полосу, подсветку и отметку в трее. Здесь новая версия "
+    "будет видна по-прежнему, и обновиться можно в любой момент."
+)
+IGNORE_TEXT = {
+    CORE: "Не напоминать об обновлениях ядра",
+    PROXY: "Не напоминать об обновлениях прокси",
+}
 
 
 class UpdatesView(QWidget):
@@ -39,6 +52,8 @@ class UpdatesView(QWidget):
     busy_changed = pyqtSignal(bool)
     # Что-то поставлено — полоса вверху окна о нём больше не актуальна.
     something_updated = pyqtSignal()
+    # Галочку «не напоминать» переключили: напоминания надо пересобрать.
+    ignored_changed = pyqtSignal()
 
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
@@ -51,6 +66,7 @@ class UpdatesView(QWidget):
         self._proxy_worker: TelegramInstallWorker | None = None
         self._proxy_task: Task | None = None
         self._source = CORE
+        self._known: dict[str, updates.Available] = {}
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -98,6 +114,14 @@ class UpdatesView(QWidget):
         self._app_install.clicked.connect(self._update_app)
         row.addWidget(self._app_install)
         body.addLayout(row)
+
+        self._app_ignore = QCheckBox("Не напоминать об обновлениях программы")
+        self._app_ignore.setToolTip(IGNORE_HINT)
+        self._app_ignore.setChecked(self._ignored(updates.SOURCE_APP))
+        self._app_ignore.clicked.connect(
+            lambda checked: self._set_ignored(updates.SOURCE_APP, checked)
+        )
+        body.addWidget(self._app_ignore)
 
         self._app_status = QLabel("")
         self._app_status.setObjectName("Muted")
@@ -214,6 +238,14 @@ class UpdatesView(QWidget):
             button.setCheckable(True)
             button.setChecked(key == CORE)
             button.clicked.connect(lambda _, source=key: self._switch_source(source))
+            # Выбранная кнопка пишется жирным, а ширину Qt считает по обычному
+            # начертанию, и текст обрезался по краям. Запас берём заранее.
+            button.ensurePolished()
+            bold = QFont(button.font())
+            bold.setWeight(QFont.Weight.DemiBold)
+            normal_width = button.fontMetrics().horizontalAdvance(title)
+            extra = QFontMetrics(bold).horizontalAdvance(title) - normal_width
+            button.setMinimumWidth(button.sizeHint().width() + extra)
             self._source_group.addButton(button)
             self._source_buttons[key] = button
             switch.addWidget(button)
@@ -240,6 +272,15 @@ class UpdatesView(QWidget):
         buttons.addWidget(self._install_button)
         buttons.addStretch(1)
         body.addLayout(buttons)
+
+        # Галочка одна на карточку, но относится к тому, что сейчас выбрано.
+        self._source_ignore = QCheckBox(IGNORE_TEXT[CORE])
+        self._source_ignore.setToolTip(IGNORE_HINT)
+        self._source_ignore.setChecked(self._ignored(CORE))
+        self._source_ignore.clicked.connect(
+            lambda checked: self._set_ignored(self._source, checked)
+        )
+        body.addWidget(self._source_ignore)
 
         self._progress = QProgressBar()
         self._progress.hide()
@@ -287,7 +328,56 @@ class UpdatesView(QWidget):
         self._status.setText("Нажмите «Проверить обновления»")
         self._install_button.setEnabled(False)
         self._install_button.setText("Установить" if source == CORE else "Обновить")
+        # Иначе у прокси оставался номер версии ядра, и наоборот.
+        self._row_latest.set_value("—")
+        self._source_ignore.setText(IGNORE_TEXT[source])
+        self._source_ignore.setChecked(self._ignored(source))
         self.reload()
+        self._show_known_for_card()
+
+    # --- что напоминать ---------------------------------------------------
+
+    def _ignored(self, source: str) -> bool:
+        return source in self.controller.settings.ignored_updates
+
+    def _set_ignored(self, source: str, ignored: bool) -> None:
+        settings = self.controller.settings
+        rest = [item for item in settings.ignored_updates if item != source]
+        settings.ignored_updates = [*rest, source] if ignored else rest
+        settings.save()
+        self._mark_chips()
+        self.ignored_changed.emit()
+
+    def _mark_chips(self) -> None:
+        """Подсвечивает то, что устарело, кроме отмеченного галочкой."""
+        for source, button in self._source_buttons.items():
+            alert = source in self._known and not self._ignored(source)
+            button.setProperty("alert", alert)
+            button.style().unpolish(button)
+            button.style().polish(button)
+
+    def _card_busy(self) -> bool:
+        return any(
+            worker is not None and worker.isRunning()
+            for worker in (self._worker, self._proxy_worker)
+        )
+
+    def _show_known_for_card(self) -> None:
+        """Показывает находку выбранного источника, не спрашивая GitHub снова."""
+        available = self._known.get(self._source)
+        if available is None or available.release is None or self._card_busy():
+            return
+        if self._source == CORE:
+            self._show_release(available.release)
+        else:
+            self._show_proxy_release(available.release)
+
+    def set_pending(self, found: list) -> None:
+        """Запоминает, что устарело. Зовётся после каждой проверки."""
+        self._known = {
+            _CARD_SOURCES[item.what]: item for item in found if item.what in _CARD_SOURCES
+        }
+        self._mark_chips()
 
     def _check_current(self) -> None:
         self.check_updates() if self._source == CORE else self._check_proxy()
@@ -434,12 +524,20 @@ class UpdatesView(QWidget):
         раз. Релиз у находки уже с собой, спрашивать нечего.
         """
         for available in found:
-            if available.release is None:
-                continue
-            if available.what == updates.APP:
+            if available.what == updates.APP and available.release is not None:
                 self._app_checked(available.release)
-            elif available.what == updates.CORE and self._source == CORE:
-                self._show_release(available.release)
+
+        self.set_pending(found)
+
+        # Человек пришёл обновляться, а открыт источник, где обновлять нечего:
+        # так и получалось «всё поставил», хотя прокси остался старым.
+        pending = [source for source in self._known if not self._ignored(source)]
+        if pending and self._source not in pending and not self._card_busy():
+            self._source_buttons[pending[0]].setChecked(True)
+            self._switch_source(pending[0])
+            return
+
+        self._show_known_for_card()
 
     def install_core(self) -> None:
         """Ставит ядро сразу, без лишних нажатий.

@@ -24,6 +24,13 @@ APP = "программа"
 CORE = "ядро zapret"
 PROXY = "прокси для Telegram"
 
+# Что хранится в настройках. Подписи выше читает человек, и их можно менять;
+# от этих значений зависит уже сохранённый выбор.
+SOURCE_APP = "app"
+SOURCE_CORE = "core"
+SOURCE_PROXY = "proxy"
+_SOURCES = {APP: SOURCE_APP, CORE: SOURCE_CORE, PROXY: SOURCE_PROXY}
+
 
 @dataclass(frozen=True)
 class Available:
@@ -37,6 +44,10 @@ class Available:
     # обновлений: без него он ничего не знает о находке и заставляет нажать
     # «Проверить» второй раз, хотя ответ получен минуту назад.
     release: github.Release | None = None
+
+    @property
+    def source(self) -> str:
+        return _SOURCES.get(self.what, "")
 
     @property
     def label(self) -> str:
@@ -112,6 +123,16 @@ def news(found: list[Available], known: list[Available]) -> list[Available]:
     """
     seen = {(item.what, item.latest) for item in known}
     return [item for item in found if (item.what, item.latest) not in seen]
+
+
+def without_ignored(found: list[Available], ignored: list[str]) -> list[Available]:
+    """То, о чём человек не просил молчать.
+
+    Отмеченное галочкой пропадает только из напоминаний. В разделе обновлений
+    новая версия видна по-прежнему: человек отказался от напоминаний, а не от
+    возможности обновиться, когда сам решит.
+    """
+    return [item for item in found if item.source not in ignored]
 
 
 def summary(found: list[Available]) -> str:

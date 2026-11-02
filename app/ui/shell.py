@@ -199,8 +199,11 @@ class MainWindow(FramelessWindow):
         на что.
         """
         self._update_banner.hide()
+        self._mark_updates_nav(False)
+
+    def _mark_updates_nav(self, alert: bool) -> None:
         if button := self._nav_buttons.get("updates"):
-            button.setProperty("alert", False)
+            button.setProperty("alert", alert)
             button.style().unpolish(button)
             button.style().polish(button)
 
@@ -337,6 +340,7 @@ class MainWindow(FramelessWindow):
         self.views["updates"].whats_new_requested.connect(self._open_whats_new)
         self.views["updates"].something_updated.connect(self._recheck_after_install)
         self.views["telegram"].something_updated.connect(self._recheck_after_install)
+        self.views["updates"].ignored_changed.connect(self._show_reminder)
         self.views["settings"].tray_style_changed.connect(self._tray.refresh_style)
         self.controller.status_changed.connect(self.views["telegram"].on_status)
 
@@ -584,26 +588,25 @@ class MainWindow(FramelessWindow):
     def _updates_found(self, found: list) -> None:
         manual, self._updates_manual = self._updates_manual, False
         quiet, self._updates_quiet = self._updates_quiet, False
-        fresh = updates.news(found, self._found_updates)
+        ignored = self.settings.ignored_updates
+        fresh = updates.without_ignored(updates.news(found, self._found_updates), ignored)
         self._found_updates = found
 
-        # Тревогу сторожа отметка об обновлении не перебивает — об этом
-        # заботится сам трей. Здесь важно, что пустая проверка её снимает:
-        # обновиться могли и мимо полосы, прямо в разделе.
-        self._tray.set_update(bool(found))
+        self.views["updates"].set_pending(found)
+        shown = self._show_reminder()
 
-        if not found:
-            # Полосу надо убрать: обновиться могли и мимо неё — например,
-            # поставить новое ядро в разделе «Обновления». Висящее после
-            # этого «доступна новая версия» просто врёт.
-            self._hide_update_banner()
-            # При фоновой проверке молчим: «всё свежее» — не новость.
-            if manual:
+        if not shown:
+            # При фоновой проверке молчим: «всё свежее» — не новость. А вот на
+            # прямой вопрос отвечать «последние версии» при отмеченной галочке
+            # нельзя: это неправда.
+            if manual and found:
+                names = ", ".join(item.what for item in found)
+                self._show_toast(
+                    f"Есть обновления, напоминания выключены: {names}", COLORS["text_dim"]
+                )
+            elif manual:
                 self._show_toast("Установлены последние версии", COLORS["success"])
             return
-
-        text = updates.summary(found)
-        self._update_text.setText(text)
 
         # После установки остальное уже видели в разделе: полосу, которую
         # закрыли, обратно не выставляем и в трей не пишем — если только не
@@ -611,14 +614,8 @@ class MainWindow(FramelessWindow):
         if quiet and not fresh and not manual:
             return
 
+        text = updates.summary(shown)
         self._update_banner.show()
-
-        # Пункт меню подсвечивается: человек может закрыть полосу, но
-        # напоминание должно остаться там, куда он за обновлением пойдёт.
-        if button := self._nav_buttons.get("updates"):
-            button.setProperty("alert", True)
-            button.style().unpolish(button)
-            button.style().polish(button)
 
         self._tray.showMessage(
             "ZapretXmel",
@@ -626,6 +623,32 @@ class MainWindow(FramelessWindow):
             build_icon(self.controller.status.is_active),
             6000,
         )
+
+    def _show_reminder(self) -> list:
+        """Приводит полосу, пункт меню и трей к находке и галочкам.
+
+        Галочку можно переключить и между проверками, поэтому ни GitHub, ни
+        уведомление здесь не нужны.
+        """
+        shown = updates.without_ignored(self._found_updates, self.settings.ignored_updates)
+
+        # Тревогу сторожа отметка об обновлении не перебивает — об этом
+        # заботится сам трей. Здесь важно, что пустая проверка её снимает:
+        # обновиться могли и мимо полосы, прямо в разделе.
+        self._tray.set_update(bool(shown))
+
+        if not shown:
+            # Полосу надо убрать: обновиться могли и мимо неё — например,
+            # поставить новое ядро в разделе «Обновления». Висящее после
+            # этого «доступна новая версия» просто врёт.
+            self._hide_update_banner()
+            return shown
+
+        self._update_text.setText(updates.summary(shown))
+        # Пункт меню подсвечивается: человек может закрыть полосу, но
+        # напоминание должно остаться там, куда он за обновлением пойдёт.
+        self._mark_updates_nav(True)
+        return shown
 
     def _open_whats_new(self) -> None:
         """Открывает окно по кнопке — независимо от того, видели его или нет."""

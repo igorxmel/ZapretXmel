@@ -49,6 +49,8 @@ class Settings:
     minimize_to_tray: bool = True
     # Сообщать о новых версиях программы, ядра и прокси для Telegram.
     notify_updates: bool = True
+    # Источники, о которых напоминать не надо: «app», «core», «proxy».
+    ignored_updates: list[str] = field(default_factory=list)
     # Анимации в интерфейсе. Короткие и служебные, но на слабой машине или
     # через удалённый рабочий стол любое движение лишнее.
     animations: bool = True

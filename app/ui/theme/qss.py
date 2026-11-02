@@ -310,6 +310,19 @@ def build_stylesheet() -> str:
         font-weight: 600;
     }}
 
+    /* Здесь есть что обновить. Полосу читают не все: люди ставили одно и
+       считали, что обновили всё. Цвет тот же, что у пункта меню. */
+    QPushButton#Chip[alert="true"] {{
+        color: {BRAND["orange"]};
+        border-color: {BRAND["orange"]};
+    }}
+
+    QPushButton#Chip[alert="true"]:checked {{
+        background: {BRAND["orange"]};
+        border-color: {BRAND["orange"]};
+        color: #16161a;
+    }}
+
     /* Выключенная таблетка должна выглядеть выключенной. В режиме проверки
        DPI сервисы не проверяются вовсе, но выбранные оставались белыми — и
        казалось, что проверка идёт и по DPI, и по ним заодно. */
