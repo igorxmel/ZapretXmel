@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from PyQt6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer
+from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QSize, Qt, QTimer
 from PyQt6.QtGui import QCloseEvent, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
@@ -24,15 +24,23 @@ from app.core.config import Settings
 from app.ui import dialogs, motion
 from app.ui.activation import ActivationListener
 from app.ui.controller import Controller, Status
-from app.ui.frameless import FramelessWindow
+from app.ui.frameless import (
+    GLYPH_EXPAND,
+    GLYPH_HELP,
+    GLYPH_SHRINK,
+    CaptionButton,
+    FramelessWindow,
+)
 from app.ui.theme.tokens import BRAND, COLORS, SIZE, SPACE
 from app.ui.tray import Tray, app_icon, build_icon
 from app.ui.views import whatsnew
 from app.ui.views.autopick import AutoPickView
 from app.ui.views.dashboard import DashboardView
 from app.ui.views.diagnostics import DiagnosticsView
+from app.ui.views.help import HelpWindow
 from app.ui.views.lists import ListsView
 from app.ui.views.logs import LogsView
+from app.ui.views.mini import MiniView
 from app.ui.views.profiles import ProfilesView
 from app.ui.views.settings import SettingsView
 from app.ui.views.strategies import StrategiesView
@@ -71,6 +79,21 @@ UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 60 * 1000
 
 TOAST_MS = 6000
 
+# Разделы программы: боковое меню полного окна и меню мини-окна.
+SECTIONS = (
+    ("dashboard", "Обзор"),
+    ("strategies", "Стратегии"),
+    ("autopick", "Подбор стратегии"),
+    ("lists", "Списки"),
+    ("profiles", "Профили"),
+    ("telegram", "Telegram"),
+    ("diagnostics", "Диагностика"),
+    ("updates", "Обновления"),
+    ("settings", "Настройки"),
+    ("support", "Поддержка"),
+    ("logs", "Логи"),
+)
+
 
 class MainWindow(FramelessWindow):
     """Окно приложения.
@@ -93,6 +116,10 @@ class MainWindow(FramelessWindow):
         self._found_updates: list = []
         self._nav_ready = False
         self._current_section = "dashboard"
+        self._compact = False
+        # Размер полного окна: к нему возвращаемся из мини-режима.
+        self._full_size: QSize | None = None
+        self._help: HelpWindow | None = None
         # Разделы, где прямо сейчас идёт долгая работа. Нужны, чтобы
         # нарисовать кружок в боковом меню и сказать о завершении, если окно
         # успели свернуть.
@@ -110,6 +137,9 @@ class MainWindow(FramelessWindow):
         self._build_ui()
         self._build_tray()
         self._connect()
+        self._build_corner_buttons()
+        if settings.compact_mode:
+            self.set_compact(True)
 
         # Повторный запуск не открывает второе окно, а просит это, — и показывать
         # его надлежит самому окну, иначе свёрнутое в трей не оживает (см. activation.py).
@@ -123,7 +153,21 @@ class MainWindow(FramelessWindow):
     # --- сборка ---------------------------------------------------------
 
     def _build_ui(self) -> None:
-        root = QHBoxLayout(self.body)
+        outer = QVBoxLayout(self.body)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # Два вида одного окна: полный и мини. Окно и контроллер остаются теми же,
+        # поэтому смена вида не трогает ни обход, ни идущую работу.
+        self._pages = QStackedWidget()
+        outer.addWidget(self._pages)
+
+        full = QWidget()
+        self._pages.addWidget(full)
+        self._mini = MiniView(self.controller, SECTIONS)
+        self._pages.addWidget(self._mini)
+
+        root = QHBoxLayout(full)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
@@ -190,6 +234,75 @@ class MainWindow(FramelessWindow):
 
         self._update_banner = banner
         return banner
+
+    def _build_corner_buttons(self) -> None:
+        """Справка и смена вида окна: нужны из любого раздела и в обоих видах."""
+        help_button = CaptionButton(GLYPH_HELP, "Как пользоваться")
+        help_button.clicked.connect(self._open_help)
+
+        self._compact_button = CaptionButton(GLYPH_SHRINK, "Мини-окно")
+        self._compact_button.clicked.connect(lambda: self.set_compact(not self._compact))
+
+        self.titlebar.add_left(help_button, self._compact_button)
+
+    def _open_help(self) -> None:
+        if self._help is None:
+            self._help = HelpWindow()
+        self._help.show()
+        self._help.raise_()
+        self._help.activateWindow()
+
+    def set_compact(self, compact: bool) -> None:
+        """Переключает полное окно и мини-окно. Выбор запоминается."""
+        if compact == self._compact:
+            return
+
+        if compact:
+            if self.isMaximized():
+                self.showNormal()
+            self._full_size = self.size()
+
+        self._compact = compact
+        self._pages.setCurrentWidget(self._mini if compact else self._pages.widget(0))
+        self.set_sizable(not compact)
+        self._compact_button.set_glyph(GLYPH_EXPAND if compact else GLYPH_SHRINK)
+        self._compact_button.setToolTip("Полное окно" if compact else "Мини-окно")
+
+        if compact:
+            self._mini.reload()
+            self._mini.apply_status(self.controller.status)
+            screen = self.screen() or QApplication.primaryScreen()
+            room = screen.availableGeometry().height() if screen else SIZE["mini_height"]
+            self.setFixedSize(SIZE["mini_width"], min(SIZE["mini_height"], int(room * 0.94)))
+        else:
+            self.setMaximumSize(16777215, 16777215)
+            self._fit_to_screen()
+            if self._full_size is not None:
+                self.resize(self._full_size)
+            self.views["dashboard"].reload()
+            # Пока вид был скрыт, у кнопок меню не было настоящих мест.
+            self._nav_ready = False
+            QTimer.singleShot(0, self._place_nav_mark)
+
+        self._keep_on_screen()
+
+        if self.settings.compact_mode != compact:
+            self.settings.compact_mode = compact
+            self.settings.save()
+
+    def _place_nav_mark(self) -> None:
+        if button := self._nav_buttons.get(self._current_section):
+            self._move_nav_mark(button)
+
+    def _keep_on_screen(self) -> None:
+        """Выросшее окно не должно уехать за край экрана."""
+        screen = self.screen() or QApplication.primaryScreen()
+        if screen is None or not self.isVisible():
+            return
+        free = screen.availableGeometry()
+        x = max(free.left(), min(self.x(), free.right() - self.width() + 1))
+        y = max(free.top(), min(self.y(), free.bottom() - self.height() + 1))
+        self.move(QPoint(x, y))
 
     def _hide_update_banner(self) -> None:
         """Убирает полосу вместе с подсветкой пункта меню.
@@ -269,19 +382,6 @@ class MainWindow(FramelessWindow):
         self._nav_group = QButtonGroup(self)
         self._nav_group.setExclusive(True)
 
-        entries = (
-            ("dashboard", "Обзор"),
-            ("strategies", "Стратегии"),
-            ("autopick", "Подбор стратегии"),
-            ("lists", "Списки"),
-            ("profiles", "Профили"),
-            ("telegram", "Telegram"),
-            ("diagnostics", "Диагностика"),
-            ("updates", "Обновления"),
-            ("settings", "Настройки"),
-            ("support", "Поддержка"),
-            ("logs", "Логи"),
-        )
         self._nav_buttons: dict[str, QPushButton] = {}
 
         # Кнопки отступают от левого края ровно на ширину полоски: рисует её
@@ -292,7 +392,7 @@ class MainWindow(FramelessWindow):
         nav.setSpacing(0)
         layout.addLayout(nav)
 
-        for key, title in entries:
+        for key, title in SECTIONS:
             button = QPushButton(title)
             button.setObjectName("NavButton")
             button.setCheckable(True)
@@ -334,6 +434,9 @@ class MainWindow(FramelessWindow):
         self.controller.error.connect(lambda text: self._show_toast(text, COLORS["danger"]))
         self.controller.status_changed.connect(self._apply_status)
         self.views["dashboard"].navigate.connect(self.navigate)
+        self._mini.section_requested.connect(self.navigate)
+        self._mini.install_core_requested.connect(self._install_core)
+        self._mini.install_proxy_requested.connect(self._install_proxy)
         self.views["dashboard"].install_core_requested.connect(self._install_core)
         self.views["dashboard"].install_proxy_requested.connect(self._install_proxy)
         self.views["dashboard"].check_updates_requested.connect(self._check_updates_manually)
@@ -361,6 +464,11 @@ class MainWindow(FramelessWindow):
         view = self.views.get(key)
         if view is None:
             return
+
+        # Разделы в мини-окно не помещаются. Обзор — исключение: так программа
+        # сама показывает себя при запуске, и окно из-за этого расти не должно.
+        if self._compact and key != "dashboard":
+            self.set_compact(False)
 
         self._stack.setCurrentWidget(view)
         self._current_section = key
@@ -642,8 +750,10 @@ class MainWindow(FramelessWindow):
             # поставить новое ядро в разделе «Обновления». Висящее после
             # этого «доступна новая версия» просто врёт.
             self._hide_update_banner()
+            self._mini.set_update_available(False)
             return shown
 
+        self._mini.set_update_available(True)
         self._update_text.setText(updates.summary(shown))
         # Пункт меню подсвечивается: человек может закрыть полосу, но
         # напоминание должно остаться там, куда он за обновлением пойдёт.
@@ -726,13 +836,15 @@ class MainWindow(FramelessWindow):
         self._sidebar_proxy.setStyleSheet(f"color: {colour}; padding: 0 {SPACE['lg']}px;")
 
     def _show_toast(self, text: str, color: str) -> None:
-        self._toast.setText(text)
-        self._toast.setStyleSheet(f"color: {color};")
+        for label in (self._toast, self._mini.toast):
+            label.setText(text)
+            label.setStyleSheet(f"color: {color};")
         QTimer.singleShot(TOAST_MS, lambda: self._clear_toast(text))
 
     def _clear_toast(self, text: str) -> None:
-        if self._toast.text() == text:
-            self._toast.setText("")
+        for label in (self._toast, self._mini.toast):
+            if label.text() == text:
+                label.setText("")
 
     def present(self) -> None:
         """Показывает окно и выводит его вперёд.

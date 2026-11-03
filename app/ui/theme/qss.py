@@ -539,6 +539,9 @@ def build_stylesheet() -> str:
     QPushButton#VersionToggle:hover {{ background: {c["surface_hover"]}; color: {c["text"]}; }}
     QPushButton#VersionToggle:checked {{ color: {c["text"]}; }}
 
+    /* Прозу моноширинным шрифтом читать тяжело. */
+    QTextBrowser#HelpText {{ font-family: {FONTS["ui"]}; }}
+
     QTextBrowser#VersionNotes {{
         background: transparent;
         border: none;

@@ -46,6 +46,8 @@ class Settings:
     start_proxy_on_launch: bool = False
     autostart_with_windows: bool = False
     start_minimized: bool = False
+    # Мини-окно: только главные кнопки, выбор стратегии и проверка.
+    compact_mode: bool = False
     minimize_to_tray: bool = True
     # Сообщать о новых версиях программы, ядра и прокси для Telegram.
     notify_updates: bool = True

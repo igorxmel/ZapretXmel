@@ -50,6 +50,9 @@ GLYPH_MINIMIZE = chr(0xE921)  # ChromeMinimize
 GLYPH_MAXIMIZE = chr(0xE922)  # ChromeMaximize
 GLYPH_RESTORE = chr(0xE923)  # ChromeRestore
 GLYPH_CLOSE = chr(0xE8BB)  # ChromeClose
+GLYPH_HELP = chr(0xE9CE)  # Unknown: вопрос в кружке
+GLYPH_SHRINK = chr(0xE73F)  # BackToWindow: стрелки внутрь
+GLYPH_EXPAND = chr(0xE740)  # FullScreen: стрелки наружу
 
 ICON_FONTS = ("Segoe Fluent Icons", "Segoe MDL2 Assets")
 
@@ -59,6 +62,9 @@ FALLBACK_GLYPHS = {
     GLYPH_MAXIMIZE: "□",
     GLYPH_RESTORE: "❐",
     GLYPH_CLOSE: "✕",
+    GLYPH_HELP: "?",
+    GLYPH_SHRINK: "›‹",
+    GLYPH_EXPAND: "‹›",
 }
 
 
@@ -96,15 +102,16 @@ if WINDOWS:
         put.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_ssize_t]
         return get, put
 
-    def enable_native_frame(handle: int) -> None:
-        """Возвращает окну системные стили рамки ради прилипания и ресайза."""
+    def enable_native_frame(handle: int, resizable: bool = True) -> None:
+        """Возвращает окну системные стили рамки ради прилипания и ресайза.
+
+        Без `resizable` окно нельзя растянуть и развернуть, в том числе броском к
+        краю экрана: окну фиксированного размера это только навредит.
+        """
         get, put = _window_long_funcs()
-        style = get(handle, GWL_STYLE)
-        put(
-            handle,
-            GWL_STYLE,
-            style | WS_CAPTION | WS_THICKFRAME | WS_MAXIMIZEBOX | WS_MINIMIZEBOX,
-        )
+        sizing = WS_THICKFRAME | WS_MAXIMIZEBOX
+        style = get(handle, GWL_STYLE) | WS_CAPTION | WS_MINIMIZEBOX
+        put(handle, GWL_STYLE, style | sizing if resizable else style & ~sizing)
         ctypes.windll.user32.SetWindowPos(
             handle, 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
         )
@@ -162,6 +169,10 @@ class TitleBar(QWidget):
         row = QHBoxLayout(self)
         row.setContentsMargins(SPACE["md"], 0, 0, 0)
         row.setSpacing(SPACE["sm"])
+        self._row = row
+        # То, что прячется в окне фиксированного размера: см. `set_small`.
+        self._full_only: list[QWidget] = []
+        self._small = False
 
         # У главного окна ни значка, ни названия: и то, и другое есть на
         # баннере в боковом меню прямо под заголовком, повторять их дважды
@@ -178,7 +189,9 @@ class TitleBar(QWidget):
         # сайт и исходники человек должен из любого места программы.
         if not compact:
             for text, url in LINKS:
-                row.addWidget(self._link(text, url))
+                link = self._link(text, url)
+                self._full_only.append(link)
+                row.addWidget(link)
 
             # Линия отделяет ссылки от кнопок управления: без неё надписи
             # читаются как часть той же группы, а это разные вещи — одни
@@ -186,6 +199,7 @@ class TitleBar(QWidget):
             separator = QWidget()
             separator.setObjectName("TitleSeparator")
             separator.setFixedWidth(1)
+            self._full_only.append(separator)
             row.addSpacing(SPACE["sm"])
             row.addWidget(separator)
             row.addSpacing(SPACE["sm"])
@@ -200,12 +214,24 @@ class TitleBar(QWidget):
 
             self.maximize = CaptionButton(GLYPH_MAXIMIZE, "Развернуть")
             self.maximize.clicked.connect(self.toggle_maximize)
+            self._full_only.append(self.maximize)
             row.addWidget(self.maximize)
 
         close = CaptionButton(GLYPH_CLOSE, "Закрыть")
         close.setProperty("close", True)
         close.clicked.connect(window.close)
         row.addWidget(close)
+
+    def add_left(self, *widgets: QWidget) -> None:
+        """Кнопки в левом углу заголовка, в порядке слева направо."""
+        for index, widget in enumerate(widgets):
+            self._row.insertWidget(index, widget)
+
+    def set_small(self, small: bool) -> None:
+        """В маленьком окне ссылкам нет места, а разворачивать его незачем."""
+        self._small = small
+        for widget in self._full_only:
+            widget.setVisible(not small)
 
     @staticmethod
     def _link(text: str, url: str) -> QPushButton:
@@ -218,7 +244,7 @@ class TitleBar(QWidget):
         return link
 
     def toggle_maximize(self) -> None:
-        if self.maximize is None:
+        if self.maximize is None or self._small:
             return
         window = self.window_ref
         window.showNormal() if window.isMaximized() else window.showMaximized()
@@ -299,6 +325,7 @@ class FramelessWindow(QWidget):
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setWindowTitle(title)
         self._native_frame = False
+        self._sizable = True
 
         shell = QVBoxLayout(self)
         shell.setContentsMargins(1, 1, 1, 1)
@@ -339,7 +366,7 @@ class FramelessWindow(QWidget):
     def showEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
         super().showEvent(event)
         if WINDOWS and not self._native_frame:
-            enable_native_frame(int(self.winId()))
+            enable_native_frame(int(self.winId()), self._sizable)
             self._native_frame = True
 
         # Ручки созданы раньше содержимого и лежат под ним — поднимаем наверх.
@@ -378,6 +405,14 @@ class FramelessWindow(QWidget):
             rect.bottom -= border
         return True, 0
 
+    def set_sizable(self, sizable: bool) -> None:
+        """Разрешает или запрещает растягивать и разворачивать окно на ходу."""
+        self._sizable = sizable
+        self.titlebar.set_small(not sizable)
+        if WINDOWS and self._native_frame:
+            enable_native_frame(int(self.winId()), sizable)
+        self._place_grips()
+
     # --- края ------------------------------------------------------------
 
     def resizeEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
@@ -403,7 +438,7 @@ class FramelessWindow(QWidget):
         if not self.grips:
             return
 
-        if self.isMaximized():
+        if self.isMaximized() or not self._sizable:
             for grip in self.grips:
                 grip.hide()
             return
