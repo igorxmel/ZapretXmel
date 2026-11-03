@@ -1,42 +1,29 @@
-"""Экран поддержки проекта.
-
-Программа бесплатная и открытая, и обход блокировок тем более не та вещь,
-которую стоит прятать за оплату. Поэтому здесь не продажа, а благодарность:
-ссылка на Boosty и список тех, кто поддержал.
-"""
+"""Экран поддержки: кому спасибо, куда сообщить о поломке и адреса кошельков."""
 
 from __future__ import annotations
 
-import logging
 from html import escape
 
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
+    QApplication,
     QHBoxLayout,
     QLabel,
-    QListWidget,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from app.core import supporters
-from app.core.supporters import SupportersList
+from app.core import donate
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, Divider, banner_pixmap, view_header
-from app.ui.workers import Task
+from app.ui.widgets import Card, banner_pixmap, view_header
 
-log = logging.getLogger(__name__)
-
-WHAT_IT_PAYS_FOR = (
-    "На что идут деньги:\n"
-    "• подпись сборки сертификатом — без неё Windows ругается на каждый запуск;\n"
-    "• разбор неполадок нейросетью на общем ключе, чтобы не нужно было заводить свой;\n"
-    "• время на поддержку, когда у провайдеров меняются правила."
+WALLETS_NOTE = (
+    "Программа бесплатная и останется такой, поддержка добровольная. Переводите только в указанной "
+    "сети: перевод в другой сети может пропасть, а отменить его нельзя."
 )
-
 
 REPO_URL = "https://github.com/igorxmel/ZapretXmel"
 ISSUES_URL = f"{REPO_URL}/issues/new"
@@ -45,24 +32,48 @@ ISSUES_URL = f"{REPO_URL}/issues/new"
 TESTERS = ("Dencraz", "Drendr", "DynamitNS")
 
 
+class WalletRow(QWidget):
+    """Адрес кошелька с кнопкой копирования: перепечатывать его руками опасно."""
+
+    def __init__(self, wallet: donate.Wallet, parent: QWidget | None = None):
+        super().__init__(parent)
+        self.wallet = wallet
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(SPACE["xs"])
+        layout.addWidget(QLabel(wallet.title))
+
+        row = QHBoxLayout()
+        row.setSpacing(SPACE["sm"])
+
+        address = QLabel(wallet.address)
+        address.setObjectName("Dim")
+        address.setWordWrap(True)
+        address.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        row.addWidget(address, 1)
+
+        self.copy_button = QPushButton("Скопировать")
+        self.copy_button.clicked.connect(self._copy)
+        row.addWidget(self.copy_button)
+        layout.addLayout(row)
+
+    def _copy(self) -> None:
+        QApplication.clipboard().setText(self.wallet.address)
+        self.copy_button.setText("Скопировано")
+
+
 class SupportView(QWidget):
-    """Благодарность и ссылка на Boosty."""
+    """Благодарность и способы помочь проекту."""
 
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
         self.controller = controller
-        self._task: Task | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(SPACE["lg"])
-        layout.addWidget(
-            view_header(
-                "Поддержка",
-                "Программа бесплатная и останется такой. Если она сэкономила вам "
-                "вечер возни с батниками — можно сказать спасибо.",
-            )
-        )
+        layout.addWidget(view_header("Поддержка", "Кому спасибо и как помочь проекту."))
 
         columns = QHBoxLayout()
         columns.setSpacing(SPACE["lg"])
@@ -79,24 +90,14 @@ class SupportView(QWidget):
         banner.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         body.addWidget(banner)
 
-        pays = QLabel(WHAT_IT_PAYS_FOR)
-        pays.setObjectName("Dim")
-        pays.setWordWrap(True)
-        body.addWidget(pays)
-
-        boosty = QPushButton("Открыть Boosty")
-        boosty.setObjectName("Primary")
-        if supporters.BOOSTY_URL:
-            boosty.clicked.connect(
-                lambda: QDesktopServices.openUrl(QUrl(supporters.BOOSTY_URL))
-            )
-        else:
-            # Кнопки, которая ничего не делает, быть не должно: пока ссылки
-            # нет, её просто нет.
-            boosty.hide()
-        body.addWidget(boosty)
-
-
+        self.wallet_rows = [WalletRow(wallet) for wallet in donate.WALLETS]
+        if self.wallet_rows:
+            note = QLabel(WALLETS_NOTE)
+            note.setObjectName("Muted")
+            note.setWordWrap(True)
+            body.addWidget(note)
+            for row in self.wallet_rows:
+                body.addWidget(row)
 
         body.addStretch(1)
         return card
@@ -105,24 +106,12 @@ class SupportView(QWidget):
         card = Card("Спасибо этим людям")
         body = card.body()
 
-        # Тестировщики — отдельной строкой и первыми: поломки, которые они
-        # ловят, стоят дороже денег, а узнать о них больше неоткуда.
+        # Поломки, которые тестировщики ловят, стоят дороже денег, а узнать о них больше неоткуда.
         self._testers = QLabel()
         self._testers.setTextFormat(Qt.TextFormat.RichText)
         self._testers.setWordWrap(True)
         self._paint_testers()
         body.addWidget(self._testers)
-
-        # Помогает не только деньгами: найденная поломка стоит дороже, а
-        # звезда — единственный способ для случайного человека сказать, что
-        # программа пригодилась.
-        helping = QLabel(
-            "Помочь можно и бесплатно: рассказать о поломке или поставить "
-            "звезду на GitHub — по ней программу находят другие."
-        )
-        helping.setObjectName("Muted")
-        helping.setWordWrap(True)
-        body.addWidget(helping)
 
         issue = QPushButton("Сообщить о поломке")
         issue.setToolTip(
@@ -132,42 +121,17 @@ class SupportView(QWidget):
         issue.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(ISSUES_URL)))
         body.addWidget(issue)
 
-        star = QPushButton("Поставить звезду на GitHub")
-        star.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(REPO_URL)))
-        body.addWidget(star)
-
-        body.addWidget(Divider())
-
-        self._list = QListWidget()
-        body.addWidget(self._list, 1)
-
-        row = QHBoxLayout()
-        row.setSpacing(SPACE["sm"])
-
-        refresh = QPushButton("Обновить список")
-        refresh.clicked.connect(self._refresh)
-        row.addWidget(refresh)
-        row.addStretch(1)
-        body.addLayout(row)
-
-        self._status = QLabel("")
-        self._status.setObjectName("Muted")
-        self._status.setWordWrap(True)
-        body.addWidget(self._status)
-
+        body.addStretch(1)
         return card
-
-    # --- данные ---------------------------------------------------------
 
     def _paint_testers(self) -> None:
         """Собирает строку заново — из-за одного красного сердечка.
 
-        Цвет запечён в разметке, а таблица стилей до неё не достаёт: после
-        смены оформления строку приходится пересобирать. Делается это при
-        открытии экрана, потому что тему меняют в настройках, то есть на
-        другом экране.
+        Цвет запечён в разметке, а таблица стилей до неё не достаёт, поэтому после смены
+        оформления строку приходится пересобирать. Делается это при открытии экрана, потому
+        что тему меняют в настройках, на другом экране.
 
-        Имена экранируются: разметка тут ради сердечка, а не ради них.
+        Имена экранируются: разметка тут ради сердечка, а не ради имён.
         """
         heart = f'<span style="color: {COLORS["heart"]};">&#9829;</span>'
         self._testers.setText(
@@ -176,33 +140,4 @@ class SupportView(QWidget):
         )
 
     def reload(self) -> None:
-        """Показывает сохранённый список сразу, а свежий подтягивает фоном."""
         self._paint_testers()
-        self._show(supporters.cached())
-        self._refresh()
-
-    def _refresh(self) -> None:
-        self._say("Обновляю список…")
-        self._task = Task(supporters.fetch)
-        self._task.done.connect(self._show)
-        self._task.failed.connect(lambda message: self._say(message, COLORS["danger"]))
-        self._task.start()
-
-    def _show(self, people: SupportersList) -> None:
-        self._list.clear()
-        for person in people.people:
-            self._list.addItem(person.label)
-
-        if people.is_empty:
-            self._say(
-                "Пока никого — и это нормально: список появится, когда появятся "
-                "поддержавшие."
-            )
-            return
-
-        source = "из сохранённого" if people.from_cache else f"обновлён {people.updated}"
-        self._say(f"Поддержавших: {len(people.people)} ({source})")
-
-    def _say(self, text: str, colour: str = COLORS["text_muted"]) -> None:
-        self._status.setStyleSheet(f"color: {colour};")
-        self._status.setText(text)
