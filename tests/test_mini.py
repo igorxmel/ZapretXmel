@@ -65,11 +65,15 @@ def test_status_reaches_all_controls(mini: MiniView) -> None:
     assert not mini.notices.isHidden()
 
 
-def test_menu_button_has_a_drawn_icon_instead_of_a_symbol(mini: MiniView) -> None:
-    mini.reload()
-
+def test_menu_button_has_no_symbol_in_its_text(mini: MiniView) -> None:
+    """Значок нарисован отдельно: символ из шрифта выглядел чужим."""
     assert mini.menu_button.text() == "Все разделы"
-    assert not mini.menu_button.icon().isNull()
+
+
+def test_menu_button_draws_icon_and_text(app: QApplication, mini: MiniView) -> None:
+    mini.menu_button.resize(320, 44)
+
+    assert not mini.menu_button.grab().isNull()
 
 
 def test_compact_choice_survives_restart() -> None:
@@ -132,7 +136,7 @@ def test_help_window_opens(app: QApplication) -> None:
     assert "С чего начать" in HelpWindow().text.toPlainText()
 
 
-ICONS = ["window-help", "window-shrink", "window-expand", "window-sections"]
+ICONS = ["window-help", "window-shrink", "window-expand", "window-sections", "window-chevron"]
 
 
 @pytest.mark.parametrize("icon", ICONS)

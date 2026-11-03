@@ -6,25 +6,74 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction
+from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QColor, QPainter
 from PyQt6.QtWidgets import (
     QFrame,
     QLabel,
     QMenu,
     QPushButton,
     QScrollArea,
+    QStyle,
+    QStyleOptionButton,
     QVBoxLayout,
     QWidget,
 )
 
 from app.ui.controller import Controller, Status
-from app.ui.frameless import SVG_ICON_SIZE, svg_icon
+from app.ui.frameless import SVG_ICON_SIZE, svg_renderer
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.views.controls import PowerPair, QuickPanel, StatusNotices
 from app.ui.widgets import banner_pixmap
 
 BANNER_WIDTH = 230
+
+
+class SectionsButton(QPushButton):
+    """Кнопка меню: шестерёнка и подпись точно по центру.
+
+    Сам Qt ставит значок по центру строки текста, а буквы визуально сидят ниже её
+    середины, и подпись выглядела съехавшей вниз. Поэтому рисуем сами: с центром значка
+    совпадает середина заглавных букв. Цвет берём при отрисовке, тема меняется на ходу.
+    """
+
+    ICON_GAP = 8
+    ARROW_SIZE = 16
+    ARROW_MARGIN = 14
+
+    def paintEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        option = QStyleOptionButton()
+        self.initStyleOption(option)
+        option.text = ""
+        # Стрелка из стиля крошечная, рисуем свою.
+        option.features &= ~QStyleOptionButton.ButtonFeature.HasMenu
+        painter = QPainter(self)
+        self.style().drawControl(QStyle.ControlElement.CE_PushButton, option, painter, self)
+
+        metrics = self.fontMetrics()
+        text_width = metrics.horizontalAdvance(self.text())
+        left = (self.width() - SVG_ICON_SIZE - self.ICON_GAP - text_width) / 2
+        middle = self.height() / 2
+
+        svg_renderer("window-sections", COLORS["text"]).render(
+            painter, QRectF(left, middle - SVG_ICON_SIZE / 2, SVG_ICON_SIZE, SVG_ICON_SIZE)
+        )
+
+        svg_renderer("window-chevron", COLORS["text_dim"]).render(
+            painter,
+            QRectF(
+                self.width() - self.ARROW_MARGIN - self.ARROW_SIZE,
+                middle - self.ARROW_SIZE / 2,
+                self.ARROW_SIZE,
+                self.ARROW_SIZE,
+            ),
+        )
+
+        painter.setPen(QColor(COLORS["text"]))
+        painter.setFont(self.font())
+        baseline = middle + metrics.capHeight() / 2
+        painter.drawText(QPointF(left + SVG_ICON_SIZE + self.ICON_GAP, baseline), self.text())
+        painter.end()
 
 
 class MiniView(QWidget):
@@ -100,7 +149,7 @@ class MiniView(QWidget):
         self.toast.setWordWrap(True)
         footer.addWidget(self.toast)
 
-        self.menu_button = QPushButton("Все разделы")
+        self.menu_button = SectionsButton("Все разделы")
         self.menu_button.setToolTip("Подбор, списки, настройки и остальное. Откроется полное окно")
         self._menu = QMenu(self)
         for key, title in sections:
@@ -115,9 +164,6 @@ class MiniView(QWidget):
 
     def reload(self) -> None:
         self.panel.reload()
-        # Заново при каждом входе в мини-окно: тему могли сменить в настройках.
-        self.menu_button.setIcon(svg_icon("window-sections", COLORS["text"]))
-        self.menu_button.setIconSize(QSize(SVG_ICON_SIZE, SVG_ICON_SIZE))
 
     def apply_status(self, status: Status) -> None:
         self.power.apply_status(status)
