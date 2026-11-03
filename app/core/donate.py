@@ -25,5 +25,9 @@ class Wallet:
         return f"{self.coin} · сеть {self.network}"
 
 
-# Пусто — блока на экране нет.
-WALLETS: tuple[Wallet, ...] = ()
+# Пусто — блока на экране нет. Формат и контрольные суммы сверяет tests/test_support_view.py.
+WALLETS: tuple[Wallet, ...] = (
+    Wallet("USDT", "Tron (TRC-20)", "TCzGTzjcLjGa4xckJGktiJBpZ9hoMJ9Q3J"),
+    Wallet("BTC", "Bitcoin", "bc1q9a3wtdkmkwu93chk6tltzz5h0ysnlhns8p8cds"),
+    Wallet("SOL", "Solana", "DBoHF7TMggDNHBX7sbYx8qtcvxZ4fRskDSGqoABA3TJK"),
+)
