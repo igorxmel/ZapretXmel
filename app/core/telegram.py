@@ -266,7 +266,7 @@ def install(release: github.Release | None = None, progress=None, on_bytes=None)
         log.info("Прокси остановлен на время обновления")
 
     if progress:
-        progress(f"Скачиваю {asset.name} ({asset.size // 1048576} МБ)…")
+        progress(f"Скачиваю {asset.name}{asset.size_note}…")
 
     try:
         github.download(asset, executable(), progress=on_bytes)

@@ -174,7 +174,7 @@ class UpdatesView(QWidget):
 
         self._app_install.setEnabled(True)
         self._app_say(
-            f"Доступна версия {release.version} от {release.published_date}",
+            f"Доступна версия {release.label}",
             COLORS["warning"],
         )
 
@@ -403,7 +403,7 @@ class UpdatesView(QWidget):
         self._check_button.setEnabled(True)
         installed = telegram.installed_version()
 
-        self._row_latest.set_value(f"{release.version} от {release.published_date}")
+        self._row_latest.set_value(release.label)
         set_markdown(self._changelog, release.body or "Описание релиза отсутствует")
 
         # Прокси, поставленный до того, как версия стала запоминаться, тоже
@@ -568,7 +568,7 @@ class UpdatesView(QWidget):
         self._latest = release
         installed = coreinfo.read_version()
 
-        self._row_latest.set_value(f"{release.version} от {release.published_date}")
+        self._row_latest.set_value(release.label)
         set_markdown(self._changelog, release.body or "Описание релиза отсутствует")
 
         if github.is_newer(release.version, installed):

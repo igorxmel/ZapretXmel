@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from app.core import coreinfo
-from app.core.updater import install
+from app.core.updater import github, install
 from app.core.updater.github import is_newer, parse_version
 from app.core.updater.install import InstallError, carry_over_user_files, extract, validate_bundle
 
@@ -402,3 +402,99 @@ def test_digest_prefix_is_stripped() -> None:
     )
 
     assert release.assets[0].digest == "abc"
+
+
+# --- лимит запросов GitHub --------------------------------------------------
+
+
+class _Page:
+    def __init__(self, status=200, text="", headers=None):
+        self.status_code = status
+        self.text = text
+        self.headers = headers or {}
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise github.requests.HTTPError(f"{self.status_code}")
+
+    def json(self):
+        raise AssertionError("ответа API здесь быть не должно")
+
+
+LIMITED = _Page(
+    403,
+    "API rate limit exceeded",
+    {"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1800000000"},
+)
+ASSETS = (
+    '<a href="/o/r/releases/download/v2.0/app.exe">a</a>'
+    '<a href="/o/r/releases/download/v2.0/app.exe">повтор</a>'
+    '<a href="/o/r/releases/download/v2.0/app%20x.sha256">b</a>'
+    '<a href="/o/r/archive/refs/tags/v2.0.zip">исходники</a>'
+)
+
+
+def _github(monkeypatch, site_ok=True):
+    def fake_get(url, **_):
+        if "api.github.com" in url:
+            return LIMITED
+        if not site_ok:
+            raise github.requests.ConnectionError("нет сети")
+        if url.endswith("/releases/latest"):
+            return _Page(302, headers={"Location": "https://github.com/o/r/releases/tag/v2.0"})
+        return _Page(text=ASSETS)
+
+    monkeypatch.setattr(github.requests, "get", fake_get)
+
+
+def test_rate_limit_falls_back_to_the_site(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Друг не мог обновиться: API отказал, хотя сам он почти ничего не спрашивал."""
+    _github(monkeypatch)
+
+    release = github.latest_release("o/r")
+
+    assert release.version == "2.0"
+    assert [asset.name for asset in release.assets] == ["app.exe", "app x.sha256"]
+    assert release.assets[0].url == "https://github.com/o/r/releases/download/v2.0/app.exe"
+
+
+def test_release_from_the_site_reads_well(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Даты и размера там нет: «2.0 от » и «0 МБ» выглядели бы поломкой."""
+    _github(monkeypatch)
+
+    release = github.latest_release("o/r")
+
+    assert release.label == "2.0"
+    assert release.assets[0].size_note == ""
+
+
+def test_dated_release_keeps_its_date() -> None:
+    release = github.Release(tag="v1", name="", body="", published_at="2026-11-01T00:00:00Z")
+
+    assert release.label == "1 от 01.11.2026"
+    assert github.Asset("a", "u", 3 * 1048576).size_note == " (3 МБ)"
+
+
+def test_rate_limit_message_is_for_people(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Раньше человек видел текст исключения с адресом API."""
+    _github(monkeypatch, site_ok=False)
+
+    with pytest.raises(github.RateLimitError) as caught:
+        github.latest_release("o/r")
+
+    text = str(caught.value)
+    assert "ограничил" in text and "Попробуйте после" in text
+    assert "api.github.com" not in text
+
+
+def test_plain_forbidden_is_not_a_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(github.requests, "get", lambda *_, **__: _Page(403, "Forbidden"))
+
+    with pytest.raises(github.requests.HTTPError):
+        github.latest_release("o/r")
+
+
+def test_testing_builds_also_survive_the_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    _github(monkeypatch)
+
+    assert github.latest_release("o/r", testing=True).version == "2.0"

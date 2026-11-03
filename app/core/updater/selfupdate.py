@@ -107,7 +107,7 @@ def download(
     _discard(target)
 
     if progress:
-        progress(f"Скачиваю версию {release.version} ({asset.size // 1048576} МБ)…")
+        progress(f"Скачиваю версию {release.version}{asset.size_note}…")
 
     try:
         digest = github.download(asset, target, progress=on_bytes)

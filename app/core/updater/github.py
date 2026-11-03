@@ -14,6 +14,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import unquote
 
 import requests
 
@@ -23,10 +24,20 @@ log = logging.getLogger(__name__)
 class DownloadError(Exception):
     """Скачанный файл не тот, которого мы ждали."""
 
+
+class RateLimitError(requests.RequestException):
+    """GitHub отказал по лимиту запросов.
+
+    Лимит без входа — 60 запросов в час на адрес. У провайдера адрес часто один на
+    многих абонентов, поэтому упереться в него можно, почти ничего не делая.
+    """
+
+
 CORE_REPO = "Flowseal/zapret-discord-youtube"
 TG_PROXY_REPO = "Flowseal/tg-ws-proxy"
 
 API_ROOT = "https://api.github.com"
+SITE_ROOT = "https://github.com"
 USER_AGENT = "ZapretXmel"
 _VERSION_RE = re.compile(
     r"(\d+(?:\.\d+)*)([a-z]*)(?:-([0-9a-z.]+))?",
@@ -48,6 +59,11 @@ class Asset:
     # SHA-256, посчитанный самим GitHub. Пусто, если он его не отдал.
     digest: str = ""
 
+    @property
+    def size_note(self) -> str:
+        """Размер для сообщения. Страница релиза его не сообщает, и тогда молчим."""
+        return f" ({self.size // 1048576} МБ)" if self.size else ""
+
 
 @dataclass(frozen=True)
 class Release:
@@ -65,6 +81,12 @@ class Release:
     @property
     def version(self) -> str:
         return self.tag.lstrip("vV")
+
+    @property
+    def label(self) -> str:
+        """Версия с датой, если дата известна: страница релиза её не сообщает."""
+        date = self.published_date
+        return f"{self.version} от {date}" if date else self.version
 
     @property
     def published_date(self) -> str:
@@ -120,21 +142,106 @@ def is_newer(candidate: str, installed: str) -> bool:
     return left > right
 
 
+def _api_get(url: str, timeout: int, params: dict | None = None) -> requests.Response:
+    response = requests.get(
+        url,
+        params=params,
+        timeout=timeout,
+        headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT},
+    )
+    if _rate_limited(response):
+        raise RateLimitError(_rate_limit_message(response))
+    response.raise_for_status()
+    return response
+
+
+def _rate_limited(response: requests.Response) -> bool:
+    if response.status_code not in (403, 429):
+        return False
+    return response.headers.get("X-RateLimit-Remaining") == "0" or (
+        "rate limit" in response.text.lower()
+    )
+
+
+def _rate_limit_message(response: requests.Response) -> str:
+    message = "GitHub временно ограничил запросы с вашего адреса"
+    reset = response.headers.get("X-RateLimit-Reset", "")
+    if reset.isdigit():
+        message += f". Попробуйте после {datetime.fromtimestamp(int(reset)):%H:%M}"
+    return (
+        f"{message}. Обычно адрес делят несколько абонентов провайдера, "
+        "и программа тут ни при чём."
+    )
+
+
+def _latest_from_site(repo: str, timeout: int) -> Release:
+    """Последний релиз со страниц сайта: у них нет лимита на запросы к API.
+
+    Описания, даты и хешей здесь нет. Файлы те же и по HTTPS, а программа дополнительно
+    сверяет себя с `ZapretXmel.exe.sha256`.
+    """
+    headers = {"User-Agent": USER_AGENT}
+    response = requests.get(
+        f"{SITE_ROOT}/{repo}/releases/latest",
+        timeout=timeout,
+        headers=headers,
+        allow_redirects=False,
+    )
+    found = re.search(r"/releases/tag/([^/?#]+)$", response.headers.get("Location", ""))
+    if found is None:
+        raise LookupError(f"у {repo} страница релиза не назвала версию")
+    tag = found.group(1)
+
+    page = requests.get(
+        f"{SITE_ROOT}/{repo}/releases/expanded_assets/{tag}", timeout=timeout, headers=headers
+    )
+    page.raise_for_status()
+    return Release(
+        tag=unquote(tag),
+        name=unquote(tag),
+        body="",
+        published_at="",
+        assets=_assets_from_page(page.text, repo, tag),
+    )
+
+
+def _assets_from_page(html: str, repo: str, tag: str) -> list[Asset]:
+    prefix = f"/{repo}/releases/download/{tag}/"
+    links = re.findall(rf'href="({re.escape(prefix)}[^"]+)"', html)
+    if not links:
+        raise LookupError(f"у {repo} на странице релиза нет файлов")
+    return [
+        Asset(name=unquote(link.removeprefix(prefix)), url=f"{SITE_ROOT}{link}", size=0)
+        for link in dict.fromkeys(links)
+    ]
+
+
 def latest_release(repo: str = CORE_REPO, timeout: int = 20, testing: bool = False) -> Release:
     """Последний релиз. `testing` — считать и тестовые сборки тоже.
 
-    Обычный путь — `/releases/latest`, и это не просто «первый из списка»:
+    Упёрлись в лимит API — берём с сайта. Иначе человек не мог бы ни проверить, ни
+    поставить обновление, пока лимит не сбросится. Тестовых сборок там нет, но это
+    лучше, чем никакого ответа. Сайт тоже не ответил — честно сообщаем про лимит.
+    """
+    try:
+        return _latest_from_api(repo, timeout, testing)
+    except RateLimitError as limit:
+        log.info("Лимит GitHub API, смотрю релиз %s на сайте", repo)
+        try:
+            return _latest_from_site(repo, timeout)
+        except (requests.RequestException, LookupError):
+            log.info("Сайт GitHub тоже не ответил", exc_info=True)
+            raise limit from None
+
+
+def _latest_from_api(repo: str, timeout: int, testing: bool) -> Release:
+    """Обычный путь — `/releases/latest`, и это не просто «первый из списка»:
     GitHub отдаёт там последний **не**тестовый и неподготовительный релиз.
     Поэтому пометка pre-release сама по себе прячет сборку от всех, кто не
     просил тестовые.
     """
     if not testing:
-        response = requests.get(
-            f"{API_ROOT}/repos/{repo}/releases/latest",
-            timeout=timeout,
-            headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT},
-        )
-        response.raise_for_status()
+        response = _api_get(f"{API_ROOT}/repos/{repo}/releases/latest", timeout)
         return _to_release(response.json())
 
     # В списке релизы идут от новых к старым, но «новее» здесь определяем
@@ -148,13 +255,7 @@ def latest_release(repo: str = CORE_REPO, timeout: int = 20, testing: bool = Fal
 
 
 def list_releases(repo: str = CORE_REPO, limit: int = 10, timeout: int = 20) -> list[Release]:
-    response = requests.get(
-        f"{API_ROOT}/repos/{repo}/releases",
-        params={"per_page": limit},
-        timeout=timeout,
-        headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT},
-    )
-    response.raise_for_status()
+    response = _api_get(f"{API_ROOT}/repos/{repo}/releases", timeout, {"per_page": limit})
     return [_to_release(item) for item in response.json()]
 
 
