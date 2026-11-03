@@ -159,6 +159,12 @@ def _in_domains(host: str, domains: list[str]) -> bool:
     return False
 
 
+def _excluded(flag: str, value: str, host: str) -> bool:
+    if flag == "--hostlist-exclude":
+        return _in_hostlist(host, value)
+    return flag == "--hostlist-exclude-domains" and _in_domains(host, value.split(","))
+
+
 def section_matches(section: Section, host: str, protocol: str, port: int) -> bool:
     """Подойдёт ли секция соединению — по тем же правилам, что у winws.
 
@@ -173,7 +179,7 @@ def section_matches(section: Section, host: str, protocol: str, port: int) -> bo
             return False
         if flag == f"--filter-{protocol}":
             allowed = _port_listed(value, port)
-        elif flag == "--hostlist-exclude" and _in_hostlist(host, value) or flag == "--hostlist-exclude-domains" and _in_domains(host, value.split(",")):
+        elif _excluded(flag, value, host):
             return False
         elif flag == "--hostlist":
             include = include or _in_hostlist(host, value)
