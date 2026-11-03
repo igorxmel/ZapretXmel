@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core import merge, strategies
+from app.core.batfile import StrategySpec
 from app.core.diagnostics import vpn
 from app.core.probe import dpi, services
 from app.core.probe.autopick import DPI_TARGET_LIMIT, Mode, Report, StrategyScore, save_report
@@ -74,6 +75,8 @@ class AutoPickView(QWidget):
         self._suite_task: Task | None = None
         self._report: Report | None = None
         self._dpi_targets: list[dpi.DpiTarget] = []
+        # Сборка, которая сейчас на проверке.
+        self._built: StrategySpec | None = None
         self._services: list[services.Service] = []
         self._service_chips: list[Chip] = []
         self._ignore_vpn = False
@@ -121,8 +124,9 @@ class AutoPickView(QWidget):
 
         self._merge_button = QPushButton("Собрать из лучших частей")
         self._merge_button.setToolTip(
-            "Соединяет рабочие секции нескольких стратегий в одну и тут же "
-            "проверяет результат — вдруг получится лучше каждой из них"
+            "Берёт за основу одну стратегию и подставляет в секции нужных сервисов "
+            "способ обхода от других. Результат появится в списке стратегий, только "
+            "если на проверке окажется лучше исходных"
         )
         self._merge_button.setVisible(False)
         self._merge_button.clicked.connect(self._merge_best)
@@ -414,6 +418,7 @@ class AutoPickView(QWidget):
 
     def _finish(self, report: Report) -> None:
         self._report = report
+        built, self._built = self._built, None
         self._set_running(False)
         self._progress.hide()
         self._rebuild_table(report)
@@ -430,7 +435,10 @@ class AutoPickView(QWidget):
             f"color: {COLORS['warning'] if unfinished else COLORS['success']};"
         )
 
-        self._offer_merge(report)
+        if built is None:
+            self._offer_merge(report)
+        else:
+            self._judge_merged(report, built, suffix)
 
         path = save_report(report)
         self._status.setStyleSheet(f"color: {COLORS['text_muted']};")
@@ -450,7 +458,30 @@ class AutoPickView(QWidget):
                 colour = COLORS["warning"] if score.broken_services else COLORS["success"]
                 self._mark_row(self._table.rowCount() - 1, bold=True, color=colour)
 
+    def _judge_merged(self, report: Report, built: StrategySpec, suffix: str) -> None:
+        """Оставляет сборку в списке, только если она лучше исходных."""
+        if merge.is_improvement(report, built.name):
+            self._verdict.setStyleSheet(f"color: {COLORS['success']};")
+            self._verdict.setText(
+                f"Сборка лучше исходных: «{built.name}» теперь есть в списке стратегий."
+            )
+            return
+
+        self._discard_merged(built)
+        self._verdict.setStyleSheet(f"color: {COLORS['warning']};")
+        self._verdict.setText(
+            "Сборка не оказалась лучше исходных, поэтому в список стратегий не добавлена."
+            + suffix
+        )
+
+    @staticmethod
+    def _discard_merged(built: StrategySpec) -> None:
+        built.path.unlink(missing_ok=True)
+
     def _fail(self, message: str) -> None:
+        if self._built is not None:
+            self._discard_merged(self._built)
+            self._built = None
         self._set_running(False)
         self._start_button.setEnabled(True)
         self._progress.hide()
@@ -485,20 +516,31 @@ class AutoPickView(QWidget):
             self.controller.error.emit("Не удалось разобрать исходные стратегии.")
             return
 
-        argv = merge.merge(specs)
-        path = merge.save(argv, plan)
-        built = strategies.load_one(path.stem)
-        if built is None:
-            self.controller.error.emit("Собранная стратегия не разобралась — проверьте её вручную.")
+        composition = merge.compose(plan, specs, merge.service_hosts())
+        self._merge_button.setVisible(False)
+        if not composition.argv:
+            self._verdict.setStyleSheet(f"color: {COLORS['warning']};")
+            self._verdict.setText(
+                "Совместить не получится: эти сервисы обслуживает одна и та же секция "
+                "стратегии, и для неё можно выбрать только один способ обхода."
+            )
             return
 
-        self._verdict.setStyleSheet(f"color: {COLORS['text_dim']};")
-        self._verdict.setText(
-            f"Собрана стратегия «{built.name}» из {len(specs)} частей, "
-            f"секций {len(built.sections)}. Проверяю, лучше ли она исходных…"
-        )
-        self._merge_button.setVisible(False)
-        self._launch([built], "services", self._selected_services())
+        path = merge.save(composition.argv, plan)
+        built = strategies.load_one(path.stem)
+        if built is None:
+            path.unlink(missing_ok=True)
+            self.controller.error.emit("Собранная стратегия не разобралась, она не сохранена.")
+            return
+
+        # Сборка меряется последней: при равном результате выиграет исходная.
+        self._built = built
+        self._launch([*specs, built], "services", self._selected_services())
+
+        note = f"Заменено секций: {len(composition.swapped)}, основа: «{composition.base}»."
+        if composition.conflicts:
+            note += " Без своего способа обхода: " + ", ".join(composition.conflicts) + "."
+        self._verdict.setText(f"{note} Проверяю, лучше ли сборка исходных…")
 
     def _apply_best(self) -> None:
         if self._report is None or self._report.best is None:
