@@ -37,12 +37,9 @@ WINDOWS = sys.platform == "win32"
 
 TITLEBAR_HEIGHT = 40
 
-# Ссылки наружу. Держим их здесь, а не в разделах: страница проекта и
-# исходники нужны из любого места программы, а заголовок виден всегда.
-LINKS = (
-    ("ВЕБ-САЙТ", "https://igorxmel.github.io/ZapretXmel/"),
-    ("GITHUB", "https://github.com/igorxmel/ZapretXmel"),
-)
+# Ссылка наружу. Держим её здесь, а не в разделах: исходники и релизы нужны
+# из любого места программы, а заголовок виден всегда.
+LINKS = (("GITHUB", "https://github.com/igorxmel/ZapretXmel"),)
 GRIP_THICKNESS = 5
 SVG_ICON_SIZE = 20
 
