@@ -154,11 +154,6 @@ class AutoPickView(QWidget):
         self._note.setTextFormat(Qt.TextFormat.RichText)
         body.addWidget(self._note)
 
-        lifetime = QLabel(RESULT_LIFETIME_NOTE)
-        lifetime.setWordWrap(True)
-        lifetime.setStyleSheet(f"color: {COLORS['warning']};")
-        body.addWidget(lifetime)
-
         self._progress = QProgressBar()
         self._progress.setTextVisible(False)
         self._progress.hide()
@@ -179,6 +174,14 @@ class AutoPickView(QWidget):
         self._verdict.setObjectName("ViewSubtitle")
         self._verdict.setWordWrap(True)
         body.addWidget(self._verdict)
+
+        # Стоит здесь, а не среди настроек подбора: относится к результату, а там
+        # сливалась с такой же жёлтой надписью про VPN.
+        lifetime = QLabel(RESULT_LIFETIME_NOTE)
+        lifetime.setObjectName("Muted")
+        lifetime.setWordWrap(True)
+        lifetime.setStyleSheet(f"color: {COLORS['warning']};")
+        body.addWidget(lifetime)
 
         self._table = QTableWidget(0, len(COLUMNS))
         self._table.setHorizontalHeaderLabels(COLUMNS)

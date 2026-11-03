@@ -125,3 +125,12 @@ def test_lifetime_warning_is_yellow_and_visible(view: AutoPickView) -> None:
     assert "через час" in label.text()
     assert COLORS["warning"] in label.styleSheet()
     assert not label.isHidden()
+    assert label.objectName() == view._status.objectName(), "размер как у надписи про VPN"
+
+
+def test_lifetime_warning_is_not_next_to_the_vpn_warning(view: AutoPickView) -> None:
+    """Две жёлтые надписи подряд читались как одна."""
+    label = next(item for item in view.findChildren(QLabel) if item.text() == RESULT_LIFETIME_NOTE)
+
+    assert label.parentWidget() is view._verdict.parentWidget()
+    assert label.parentWidget() is not view._status.parentWidget()
