@@ -10,14 +10,15 @@ import shutil
 from pathlib import Path
 
 import pytest
-from PyQt6.QtWidgets import QApplication
+from PyQt6.QtWidgets import QApplication, QLabel
 
 from app.core import merge, paths, strategies
 from app.core.config import Settings
 from app.core.merge import plan_from_winners
 from app.core.probe.autopick import Report, StrategyScore
 from app.ui.controller import Controller
-from app.ui.views.autopick import AutoPickView
+from app.ui.theme.tokens import COLORS
+from app.ui.views.autopick import RESULT_LIFETIME_NOTE, AutoPickView
 
 FIXTURES = Path(__file__).parent / "fixtures" / "bundle_1_10_3"
 HOSTS = {"Discord": ["discord.com"], "YouTube": ["www.youtube.com"]}
@@ -116,3 +117,11 @@ def test_measured_build_does_not_offer_merging_again(view: AutoPickView) -> None
     view._finish(_measured(view, built_ok=8))
 
     assert view._merge_button.isHidden()
+
+
+def test_lifetime_warning_is_yellow_and_visible(view: AutoPickView) -> None:
+    label = next(item for item in view.findChildren(QLabel) if item.text() == RESULT_LIFETIME_NOTE)
+
+    assert "через час" in label.text()
+    assert COLORS["warning"] in label.styleSheet()
+    assert not label.isHidden()

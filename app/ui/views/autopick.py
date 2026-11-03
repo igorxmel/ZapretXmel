@@ -39,6 +39,12 @@ from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, Chip, view_header
 from app.ui.workers import AutoPickWorker, Task
 
+# Блокировки меняются без предупреждения, а результат выглядит окончательным.
+RESULT_LIFETIME_NOTE = (
+    "Подбор действует неопределённое время: лучшая стратегия может отвалиться "
+    "уже через час использования. Перестало работать — запустите подбор снова."
+)
+
 COLUMNS = ("Стратегия", "Сервисы", "Пройдено", "Не прошло", "Блокировка", "Время")
 SERVICES_COLUMN = COLUMNS.index("Сервисы")
 
@@ -147,6 +153,11 @@ class AutoPickView(QWidget):
         self._note.setWordWrap(True)
         self._note.setTextFormat(Qt.TextFormat.RichText)
         body.addWidget(self._note)
+
+        lifetime = QLabel(RESULT_LIFETIME_NOTE)
+        lifetime.setWordWrap(True)
+        lifetime.setStyleSheet(f"color: {COLORS['warning']};")
+        body.addWidget(lifetime)
 
         self._progress = QProgressBar()
         self._progress.setTextVisible(False)
