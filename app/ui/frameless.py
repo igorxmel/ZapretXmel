@@ -102,14 +102,13 @@ if WINDOWS:
     def enable_native_frame(handle: int, resizable: bool = True) -> None:
         """Возвращает окну системные стили рамки ради прилипания и ресайза.
 
-        Без `resizable` окно нельзя развернуть, в том числе броском к краю экрана.
-        Рамку при этом не снимаем: когда её возвращали, Windows добавляла её размеры к
-        высоте, и выросшее окно уезжало за край экрана. Растянуть такое окно не даёт
-        предел в `WM_GETMINMAXINFO`.
+        Без `resizable` окно нельзя растянуть и развернуть, в том числе броском к
+        краю экрана: окну фиксированного размера это только навредит.
         """
         get, put = _window_long_funcs()
-        style = get(handle, GWL_STYLE) | WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX
-        put(handle, GWL_STYLE, style | WS_MAXIMIZEBOX if resizable else style & ~WS_MAXIMIZEBOX)
+        sizing = WS_THICKFRAME | WS_MAXIMIZEBOX
+        style = get(handle, GWL_STYLE) | WS_CAPTION | WS_MINIMIZEBOX
+        put(handle, GWL_STYLE, style | sizing if resizable else style & ~sizing)
         ctypes.windll.user32.SetWindowPos(
             handle, 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
         )
@@ -418,9 +417,6 @@ class FramelessWindow(QWidget):
             limits = _MinMaxInfo.from_address(msg.lParam)
             limits.ptMinTrackSize.x = int(self.minimumWidth() * ratio)
             limits.ptMinTrackSize.y = int(self.minimumHeight() * ratio)
-            if not self._sizable:
-                limits.ptMaxTrackSize.x = limits.ptMinTrackSize.x
-                limits.ptMaxTrackSize.y = limits.ptMinTrackSize.y
             return True, 0
 
         if msg.message != WM_NCCALCSIZE:

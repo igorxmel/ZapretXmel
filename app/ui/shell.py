@@ -153,15 +153,17 @@ class MainWindow(FramelessWindow):
 
         # Два вида одного окна: полный и мини. Окно и контроллер остаются теми же,
         # поэтому смена вида не трогает ни обход, ни идущую работу.
-        self._pages = QStackedWidget()
-        outer.addWidget(self._pages)
-
-        full = QWidget()
-        self._pages.addWidget(full)
+        #
+        # Нарочно не QStackedWidget: его минимум считается по самой большой странице,
+        # даже скрытой. Высокий раздел растягивал содержимое мини-окна ниже его края, и
+        # кнопка меню уходила за низ. Скрытый виджет раскладка не учитывает вовсе.
+        self._full_page = QWidget()
+        outer.addWidget(self._full_page, 1)
         self._mini = MiniView(self.controller, SECTIONS)
-        self._pages.addWidget(self._mini)
+        self._mini.hide()
+        outer.addWidget(self._mini, 1)
 
-        root = QHBoxLayout(full)
+        root = QHBoxLayout(self._full_page)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
@@ -265,7 +267,8 @@ class MainWindow(FramelessWindow):
         self._compact_button.setToolTip("Полное окно" if compact else "Мини-окно")
 
         if compact:
-            self._pages.setCurrentWidget(self._mini)
+            self._full_page.hide()
+            self._mini.show()
             self._mini.reload()
             self._mini.apply_status(self.controller.status)
             screen = self.screen() or QApplication.primaryScreen()
@@ -278,7 +281,8 @@ class MainWindow(FramelessWindow):
             self.resize(target)
             # Страницу меняем уже в полном размере. Иначе раскладка считала перенос
             # строк по промежуточной ширине, и окно вырастало за край экрана.
-            self._pages.setCurrentWidget(self._pages.widget(0))
+            self._mini.hide()
+            self._full_page.show()
             self.layout().activate()
             self.resize(target)
             self.views["dashboard"].reload()
