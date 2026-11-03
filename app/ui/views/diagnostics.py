@@ -187,7 +187,7 @@ class DiagnosticsView(QWidget):
         # типичные сайты, и на вопрос «а у меня Instagram откроется?» ответить
         # было нечем: адрес вводить было некуда.
         self._site = QLineEdit()
-        self._site.setPlaceholderText("Свой сайт, например instagram.com (необязательно)")
+        self._site.setPlaceholderText("Свой сайт, например example.org (необязательно)")
         self._site.setToolTip(
             "Подмена DNS, «Где рвётся» и трассировка проверят этот адрес. "
             "Пусто — возьмут типичные сайты."
