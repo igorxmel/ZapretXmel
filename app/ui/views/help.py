@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QLabel, QPushButton, QTextBrowser, QVBoxLayout
+from PyQt6.QtWidgets import QApplication, QLabel, QPushButton, QTextBrowser, QVBoxLayout
 
 from app.core import guide
 from app.ui.frameless import FramelessWindow
@@ -16,8 +16,11 @@ class HelpWindow(FramelessWindow):
 
     def __init__(self):
         super().__init__("Как пользоваться", compact=True, resizable=True, caption="Справка")
-        self.setMinimumSize(560, 480)
-        self.resize(680, 720)
+        # На ноутбуке с увеличением экрана в логических точках совсем немного.
+        screen = QApplication.primaryScreen()
+        room = screen.availableGeometry().height() if screen else 720
+        self.setMinimumSize(560, min(480, int(room * 0.9)))
+        self.resize(680, min(720, int(room * 0.94)))
 
         layout = QVBoxLayout(self.body)
         layout.setContentsMargins(SPACE["xl"], SPACE["lg"], SPACE["xl"], SPACE["lg"])

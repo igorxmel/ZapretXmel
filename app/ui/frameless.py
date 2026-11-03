@@ -17,7 +17,7 @@ import sys
 from ctypes import wintypes
 
 from PyQt6.QtCore import QByteArray, QEvent, QRectF, QSize, Qt, QUrl
-from PyQt6.QtGui import QDesktopServices, QFont, QFontDatabase, QIcon, QPainter, QPixmap
+from PyQt6.QtGui import QDesktopServices, QFont, QFontDatabase, QPainter
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QFrame,
@@ -102,13 +102,14 @@ if WINDOWS:
     def enable_native_frame(handle: int, resizable: bool = True) -> None:
         """Возвращает окну системные стили рамки ради прилипания и ресайза.
 
-        Без `resizable` окно нельзя растянуть и развернуть, в том числе броском к
-        краю экрана: окну фиксированного размера это только навредит.
+        Без `resizable` окно нельзя развернуть, в том числе броском к краю экрана.
+        Рамку при этом не снимаем: когда её возвращали, Windows добавляла её размеры к
+        высоте, и выросшее окно уезжало за край экрана. Растянуть такое окно не даёт
+        предел в `WM_GETMINMAXINFO`.
         """
         get, put = _window_long_funcs()
-        sizing = WS_THICKFRAME | WS_MAXIMIZEBOX
-        style = get(handle, GWL_STYLE) | WS_CAPTION | WS_MINIMIZEBOX
-        put(handle, GWL_STYLE, style | sizing if resizable else style & ~sizing)
+        style = get(handle, GWL_STYLE) | WS_CAPTION | WS_THICKFRAME | WS_MINIMIZEBOX
+        put(handle, GWL_STYLE, style | WS_MAXIMIZEBOX if resizable else style & ~WS_MAXIMIZEBOX)
         ctypes.windll.user32.SetWindowPos(
             handle, 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
         )
@@ -152,18 +153,6 @@ def svg_renderer(icon: str, colour: str) -> QSvgRenderer:
     """Значок из `assets/icons` в нужном цвете. Цвет в самих файлах не задан: он от темы."""
     markup = (paths.assets_dir() / "icons" / f"{icon}.svg").read_text(encoding="utf-8")
     return QSvgRenderer(QByteArray(markup.replace("currentColor", colour).encode()))
-
-
-def svg_icon(icon: str, colour: str, size: int = SVG_ICON_SIZE) -> QIcon:
-    """Значок для обычной кнопки. Рисуется с запасом, чтобы не мылиться при масштабе экрана."""
-    scale = 3
-    picture = QPixmap(size * scale, size * scale)
-    picture.fill(Qt.GlobalColor.transparent)
-    painter = QPainter(picture)
-    svg_renderer(icon, colour).render(painter)
-    painter.end()
-    picture.setDevicePixelRatio(scale)
-    return QIcon(picture)
 
 
 class SvgCaptionButton(CaptionButton):
@@ -429,6 +418,9 @@ class FramelessWindow(QWidget):
             limits = _MinMaxInfo.from_address(msg.lParam)
             limits.ptMinTrackSize.x = int(self.minimumWidth() * ratio)
             limits.ptMinTrackSize.y = int(self.minimumHeight() * ratio)
+            if not self._sizable:
+                limits.ptMaxTrackSize.x = limits.ptMinTrackSize.x
+                limits.ptMaxTrackSize.y = limits.ptMinTrackSize.y
             return True, 0
 
         if msg.message != WM_NCCALCSIZE:

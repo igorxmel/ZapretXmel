@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QFrame,
     QHBoxLayout,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -29,9 +31,23 @@ class DashboardView(QWidget):
         super().__init__(parent)
         self.controller = controller
 
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        # Обзор высокий. Без прокрутки на ноутбуке с увеличением экрана (1920×1080 при
+        # 150%) его низ обрезался, а окно не могло стать меньше содержимого и
+        # вырастало за край экрана.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        outer.addWidget(scroll)
+
+        content = QWidget()
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(SPACE["lg"])
+        scroll.setWidget(content)
 
         layout.addWidget(view_header("Обзор", "Состояние обхода блокировок и быстрые действия"))
 

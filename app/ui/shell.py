@@ -254,15 +254,18 @@ class MainWindow(FramelessWindow):
         if compact:
             if self.isMaximized():
                 self.showNormal()
-            self._full_size = self.size()
+            # До первого показа размер ещё не настоящий: он считается по содержимому и
+            # бывает больше экрана. Тогда при возврате просто подбираем его заново.
+            if self.isVisible():
+                self._full_size = self.size()
 
         self._compact = compact
-        self._pages.setCurrentWidget(self._mini if compact else self._pages.widget(0))
         self.set_sizable(not compact)
         self._compact_button.set_icon("window-expand" if compact else "window-shrink")
         self._compact_button.setToolTip("Полное окно" if compact else "Мини-окно")
 
         if compact:
+            self._pages.setCurrentWidget(self._mini)
             self._mini.reload()
             self._mini.apply_status(self.controller.status)
             screen = self.screen() or QApplication.primaryScreen()
@@ -271,8 +274,13 @@ class MainWindow(FramelessWindow):
         else:
             self.setMaximumSize(16777215, 16777215)
             self._fit_to_screen()
-            if self._full_size is not None:
-                self.resize(self._full_size)
+            target = self._full_size or self.size()
+            self.resize(target)
+            # Страницу меняем уже в полном размере. Иначе раскладка считала перенос
+            # строк по промежуточной ширине, и окно вырастало за край экрана.
+            self._pages.setCurrentWidget(self._pages.widget(0))
+            self.layout().activate()
+            self.resize(target)
             self.views["dashboard"].reload()
             # Пока вид был скрыт, у кнопок меню не было настоящих мест.
             self._nav_ready = False
