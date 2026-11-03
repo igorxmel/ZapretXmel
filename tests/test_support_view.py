@@ -177,24 +177,25 @@ def view(app: QApplication) -> SupportView:
 
 
 def _stars_text(view: SupportView) -> str:
-    return view._stars._value.text()
+    return view._stars.text()
 
 
 def test_star_count_is_shown(view: SupportView) -> None:
     view._show_stars(12)
 
-    assert _stars_text(view) == "12"
+    assert _stars_text(view).endswith("Звёзд на GitHub: 12")
+    assert "&#9733;" in _stars_text(view), "значок звезды"
 
 
 def test_failed_answer_keeps_the_last_count(view: SupportView) -> None:
     view._show_stars(12)
     view._show_stars(None)
 
-    assert _stars_text(view) == "12"
+    assert _stars_text(view).endswith(": 12")
 
 
 def test_count_is_a_dash_until_known(view: SupportView) -> None:
-    assert _stars_text(view) == "—"
+    assert _stars_text(view).endswith(": —")
 
 
 def test_share_button_copies_the_repository_link(view: SupportView) -> None:

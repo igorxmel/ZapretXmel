@@ -19,8 +19,8 @@ from PyQt6.QtWidgets import (
 from app.core import donate
 from app.core.updater import github
 from app.ui.controller import Controller
-from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, Divider, KeyValueRow, banner_pixmap, view_header
+from app.ui.theme.tokens import BRAND, COLORS, SPACE
+from app.ui.widgets import Card, Divider, banner_pixmap, view_header
 from app.ui.workers import Task
 
 WALLETS_NOTE = (
@@ -77,6 +77,7 @@ class SupportView(QWidget):
         self.controller = controller
         self._stars_task: Task | None = None
         self._stars_asked_at: float | None = None
+        self._star_count: int | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -131,7 +132,10 @@ class SupportView(QWidget):
 
         body.addWidget(Divider())
 
-        self._stars = KeyValueRow("Звёзд на GitHub")
+        self._stars = QLabel()
+        self._stars.setObjectName("ViewTitle")
+        self._stars.setTextFormat(Qt.TextFormat.RichText)
+        self._paint_stars()
         body.addWidget(self._stars)
 
         asking = QLabel(
@@ -172,7 +176,14 @@ class SupportView(QWidget):
     def _show_stars(self, stars: int | None) -> None:
         """Не узнали — оставляем то, что уже показано: прошлое число лучше ошибки."""
         if stars is not None:
-            self._stars.set_value(str(stars))
+            self._star_count = stars
+            self._paint_stars()
+
+    def _paint_stars(self) -> None:
+        """Как и сердечки ниже: цвет в разметке, поэтому при смене темы строка собирается заново."""
+        count = "—" if self._star_count is None else self._star_count
+        star = f'<span style="color: {BRAND["orange"]};">&#9733;</span>'
+        self._stars.setText(f"{star} Звёзд на GitHub: {count}")
 
     def _paint_testers(self) -> None:
         """Собирает строку заново — из-за одного красного сердечка.
@@ -191,5 +202,6 @@ class SupportView(QWidget):
 
     def reload(self) -> None:
         self._paint_testers()
+        self._paint_stars()
         self.share_button.setText("Скопировать ссылку для друзей")
         self._ask_for_stars()
