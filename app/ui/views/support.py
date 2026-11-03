@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from html import escape
 
 from PyQt6.QtCore import Qt, QUrl
@@ -16,16 +17,21 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core import donate
+from app.core.updater import github
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, banner_pixmap, view_header
+from app.ui.widgets import Card, Divider, KeyValueRow, banner_pixmap, view_header
+from app.ui.workers import Task
 
 WALLETS_NOTE = (
     "Программа бесплатная и останется такой, поддержка добровольная. Переводите только в указанной "
     "сети: перевод в другой сети может пропасть, а отменить его нельзя."
 )
 
-REPO_URL = "https://github.com/igorxmel/ZapretXmel"
+REPO = "igorxmel/ZapretXmel"
+REPO_URL = f"https://github.com/{REPO}"
+# Лимит GitHub общий на адрес, поэтому спрашиваем не при каждом открытии экрана.
+STARS_REFRESH_SECONDS = 600
 ISSUES_URL = f"{REPO_URL}/issues/new"
 
 # Те, кто ловил поломки на себе, пока их не поймали все остальные.
@@ -69,6 +75,8 @@ class SupportView(QWidget):
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
         self.controller = controller
+        self._stars_task: Task | None = None
+        self._stars_asked_at: float | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -121,8 +129,50 @@ class SupportView(QWidget):
         issue.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(ISSUES_URL)))
         body.addWidget(issue)
 
+        body.addWidget(Divider())
+
+        self._stars = KeyValueRow("Звёзд на GitHub")
+        body.addWidget(self._stars)
+
+        asking = QLabel(
+            "Если программа пригодилась, поставьте ей звезду и поделитесь ею с друзьями: "
+            "так о ней узнают те, кому она тоже может помочь."
+        )
+        asking.setObjectName("Dim")
+        asking.setWordWrap(True)
+        body.addWidget(asking)
+
+        star = QPushButton("Поставить звезду на GitHub")
+        star.setObjectName("Primary")
+        star.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(REPO_URL)))
+        body.addWidget(star)
+
+        self.share_button = QPushButton("Скопировать ссылку для друзей")
+        self.share_button.clicked.connect(self._copy_link)
+        body.addWidget(self.share_button)
+
         body.addStretch(1)
         return card
+
+    def _copy_link(self) -> None:
+        QApplication.clipboard().setText(REPO_URL)
+        self.share_button.setText("Ссылка скопирована")
+
+    def _ask_for_stars(self) -> None:
+        running = self._stars_task is not None and self._stars_task.isRunning()
+        asked = self._stars_asked_at
+        if running or (asked is not None and time.monotonic() - asked < STARS_REFRESH_SECONDS):
+            return
+
+        self._stars_asked_at = time.monotonic()
+        self._stars_task = Task(github.repo_stars, REPO)
+        self._stars_task.done.connect(self._show_stars)
+        self._stars_task.start()
+
+    def _show_stars(self, stars: int | None) -> None:
+        """Не узнали — оставляем то, что уже показано: прошлое число лучше ошибки."""
+        if stars is not None:
+            self._stars.set_value(str(stars))
 
     def _paint_testers(self) -> None:
         """Собирает строку заново — из-за одного красного сердечка.
@@ -141,3 +191,5 @@ class SupportView(QWidget):
 
     def reload(self) -> None:
         self._paint_testers()
+        self.share_button.setText("Скопировать ссылку для друзей")
+        self._ask_for_stars()

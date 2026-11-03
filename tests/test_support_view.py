@@ -13,8 +13,10 @@ from PyQt6.QtWidgets import QApplication
 
 from app.core import donate
 from app.core.config import Settings
+from app.core.updater import github
 from app.ui.controller import Controller
-from app.ui.views.support import SupportView, WalletRow
+from app.ui.views import support
+from app.ui.views.support import REPO_URL, SupportView, WalletRow
 
 ROOT = Path(__file__).resolve().parents[1]
 WALLET = donate.Wallet("USDT", "TRC-20", "TTestAddress000000000000000000000")
@@ -125,3 +127,106 @@ def test_checks_catch_a_typo(check, address: str) -> None:
 def test_every_wallet_names_its_network() -> None:
     assert {wallet.coin for wallet in donate.WALLETS} == {"USDT", "BTC", "SOL"}
     assert all(wallet.network for wallet in donate.WALLETS)
+
+
+# --- звёзды и просьба поделиться ----------------------------------------------
+
+
+class _Answer:
+    def __init__(self, status=200, body=None, text=""):
+        self.status_code = status
+        self.headers = {}
+        self.text = text
+        self._body = body
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise github.requests.HTTPError(str(self.status_code))
+
+    def json(self):
+        return self._body
+
+
+@pytest.mark.parametrize(
+    ("answer", "stars"),
+    [
+        (_Answer(body={"stargazers_count": 12}), 12),
+        (_Answer(403, text="API rate limit exceeded"), None),
+        (_Answer(500), None),
+        (_Answer(body={"message": "нет такого поля"}), None),
+    ],
+)
+def test_stars_never_raise(monkeypatch: pytest.MonkeyPatch, answer: _Answer, stars) -> None:
+    monkeypatch.setattr(github.requests, "get", lambda *_, **__: answer)
+
+    assert github.repo_stars("o/r") == stars
+
+
+def test_stars_survive_no_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(*_, **__):
+        raise github.requests.ConnectionError("нет сети")
+
+    monkeypatch.setattr(github.requests, "get", broken)
+
+    assert github.repo_stars("o/r") is None
+
+
+@pytest.fixture
+def view(app: QApplication) -> SupportView:
+    return SupportView(Controller(Settings()))
+
+
+def _stars_text(view: SupportView) -> str:
+    return view._stars._value.text()
+
+
+def test_star_count_is_shown(view: SupportView) -> None:
+    view._show_stars(12)
+
+    assert _stars_text(view) == "12"
+
+
+def test_failed_answer_keeps_the_last_count(view: SupportView) -> None:
+    view._show_stars(12)
+    view._show_stars(None)
+
+    assert _stars_text(view) == "12"
+
+
+def test_count_is_a_dash_until_known(view: SupportView) -> None:
+    assert _stars_text(view) == "—"
+
+
+def test_share_button_copies_the_repository_link(view: SupportView) -> None:
+    view.share_button.click()
+
+    assert QApplication.clipboard().text() == REPO_URL
+    assert view.share_button.text() == "Ссылка скопирована"
+
+
+def test_stars_are_not_asked_on_every_opening(
+    view: SupportView, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Лимит GitHub общий на адрес, а экран открывают сколько угодно раз."""
+    asked: list[bool] = []
+
+    class FakeTask:
+        def __init__(self, *_):
+            asked.append(True)
+            self.done = self
+
+        def connect(self, _slot):
+            pass
+
+        def start(self):
+            pass
+
+        def isRunning(self):  # noqa: N802 — имя задано Qt
+            return False
+
+    monkeypatch.setattr(support, "Task", FakeTask)
+
+    view.reload()
+    view.reload()
+
+    assert asked == [True]

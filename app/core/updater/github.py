@@ -259,6 +259,15 @@ def list_releases(repo: str = CORE_REPO, limit: int = 10, timeout: int = 20) -> 
     return [_to_release(item) for item in response.json()]
 
 
+def repo_stars(repo: str, timeout: int = 10) -> int | None:
+    """Число звёзд репозитория. None — узнать не удалось, и это не повод для ошибки."""
+    try:
+        return int(_api_get(f"{API_ROOT}/repos/{repo}", timeout).json()["stargazers_count"])
+    except (requests.RequestException, KeyError, TypeError, ValueError):
+        log.info("Не удалось узнать число звёзд %s", repo, exc_info=True)
+        return None
+
+
 def _to_release(data: dict) -> Release:
     return Release(
         tag=data.get("tag_name", ""),
