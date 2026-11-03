@@ -59,3 +59,12 @@ def test_resource_carries_the_fields_people_see_in_file_properties(build_release
         assert field in text
     assert "0.1.51" in text
     assert "ZapretXmel.exe" in text
+
+
+def test_program_is_shown_under_its_short_name() -> None:
+    """Диспетчер задач и уведомления показывают именно FileDescription."""
+    source = (Path(__file__).parent.parent / "tools" / "build_release.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert '("FileDescription", NAME)' in source

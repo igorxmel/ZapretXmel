@@ -70,7 +70,9 @@ def version_resource(version: str) -> str:
     numbers = version_numbers(version)
     strings = [
         ("CompanyName", "ZapretXmel project"),
-        ("FileDescription", "ZapretXmel - graphical shell for the zapret DPI bypass"),
+        # Это поле Windows показывает как имя программы: в диспетчере задач и
+        # в уведомлениях. Длинное описание выглядело там огромной строкой.
+        ("FileDescription", NAME),
         ("FileVersion", version),
         ("InternalName", NAME),
         ("LegalCopyright", "Licensed under GPL-3.0-only"),
