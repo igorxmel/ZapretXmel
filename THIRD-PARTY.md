@@ -29,7 +29,7 @@ Qt при этом под LGPL — ограничение идёт не от н�
 
 | Компонент | Лицензия | Что делает |
 |---|---|---|
-| [zapret](https://github.com/bol-van/zapret) (bol-van) | MIT | Сам обход блокировок |
+| [zapret](https://github.com/bol-van/zapret) (bol-van) | MIT | Обработка сетевых пакетов |
 | [zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) (Flowseal) | MIT | Сборка zapret со стратегиями — ядро программы |
 | [WinDivert](https://github.com/basil00/WinDivert) (basil00) | LGPL-3.0 либо GPL-2.0 на выбор получателя | Драйвер перехвата пакетов, идёт внутри сборки Flowseal |
 | [tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) (Flowseal) | MIT | Локальный MTProto-прокси для Telegram |

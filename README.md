@@ -1,18 +1,16 @@
 <div align="center">
   <img src="assets/banner.png" width="560" alt="ZapretXmel">
 
-  <h3>Свободный интернет каждому</h3>
-
   <p>
-    <strong>Обход блокировок в одном окне: ядро
-    <a href="https://github.com/Flowseal/zapret-discord-youtube">zapret в сборке Flowseal</a>,
-    прокси для Telegram и подбор стратегии перебором. Чужие инструменты программа
-    ставит и обновляет сама — разбираться с ними отдельно не нужно.</strong>
+    <strong>Графическая оболочка для
+    <a href="https://github.com/bol-van/zapret">zapret</a> в
+    <a href="https://github.com/Flowseal/zapret-discord-youtube">сборке Flowseal</a>:
+    управление службой, подбор стратегии перебором с замером, локальный прокси для
+    Telegram и сетевая диагностика. Компоненты программа ставит и обновляет сама.</strong>
   </p>
 
   <p>
-    <a href="https://igorxmel.github.io/ZapretXmel/"><strong>Страница проекта</strong></a> ·
-    <a href="https://github.com/igorxmel/ZapretXmel/releases/latest"><strong>Скачать</strong></a> ·
+    <a href="https://github.com/igorxmel/ZapretXmel/releases"><strong>Релизы</strong></a> ·
     <a href="CHANGELOG.md"><strong>Что менялось</strong></a>
   </p>
 
@@ -44,20 +42,18 @@
 <details>
 <summary><b>In English</b></summary>
 
-**ZapretXmel** is a Windows GUI for [zapret](https://github.com/bol-van/zapret) — a DPI
-circumvention tool used in Russia to reach YouTube, Discord and other services that local
-ISPs throttle or block. It wraps [Flowseal's bundle](https://github.com/Flowseal/zapret-discord-youtube),
-installs and updates it for you, and finds a working strategy by trying them one by one.
+**ZapretXmel** is a Windows GUI for [zapret](https://github.com/bol-van/zapret), a tool that
+modifies network packets so that deep packet inspection (DPI) systems do not recognise them.
+It wraps [Flowseal's bundle](https://github.com/Flowseal/zapret-discord-youtube), installs and
+updates it, and evaluates its configurations ("strategies") one by one.
 
-What it adds on top of the bundle: an honest strategy picker (it always measures the
-baseline **without** circumvention first, otherwise the "winner" is whatever didn't break
-anything), per-application profiles, a local MTProto proxy for the Telegram client,
-layered diagnostics that tell you *where* a connection breaks — DNS, TCP, TLS or an ISP
-stub page — with an optional AI pass, a watchdog that notices when your strategy stops
-working, and an uninstaller that takes the service and the kernel driver with it.
+What it adds on top of the bundle: a strategy test that always measures the baseline first,
+per-application profiles, a local MTProto proxy for the Telegram client, layered diagnostics
+that show *where* a connection breaks (DNS, TCP, TLS or an ISP stub page) with an optional
+AI pass, a watchdog that notices when a strategy stops working, and an uninstaller that
+removes the service and the kernel driver.
 
-The interface is in Russian only — the problem it solves is specific to Russian ISPs, so
-that is where its users are. [Download the latest release](https://github.com/igorxmel/ZapretXmel/releases/latest)
+The interface is in Russian only. [Releases](https://github.com/igorxmel/ZapretXmel/releases)
 (Windows 10/11, 64-bit, no installer).
 
 </details>
@@ -65,61 +61,59 @@ that is where its users are. [Download the latest release](https://github.com/ig
 <div align="center">
   <!-- Снимки следуют теме GitHub: тёмное окно на светлой странице выглядит
     чужим, а светлое на тёмной слепит. Светлый вариант лежит рядом с суффиксом
-    «-light», оба делает tools/site_shots.py одним проходом. В src остаётся
+    «-light», оба делает tools/readme_shots.py одним проходом. В src остаётся
     тёмный — его покажут те читалки, что про <picture> не знают. -->
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/dashboard-light.png">
-    <img src="docs/assets/dashboard.png" width="860" alt="Главный экран">
+    <source media="(prefers-color-scheme: light)" srcset="media/dashboard-light.png">
+    <img src="media/dashboard.png" width="860" alt="Главный экран">
   </picture>
-  <p><sub>Обход включается одной кнопкой · <a href="https://igorxmel.github.io/ZapretXmel/">все экраны на странице проекта</a></sub></p>
+  <p><sub>Главный экран</sub></p>
 </div>
 
 ## <img src="assets/icons/sparkle.png" width="22" align="top"> Возможности
 
-**Обход.** Включается одной кнопкой — службой Windows или обычным процессом, плюс
-значок в трее. Стратегия подбирается перебором по всем сервисам сразу, с честным
-замером «без обхода». Отдельную игру или клиент можно пропустить через свой профиль,
-и несколько профилей работают одновременно. Telegram чинится не стратегией, а
-локальным MTProto-прокси — программа ставит его сама.
+**Запуск.** Одна кнопка: службой Windows или обычным процессом, плюс значок в трее.
+Стратегии проверяются перебором по всем сервисам сразу, с замером без них. Отдельную игру
+или клиент можно вынести в свой профиль, и несколько профилей работают одновременно.
+Для Telegram есть локальный MTProto-прокси: программа ставит его сама.
 
-**Когда не работает.** Проверки системы по правилам, а сверх них — на каком уровне
-рвётся соединение: подмена DNS, обрыв по адресу, фильтрация по имени сайта или
-заглушка провайдера. От этого зависит, поможет ли вообще смена стратегии. Дальше по
-желанию — разбор нейросетью или выгрузка пакета в любой чат-бот руками. Сторож
-замечает, что стратегия отвалилась, и может переключиться на запасную.
+**Диагностика.** Проверки системы по правилам, а сверх них — на каком уровне рвётся
+соединение: подмена DNS, обрыв по адресу, фильтрация по имени сайта или заглушка
+провайдера. Дальше по желанию — разбор нейросетью или выгрузка пакета в любой чат-бот
+руками. Сторож замечает, что стратегия перестала работать, и может переключиться на запасную.
 
-**Своё.** Копия готовой стратегии под своим именем, сборка новой из рабочих частей
-нескольких, свои списки и свои цели проверок. Обновление ядра не теряет ничего из
-этого: бэкап, откат и перенос пользовательских файлов.
+**Настройка.** Копия готовой стратегии под своим именем, сборка новой из частей нескольких,
+свои списки и свои цели проверок. Обновление ядра ничего из этого не теряет: бэкап, откат и
+перенос пользовательских файлов.
 
-**Мелочи, которые решают.** Мини-окно с двумя кнопками, выбором стратегии и проверкой, а
-всё остальное в одном меню. Справка внутри программы, без сети. Светлая и тёмная тема — по умолчанию как в Windows,
-переключается без перезапуска. Два оформления значка в трее. Удаление за собой:
-служба, драйвер WinDivert и ядро убираются из самой программы, потому что
-установщика у неё нет и из «Программ и компонентов» её не вычистить.
+**Интерфейс.** Мини-окно с двумя кнопками, выбором стратегии и проверкой, а всё остальное
+в одном меню. Справка внутри программы, без сети. Светлая и тёмная тема — по умолчанию как в
+Windows, переключается без перезапуска. Два оформления значка в трее. Удаление за собой:
+служба, драйвер WinDivert и ядро убираются из самой программы, потому что установщика у неё
+нет и из «Программ и компонентов» её не вычистить.
 
 <details>
 <summary><b>Ещё экраны</b> — подбор стратегии, диагностика, стратегии, обновления</summary>
 
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/autopick-light.png">
-    <img src="docs/assets/autopick.png" width="860" alt="Подбор стратегии">
+    <source media="(prefers-color-scheme: light)" srcset="media/autopick-light.png">
+    <img src="media/autopick.png" width="860" alt="Подбор стратегии">
   </picture>
-  <p><sub>Подбор перебирает стратегии по всем сервисам сразу и начинает с замера без обхода</sub></p>
+  <p><sub>Подбор перебирает стратегии по всем сервисам сразу и начинает с базового замера</sub></p>
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/diagnostics-light.png">
-    <img src="docs/assets/diagnostics.png" width="860" alt="Диагностика">
+    <source media="(prefers-color-scheme: light)" srcset="media/diagnostics-light.png">
+    <img src="media/diagnostics.png" width="860" alt="Диагностика">
   </picture>
   <p><sub>Диагностика: проверки системы по правилам, сетевые проверки и разбор нейросетью</sub></p>
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/strategies-light.png">
-    <img src="docs/assets/strategies.png" width="860" alt="Стратегии">
+    <source media="(prefers-color-scheme: light)" srcset="media/strategies-light.png">
+    <img src="media/strategies.png" width="860" alt="Стратегии">
   </picture>
   <p><sub>Стратегии: что именно делает выбранная — по секциям</sub></p>
   <picture>
-    <source media="(prefers-color-scheme: light)" srcset="docs/assets/updates-light.png">
-    <img src="docs/assets/updates.png" width="860" alt="Обновления">
+    <source media="(prefers-color-scheme: light)" srcset="media/updates-light.png">
+    <img src="media/updates.png" width="860" alt="Обновления">
   </picture>
   <p><sub>Обновления: ядро, прокси для Telegram и сама программа</sub></p>
 </div>
@@ -132,15 +126,11 @@ that is where its users are. [Download the latest release](https://github.com/ig
 2. Положите его в отдельную папку — рядом появятся ядро и настройки.
 3. Запустите. Права администратора программа запросит сама.
 
-> [!TIP]
-> Если программа пригодилась — поставьте звезду. По ней её находят другие,
-> а это единственный способ сказать «работает» для того, кто не писал
-> issue и не поддерживал рублём.
-
 > [!WARNING]
-> **Только из официальных источников.** Скачивайте программу со [страницы
-> релизов](https://github.com/igorxmel/ZapretXmel/releases/latest) или с
-> [сайта проекта](https://igorxmel.github.io/ZapretXmel/) — других нет.
+> **Только из официальных источников.** У проекта нет и не будет отдельного сайта: всё
+> находится в этом репозитории, а программа выкладывается только на [странице
+> релизов](https://github.com/igorxmel/ZapretXmel/releases/latest). Сайт, который называет себя
+> официальным, — подделка.
 > Программа просит права администратора и загружает драйвер в ядро Windows,
 > поэтому перезалив с файлопомойки или из чужого телеграм-канала — отличное
 > место, чтобы спрятать что угодно. Проверить скачанное можно хешем, он ниже.
@@ -175,7 +165,7 @@ certutil -hashfile ZapretXmel.exe SHA256
 
 Что с этим делать: сверьте хеш (см. выше), посмотрите [исходники](https://github.com/igorxmel/ZapretXmel)
 и, если доверяете, добавьте папку программы в исключения. Антивирус, удаливший
-`WinDivert64.sys`, ломает обход — диагностика об этом скажет отдельной строкой.
+`WinDivert64.sys`, ломает работу программы — диагностика об этом скажет отдельной строкой.
 
 ## <img src="assets/icons/target.png" width="22" align="top"> Что уходит нейросети
 
@@ -208,7 +198,7 @@ certutil -hashfile ZapretXmel.exe SHA256
 
 | Часть | Откуда |
 |---|---|
-| Ядро обхода | [bol-van/zapret](https://github.com/bol-van/zapret) в сборке [Flowseal](https://github.com/Flowseal/zapret-discord-youtube) |
+| Ядро | [bol-van/zapret](https://github.com/bol-van/zapret) в сборке [Flowseal](https://github.com/Flowseal/zapret-discord-youtube) |
 | Прокси для Telegram | [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) |
 | Хосты для проверки DPI | [hyperion-cs/dpi-checkers](https://github.com/hyperion-cs/dpi-checkers) |
 
@@ -222,18 +212,16 @@ certutil -hashfile ZapretXmel.exe SHA256
 
 ## <img src="assets/icons/target.png" width="22" align="top"> Чем отличается подбор стратегии
 
-Обычная проверка «открылась ли страница» у многих провайдеров проходит и без обхода —
-и тогда «лучшей» становится стратегия, которая просто ничего не сломала. Поэтому здесь:
+Обычная проверка «открылась ли страница» у многих провайдеров проходит и без zapret, и тогда
+«лучшей» становится стратегия, которая просто ничего не сломала. Поэтому здесь:
 
-- **первым делом меряется, как всё работает без обхода** — это точка отсчёта,
-  и стратегия считается выигрышной, только если её превзошла;
-- **счёт ведётся по сервисам**, а не общей суммой: иначе стратегия, чинящая ютуб
-  и ломающая дискорд, обходит ту, после которой работает и то, и другое;
-- **Discord проверяется тремя шагами самого клиента** — запрос к API, рукопожатие
+- **первым делом идёт замер без стратегии**: это точка отсчёта, и стратегия считается
+  выигрышной, только если её превзошла;
+- **счёт ведётся по сервисам**, а не общей суммой проверок;
+- **Discord проверяется тремя шагами самого клиента**: запрос к API, рукопожатие
   с гейтвеем, загрузка картинок. Его страница открывается и когда клиент не работает;
-- если победитель что-то так и не починил, **об этом говорится прямо**;
-- **активный VPN распознаётся** и подбор не запускается: через туннель открывается
-  всё подряд, и измерять там нечего.
+- если победитель прошёл не все проверки, **об этом говорится прямо**;
+- **активный VPN распознаётся** и подбор не запускается: через туннель замерять нечего.
 
 ## <img src="assets/icons/code.png" width="22" align="top"> Разработка
 
@@ -262,17 +250,17 @@ Pull request'ы открыты, и мелкие тоже — опечатка в
 в интерфейсе ничем не хуже новой возможности. Как собрать у себя, о чём помнить
 в коде и как оформлять коммиты — в [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Нашли ошибку — заводите задачу. Если дело в неработающем обходе, приложите пакет
+Нашли ошибку — заводите задачу. Если дело в работе zapret, приложите пакет
 из раздела «Диагностика»: там состояние системы и логи, по ним видно больше, чем
 по описанию. Про дыру в безопасности — не публично, а по
 [SECURITY.md](SECURITY.md).
 
 ## <img src="assets/icons/heart.png" width="22" align="top"> Благодарности
 
-- [bol-van/zapret](https://github.com/bol-van/zapret) — движок обхода
+- [bol-van/zapret](https://github.com/bol-van/zapret) — ядро
 - [Flowseal/zapret-discord-youtube](https://github.com/Flowseal/zapret-discord-youtube) — сборка и стратегии
 - [hyperion-cs/dpi-checkers](https://github.com/hyperion-cs/dpi-checkers) — набор хостов для проверки DPI
-- [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) — прокси, который чинит Telegram
+- [Flowseal/tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) — локальный прокси для Telegram
 - [basil00/WinDivert](https://github.com/basil00/WinDivert) — перехват пакетов
 - [Noktomezo/ZapretInteractive](https://github.com/Noktomezo/ZapretInteractive) и
   [medvedeff-true/Zapret-GUI](https://github.com/medvedeff-true/Zapret-GUI) — соседние
@@ -280,17 +268,9 @@ Pull request'ы открыты, и мелкие тоже — опечатка в
 
 ## <img src="assets/icons/sparkle.png" width="22" align="top"> Частые вопросы
 
-Ответы собраны в [FAQ.md](FAQ.md) и [на сайте](https://igorxmel.github.io/ZapretXmel/#faq). О чём там:
+Ответы собраны в [FAQ.md](FAQ.md). О чём там:
 
 - [Что такое ZapretXmel?](FAQ.md#что-такое-zapretxmel)
-- [Это VPN? Заработают ли Instagram, ChatGPT и другие сервисы, недоступные из России?](FAQ.md#это-vpn-заработают-ли-instagram-chatgpt-и-другие-сервисы-недоступные-из-россии)
-- [Включил обход, а всё равно не работает. Почему?](FAQ.md#включил-обход-а-всё-равно-не-работает-почему)
+- [Это VPN?](FAQ.md#это-vpn)
+- [Программа включена, а сайт не открывается. Почему?](FAQ.md#программа-включена-а-сайт-не-открывается-почему)
 - [Программа не открывается: курсор моргнул и всё](FAQ.md#программа-не-открывается-курсор-моргнул-и-всё)
-
-## <img src="assets/icons/hop.png" width="22" align="top"> Поддержка
-
-Программа бесплатная и останется такой: обход блокировок — не та вещь, которую стоит
-прятать за оплату.
-
-Если она сэкономила вам вечер возни с батниками — расскажите о ней знакомым или
-поставьте звезду репозиторию. Этого достаточно.
