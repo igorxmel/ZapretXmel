@@ -24,13 +24,7 @@ from app.core.config import Settings
 from app.ui import dialogs, motion
 from app.ui.activation import ActivationListener
 from app.ui.controller import Controller, Status
-from app.ui.frameless import (
-    GLYPH_EXPAND,
-    GLYPH_HELP,
-    GLYPH_SHRINK,
-    CaptionButton,
-    FramelessWindow,
-)
+from app.ui.frameless import FramelessWindow, SvgCaptionButton
 from app.ui.theme.tokens import BRAND, COLORS, SIZE, SPACE
 from app.ui.tray import Tray, app_icon, build_icon
 from app.ui.views import whatsnew
@@ -237,10 +231,10 @@ class MainWindow(FramelessWindow):
 
     def _build_corner_buttons(self) -> None:
         """Справка и смена вида окна: нужны из любого раздела и в обоих видах."""
-        help_button = CaptionButton(GLYPH_HELP, "Как пользоваться")
+        help_button = SvgCaptionButton("window-help", "Как пользоваться")
         help_button.clicked.connect(self._open_help)
 
-        self._compact_button = CaptionButton(GLYPH_SHRINK, "Мини-окно")
+        self._compact_button = SvgCaptionButton("window-shrink", "Мини-окно")
         self._compact_button.clicked.connect(lambda: self.set_compact(not self._compact))
 
         self.titlebar.add_left(help_button, self._compact_button)
@@ -265,7 +259,7 @@ class MainWindow(FramelessWindow):
         self._compact = compact
         self._pages.setCurrentWidget(self._mini if compact else self._pages.widget(0))
         self.set_sizable(not compact)
-        self._compact_button.set_glyph(GLYPH_EXPAND if compact else GLYPH_SHRINK)
+        self._compact_button.set_icon("window-expand" if compact else "window-shrink")
         self._compact_button.setToolTip("Полное окно" if compact else "Мини-окно")
 
         if compact:

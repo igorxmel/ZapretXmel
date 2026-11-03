@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QFrame,
@@ -19,7 +19,8 @@ from PyQt6.QtWidgets import (
 )
 
 from app.ui.controller import Controller, Status
-from app.ui.theme.tokens import SPACE
+from app.ui.frameless import SVG_ICON_SIZE, svg_icon
+from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.views.controls import PowerPair, QuickPanel, StatusNotices
 from app.ui.widgets import banner_pixmap
 
@@ -99,7 +100,7 @@ class MiniView(QWidget):
         self.toast.setWordWrap(True)
         footer.addWidget(self.toast)
 
-        self.menu_button = QPushButton("⚙  Все разделы")
+        self.menu_button = QPushButton("Все разделы")
         self.menu_button.setToolTip("Подбор, списки, настройки и остальное. Откроется полное окно")
         self._menu = QMenu(self)
         for key, title in sections:
@@ -114,6 +115,9 @@ class MiniView(QWidget):
 
     def reload(self) -> None:
         self.panel.reload()
+        # Заново при каждом входе в мини-окно: тему могли сменить в настройках.
+        self.menu_button.setIcon(svg_icon("window-sections", COLORS["text"]))
+        self.menu_button.setIconSize(QSize(SVG_ICON_SIZE, SVG_ICON_SIZE))
 
     def apply_status(self, status: Status) -> None:
         self.power.apply_status(status)

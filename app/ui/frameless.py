@@ -16,8 +16,9 @@ import ctypes
 import sys
 from ctypes import wintypes
 
-from PyQt6.QtCore import QEvent, QSize, Qt, QUrl
-from PyQt6.QtGui import QDesktopServices, QFont, QFontDatabase, QPainter
+from PyQt6.QtCore import QByteArray, QEvent, QRectF, QSize, Qt, QUrl
+from PyQt6.QtGui import QDesktopServices, QFont, QFontDatabase, QIcon, QPainter, QPixmap
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
@@ -29,7 +30,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.ui.theme.tokens import SPACE
+from app.core import paths
+from app.ui.theme.tokens import COLORS, SPACE
 
 WINDOWS = sys.platform == "win32"
 
@@ -42,6 +44,7 @@ LINKS = (
     ("GITHUB", "https://github.com/igorxmel/ZapretXmel"),
 )
 GRIP_THICKNESS = 5
+SVG_ICON_SIZE = 20
 
 # Значки кнопок окна из иконочного шрифта Windows. Обычные символы тут не
 # годятся: минус, квадрат и крестик взяты из разных мест текстового шрифта и
@@ -50,9 +53,6 @@ GLYPH_MINIMIZE = chr(0xE921)  # ChromeMinimize
 GLYPH_MAXIMIZE = chr(0xE922)  # ChromeMaximize
 GLYPH_RESTORE = chr(0xE923)  # ChromeRestore
 GLYPH_CLOSE = chr(0xE8BB)  # ChromeClose
-GLYPH_HELP = chr(0xE9CE)  # Unknown: вопрос в кружке
-GLYPH_SHRINK = chr(0xE73F)  # BackToWindow: стрелки внутрь
-GLYPH_EXPAND = chr(0xE740)  # FullScreen: стрелки наружу
 
 ICON_FONTS = ("Segoe Fluent Icons", "Segoe MDL2 Assets")
 
@@ -62,9 +62,6 @@ FALLBACK_GLYPHS = {
     GLYPH_MAXIMIZE: "□",
     GLYPH_RESTORE: "❐",
     GLYPH_CLOSE: "✕",
-    GLYPH_HELP: "?",
-    GLYPH_SHRINK: "›‹",
-    GLYPH_EXPAND: "‹›",
 }
 
 
@@ -149,6 +146,52 @@ class CaptionButton(QPushButton):
 
     def set_glyph(self, glyph: str) -> None:
         self.setText(glyph if self._font is not None else FALLBACK_GLYPHS.get(glyph, glyph))
+
+
+def svg_renderer(icon: str, colour: str) -> QSvgRenderer:
+    """Значок из `assets/icons` в нужном цвете. Цвет в самих файлах не задан: он от темы."""
+    markup = (paths.assets_dir() / "icons" / f"{icon}.svg").read_text(encoding="utf-8")
+    return QSvgRenderer(QByteArray(markup.replace("currentColor", colour).encode()))
+
+
+def svg_icon(icon: str, colour: str, size: int = SVG_ICON_SIZE) -> QIcon:
+    """Значок для обычной кнопки. Рисуется с запасом, чтобы не мылиться при масштабе экрана."""
+    scale = 3
+    picture = QPixmap(size * scale, size * scale)
+    picture.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(picture)
+    svg_renderer(icon, colour).render(painter)
+    painter.end()
+    picture.setDevicePixelRatio(scale)
+    return QIcon(picture)
+
+
+class SvgCaptionButton(CaptionButton):
+    """Кнопка заголовка с векторным значком.
+
+    Значки из системного шрифта на этих кнопках выходили крохотными и разными по
+    размеру. Рисуем прямо при отрисовке: так значок чёткий при любом масштабе экрана
+    и сам берёт цвет текущей темы, которая меняется на ходу.
+    """
+
+    def __init__(self, icon: str, tooltip: str, parent: QWidget | None = None):
+        super().__init__("", tooltip, parent)
+        self.set_icon(icon)
+
+    def set_icon(self, icon: str) -> None:
+        self._icon = icon
+        self.update()
+
+    def paintEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        super().paintEvent(event)
+        colour = COLORS["text"] if self.underMouse() else COLORS["text_dim"]
+        left = (self.width() - SVG_ICON_SIZE) / 2
+        top = (self.height() - SVG_ICON_SIZE) / 2
+        painter = QPainter(self)
+        svg_renderer(self._icon, colour).render(
+            painter, QRectF(left, top, SVG_ICON_SIZE, SVG_ICON_SIZE)
+        )
+        painter.end()
 
 
 class TitleBar(QWidget):

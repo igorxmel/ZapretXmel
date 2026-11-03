@@ -8,6 +8,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from PyQt6.QtCore import QByteArray
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import QApplication
 
 from app.core import guide, paths
@@ -61,6 +63,13 @@ def test_status_reaches_all_controls(mini: MiniView) -> None:
 
     assert mini.power.bypass.button.isChecked()
     assert not mini.notices.isHidden()
+
+
+def test_menu_button_has_a_drawn_icon_instead_of_a_symbol(mini: MiniView) -> None:
+    mini.reload()
+
+    assert mini.menu_button.text() == "Все разделы"
+    assert not mini.menu_button.icon().isNull()
 
 
 def test_compact_choice_survives_restart() -> None:
@@ -121,3 +130,15 @@ def test_steps_name_real_buttons(name: str) -> None:
 
 def test_help_window_opens(app: QApplication) -> None:
     assert "С чего начать" in HelpWindow().text.toPlainText()
+
+
+ICONS = ["window-help", "window-shrink", "window-expand", "window-sections"]
+
+
+@pytest.mark.parametrize("icon", ICONS)
+def test_title_icons_are_valid_and_follow_the_theme(icon: str) -> None:
+    """Цвет подставляется из темы, поэтому в файле он должен быть не задан жёстко."""
+    text = (ROOT / "assets" / "icons" / f"{icon}.svg").read_text(encoding="utf-8")
+
+    assert "currentColor" in text
+    assert QSvgRenderer(QByteArray(text.replace("currentColor", "#fff").encode())).isValid()
