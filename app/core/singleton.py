@@ -29,7 +29,7 @@ from pathlib import Path
 
 import psutil
 
-from app.core import foreground
+from app.core import foreground, processes
 
 log = logging.getLogger(__name__)
 
@@ -157,14 +157,14 @@ def other_instances() -> list[int]:
 
     own = Path(sys.executable).resolve()
     found: list[int] = []
-    for process in psutil.process_iter(["pid", "exe"]):
+    for pid in processes.pids_named(own.name):
+        if pid == os.getpid():
+            continue
         try:
-            if process.pid == os.getpid():
-                continue
-            executable = process.info["exe"]
+            executable = processes.executable(pid)
             if executable and Path(executable).resolve() == own:
-                found.append(process.pid)
-        except (psutil.NoSuchProcess, psutil.AccessDenied, OSError):
+                found.append(pid)
+        except OSError:
             continue
 
     return found

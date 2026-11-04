@@ -35,18 +35,13 @@ class Instance:
 
 def find_instances() -> list[Instance]:
     """Все процессы winws в системе, включая запущенные другими оболочками."""
+    # Сначала снимок по имени, а подробности только у совпавших. Перебор всех процессов с
+    # запросом путей и командных строк занимал больше минуты, и «Проверить систему» висела.
     found: list[Instance] = []
-    for process in psutil.process_iter(["name", "exe", "cmdline"]):
+    for pid in processes.pids_named(PROCESS_NAME):
         try:
-            if (process.info["name"] or "").lower() != PROCESS_NAME:
-                continue
-            found.append(
-                Instance(
-                    pid=process.pid,
-                    exe=process.info["exe"] or "",
-                    cmdline=list(process.info["cmdline"] or []),
-                )
-            )
+            process = psutil.Process(pid)
+            found.append(Instance(pid=pid, exe=process.exe(), cmdline=process.cmdline()))
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
     return found

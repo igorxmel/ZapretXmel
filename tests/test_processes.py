@@ -66,3 +66,48 @@ def test_uncaptured_child_does_not_wait_for_us(tmp_path: Path) -> None:
 
 def test_telegram_proxy_output_is_not_captured() -> None:
     assert telegram.TelegramProxy()._process._capture is False
+
+
+def test_full_system_snapshot_runs_end_to_end() -> None:
+    """Сломанный импорт внутри сбора сведений не ловил ни один тест по частям."""
+    from app.core.diagnostics import collectors
+
+    facts = collectors.collect()
+
+    assert isinstance(facts.conflicting_processes, list)
+    assert isinstance(facts.winws_cmdlines, list)
+
+
+def test_conflicting_process_is_found_by_name(monkeypatch) -> None:
+    from app.core.diagnostics import collectors
+
+    name, label = next(iter(collectors.CONFLICTING_PROCESSES.items()))
+    monkeypatch.setattr(processes, "all_names", lambda: [(1, name.upper()), (2, "chrome.exe")])
+
+    assert collectors.find_conflicting_processes() == [label]
+
+
+def test_winws_instance_details_are_read_only_for_matching_names(monkeypatch) -> None:
+    """Подробности всех процессов подряд занимали больше минуты."""
+    from app.core import winws
+
+    asked: list[int] = []
+
+    class Fake:
+        def __init__(self, pid):
+            asked.append(pid)
+
+        def exe(self):
+            return "C:\\core\\bin\\winws.exe"
+
+        def cmdline(self):
+            return ["winws.exe", "--wf-tcp=443"]
+
+    monkeypatch.setattr(processes, "all_names", lambda: [(7, "winws.exe"), (8, "chrome.exe")])
+    monkeypatch.setattr(winws.psutil, "Process", Fake)
+
+    found = winws.find_instances()
+
+    assert [item.pid for item in found] == [7]
+    assert asked == [7]
+    assert found[0].cmdline == ["winws.exe", "--wf-tcp=443"]

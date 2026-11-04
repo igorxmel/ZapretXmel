@@ -16,8 +16,6 @@ import winreg
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import psutil
-
 from app.core import (
     coreinfo,
     foreign,
@@ -25,6 +23,7 @@ from app.core import (
     ipset,
     lists,
     paths,
+    processes,
     service,
     strategies,
     winws,
@@ -193,13 +192,10 @@ def find_conflicting_processes() -> list[str]:
     running: list[str] = []
     wanted = {name.lower(): label for name, label in CONFLICTING_PROCESSES.items()}
 
-    for process in psutil.process_iter(["name"]):
-        try:
-            name = (process.info["name"] or "").lower()
-        except (psutil.NoSuchProcess, psutil.AccessDenied):
-            continue
-        if name in wanted and wanted[name] not in running:
-            running.append(wanted[name])
+    for _pid, name in processes.all_names():
+        label = wanted.get(name.lower())
+        if label and label not in running:
+            running.append(label)
 
     return running
 
