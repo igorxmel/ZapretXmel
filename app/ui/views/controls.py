@@ -109,6 +109,11 @@ class PowerTile(QWidget):
         self._state.setObjectName("Dim")
         self._state.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         self._state.setWordWrap(True)
+        # Место под две строки держим сразу. Иначе подпись на кадр обрезалась, а вся карточка
+        # подпрыгивала, когда длинное состояние приходило с первым опросом.
+        self._state.ensurePolished()
+        self._state.setMinimumHeight(2 * self._state.fontMetrics().lineSpacing())
+        self._state.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
         layout.addWidget(self._state)
 
     def apply(self, active: bool, enabled: bool, state: str) -> None:

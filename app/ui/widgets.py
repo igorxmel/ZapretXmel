@@ -481,6 +481,9 @@ class KeyValueRow(QWidget):
 
     def set_value(self, value: str) -> None:
         self._value.setText(value)
+        # Сразу, а не с очередью событий: ширина у строки уже есть, а до пересчёта новое значение
+        # успевало показаться в ширину старого, и на кадре видны были первые буквы.
+        self.layout().activate()
 
     def set_value_color(self, color: str) -> None:
         self._value.setStyleSheet(f"color: {color};")
