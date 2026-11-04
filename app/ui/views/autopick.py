@@ -292,6 +292,10 @@ class AutoPickView(QWidget):
     # --- прогон ---------------------------------------------------------
 
     def _start(self) -> None:
+        if self.controller.repair.running:
+            self.controller.error.emit("Идёт починка, дождитесь её конца.")
+            return
+
         specs = strategies.load_all()
         if not specs:
             self.controller.error.emit("Нет ни одной стратегии — сначала установите ядро.")
@@ -383,6 +387,7 @@ class AutoPickView(QWidget):
         # Подбор идёт минутами, и уйти на другую вкладку — нормально.
         # Пусть боковое меню показывает, что здесь ещё работают.
         self.busy_changed.emit(running)
+        self.controller.picking = running
         self._start_button.setEnabled(not running)
         self._cancel_button.setEnabled(running)
         for chip in [*self._service_chips, self._dpi_chip]:

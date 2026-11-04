@@ -458,6 +458,9 @@ class MainWindow(FramelessWindow):
             self.views[key].busy_changed.connect(
                 lambda busy, k=key, name=title: self.set_section_busy(k, name, busy)
             )
+        self.controller.repair.running_changed.connect(
+            lambda busy: self.set_section_busy("dashboard", "Починка", busy)
+        )
         self.controller.foreign_conflict.connect(self._ask_about_foreign)
         self.controller.watch_alert.connect(self._watch_alert)
         # Тревога гаснет сама, когда очередная проверка прошла целиком.
@@ -810,10 +813,15 @@ class MainWindow(FramelessWindow):
         self._whats_new.show()
         foreground.force(int(self._whats_new.winId()))
 
+    def _repair_from_welcome(self) -> None:
+        self.navigate("dashboard")
+        self.controller.repair.start()
+
     def show_welcome(self) -> None:
         """Открывает знакомство — при первом запуске и по кнопке из настроек."""
         self._welcome = WelcomeWindow(self.controller, self)
         self._welcome.navigate.connect(self.navigate)
+        self._welcome.repair_requested.connect(self._repair_from_welcome)
         self._welcome.tray_style_changed.connect(self._tray.refresh_style)
         self._welcome.refresh()
         self._welcome.show()

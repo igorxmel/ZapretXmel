@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import strategies
+from app.core import stability, strategies
 from app.core.batfile import StrategySpec
 from app.ui.controller import Controller, Status
 from app.ui.theme.tokens import COLORS, SPACE
@@ -144,8 +144,13 @@ class StrategiesView(QWidget):
 
         self._row_sections = KeyValueRow("Секций обхода")
         self._row_args = KeyValueRow("Аргументов winws")
+        self._row_stability = KeyValueRow("Стабильность")
+        self._row_stability.setToolTip(
+            "Результаты проверок, пока эта стратегия работала. Хранятся только на этом компьютере."
+        )
         body.addWidget(self._row_sections)
         body.addWidget(self._row_args)
+        body.addWidget(self._row_stability)
 
         self._sections = QListWidget()
         self._sections.setSelectionMode(QListWidget.SelectionMode.NoSelection)
@@ -212,6 +217,7 @@ class StrategiesView(QWidget):
         self._name.setText(spec.name)
         self._row_sections.set_value(str(len(spec.sections)))
         self._row_args.set_value(str(len(spec.argv)))
+        self._row_stability.set_value(stability.describe(spec.name))
 
         self._sync_favorite_button()
 

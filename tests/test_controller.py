@@ -148,6 +148,7 @@ def _watch_result(active: bool, broken: list[str]):
         _watch_tried=["tried"],
         remember_check=lambda check: None,
         watch_calm=SimpleNamespace(emit=lambda: events.append("calm")),
+        _note_stability=lambda _check: None,
         watch_alert=SimpleNamespace(emit=lambda message, switched: events.append("alert")),
     )
     Controller._watch_result(controller, SimpleNamespace(broken=broken))
@@ -180,6 +181,7 @@ def _remember_check(everything_works: bool):
     controller = SimpleNamespace(
         check_done=SimpleNamespace(emit=lambda check: None),
         watch_calm=SimpleNamespace(emit=lambda: events.append("calm")),
+        _note_stability=lambda _check: None,
     )
     Controller.remember_check(
         controller, SimpleNamespace(everything_works=everything_works)

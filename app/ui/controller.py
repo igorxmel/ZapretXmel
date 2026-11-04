@@ -18,6 +18,7 @@ from app.core import (
     foreign,
     netspeed,
     service,
+    stability,
     strategies,
     telegram,
     watch,
@@ -139,10 +140,22 @@ class Controller(QObject):
         # невозможно: следующая же проверка видит игру и включает снова.
         self._profile_declined = ""
         self._telegram_task: Task | None = None
+        # Идёт подбор на своём экране: починке и сторожу мешать ему нельзя.
+        self.picking = False
+        self._repair: object | None = None
         self.last_check: object | None = None
         self.last_check_at: datetime | None = None
         self._watch_timer = QTimer(self)
         self._watch_timer.timeout.connect(self.watch_now)
+
+    @property
+    def repair(self):
+        """Кнопка «Почини». Создаётся при первом обращении: она тянет за собой экранные потоки."""
+        if self._repair is None:
+            from app.ui.repair import RepairFlow
+
+            self._repair = RepairFlow(self)
+        return self._repair
 
     def start_polling(self) -> None:
         self.poll()
@@ -175,6 +188,9 @@ class Controller(QObject):
             return
         if not self.status.core_present:
             return
+        # Подбор и починка сами гасят обход: сторож принял бы это за поломку.
+        if self.picking or (self._repair is not None and self._repair.running):
+            return
 
         self._watch_worker = QuickCheckWorker(
             timeout=self.settings.probe_timeout, parallel=self.settings.probe_parallel
@@ -186,12 +202,26 @@ class Controller(QObject):
         """Запоминает результат проверки, откуда бы он ни пришёл."""
         self.last_check = check
         self.last_check_at = datetime.now()
+        self._note_stability(check)
         self.check_done.emit(check)
         # Человек только что убедился, что всё работает, — красной отметке
         # в трее здесь делать нечего. Ждать ради этого сторожа незачем: он
         # ходит раз в несколько минут.
         if check.everything_works:
             self.watch_calm.emit()
+
+    def _note_stability(self, check) -> None:
+        """Записывает проверку в журнал стратегии.
+
+        Только когда известно, что проверялось: при выключенном обходе и через VPN результат не про
+        стратегию. Если не открылось вообще ничего, то скорее всего нет интернета, и ставить это
+        стратегии в вину нельзя.
+        """
+        status = self.status
+        if not status.is_active or status.active_vpn or not status.active_strategy:
+            return
+        if check.working:
+            stability.record(status.active_strategy, check.everything_works)
 
     def _watch_result(self, check) -> None:
         """Решает, что делать с результатом проверки."""
@@ -202,7 +232,8 @@ class Controller(QObject):
             active=status.is_active,
             vpn=bool(status.active_vpn),
             autoswitch=self.settings.watch_autoswitch,
-            favorites=list(self.settings.favorites),
+            # Сначала те, что дольше держатся, а не те, что раньше отмечены звёздочкой.
+            favorites=stability.rank(list(self.settings.favorites)),
             current=status.active_strategy or self.settings.selected_strategy,
             tried=self._watch_tried,
         )

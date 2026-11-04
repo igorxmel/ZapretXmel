@@ -41,6 +41,7 @@ def app() -> QApplication:
 @pytest.fixture
 def panel(app: QApplication, monkeypatch: pytest.MonkeyPatch) -> QuickPanel:
     monkeypatch.setattr(Settings, "save", lambda _self: None)
+    monkeypatch.setattr("app.core.stability.record", lambda *_, **__: None)
     controller = Controller(Settings(selected_strategy="general"))
     controller.status = ON
     monkeypatch.setattr(controller, "start", lambda: None)

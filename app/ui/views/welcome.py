@@ -109,6 +109,8 @@ class WelcomeWindow(FramelessWindow):
 
     finished = pyqtSignal()
     navigate = pyqtSignal(str)
+    # Человек хочет просто рабочий результат, а не экскурсию по экрану подбора.
+    repair_requested = pyqtSignal()
     # Значок рисует трей главного окна, и он про это окно не знает.
     tray_style_changed = pyqtSignal()
 
@@ -252,7 +254,7 @@ class WelcomeWindow(FramelessWindow):
             "Подбирается перебором: программа проверит сервисы и выберет рабочую.",
             "Подобрать",
         )
-        self._strategy_step.button.clicked.connect(lambda: self._go("autopick"))
+        self._strategy_step.button.clicked.connect(self._pick_and_enable)
         body.addWidget(self._strategy_step)
         body.addWidget(Divider())
 
@@ -349,7 +351,7 @@ class WelcomeWindow(FramelessWindow):
                 if has_strategy
                 else "Подбирается перебором: программа проверит сервисы и выберет рабочую."
             ),
-            action="Подобрать заново" if has_strategy else "Подобрать",
+            action="Подобрать заново" if has_strategy else "Подобрать и включить",
             enabled=core.present,
         )
 
@@ -414,6 +416,14 @@ class WelcomeWindow(FramelessWindow):
         self._say(f"Готово: установлена версия {version}", COLORS["success"])
         self.controller.refresh()
         self.refresh()
+
+    def _pick_and_enable(self) -> None:
+        reason = self.controller.repair.refusal()
+        if reason:
+            self._say(reason, COLORS["warning"])
+            return
+        self.repair_requested.emit()
+        self._finish()
 
     def _go(self, destination: str) -> None:
         """Отправляет в нужный раздел и закрывает знакомство."""

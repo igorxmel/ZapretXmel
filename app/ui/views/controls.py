@@ -322,6 +322,15 @@ class QuickPanel(QWidget):
         self._check_button.clicked.connect(self._check_clicked)
         body.addWidget(self._check_button)
 
+        # Человеку не нужно знать, чем проверка отличается от подбора: нужно, чтобы заработало.
+        self._repair_button = QPushButton("Не работает? Починить")
+        self._repair_button.setToolTip(
+            "Проверит сервисы, попробует лучшие стратегии, при необходимости переберёт все и "
+            "включит подошедшую. На это время обход выключается."
+        )
+        self._repair_button.clicked.connect(self._repair_clicked)
+        body.addWidget(self._repair_button)
+
         self._check_result = QLabel("")
         self._check_result.setObjectName("Dim")
         self._check_result.setWordWrap(True)
@@ -331,6 +340,11 @@ class QuickPanel(QWidget):
         self._watch_line = QLabel("")
         self._watch_line.setWordWrap(True)
         body.addWidget(self._watch_line)
+
+        flow = controller.repair
+        flow.running_changed.connect(self._repair_running)
+        flow.progress.connect(lambda text: self._say_check(text, COLORS["text_muted"]))
+        flow.finished.connect(self._say_check)
 
     # --- стратегия --------------------------------------------------------
 
@@ -441,6 +455,33 @@ class QuickPanel(QWidget):
             self._say_check(f"Включаю «{pending}»…", COLORS["text_muted"])
             self._apply_strategy()
             QTimer.singleShot(SETTLE_MS, self._run_quick_check)
+
+    def _repair_clicked(self) -> None:
+        flow = self.controller.repair
+        if flow.running:
+            flow.cancel()
+            return
+
+        reason = flow.refusal()
+        if reason:
+            self._say_check(reason, COLORS["warning"])
+            return
+
+        if dialogs.confirm(
+            self,
+            "Починить",
+            "Подобрать рабочую стратегию и включить её?",
+            "Обычно это минута, но если лучшие стратегии не подойдут, программа переберёт все, "
+            "а это несколько минут. На это время обход выключается. Если ничего не подойдёт, "
+            "вернётся прежняя стратегия.",
+            action="Починить",
+        ):
+            flow.start()
+
+    def _repair_running(self, running: bool) -> None:
+        self._repair_button.setText("Остановить" if running else "Не работает? Починить")
+        self._check_button.setEnabled(not running)
+        self._apply_button.setEnabled(not running and self._strategy_box.count() > 0)
 
     def _ask_about_pending(self, pending: str) -> str:
         dialog = dialogs.Dialog(
