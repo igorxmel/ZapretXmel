@@ -6,11 +6,13 @@
 
 from __future__ import annotations
 
-from app.core import stability
+from app.core import coverage, stability
 from app.core.probe.autopick import Report, StrategyScore
 
 # Сколько стратегий пробуем первым, быстрым заходом. Полный перебор идёт минутами.
 SHORTLIST_SIZE = 3
+
+NOTHING: frozenset[str] = frozenset()
 
 
 def shortlist(names: list[str], favorites: list[str], current: str) -> list[str]:
@@ -29,13 +31,20 @@ def remaining(names: list[str], tried: list[str]) -> list[str]:
     return [name for name in names if name not in tried]
 
 
-def fully_works(score: StrategyScore | None) -> bool:
-    return score is not None and bool(score.working_services) and not score.broken_services
+def check_passes(results: list, ignored: frozenset[str] = NOTHING) -> bool:
+    """Всё, на что стратегия могла повлиять, работает."""
+    return coverage.has_working_checks(results, ignored) and not coverage.broken_services(
+        results, ignored
+    )
 
 
-def nothing_is_blocked(report: Report) -> bool:
+def fully_works(score: StrategyScore | None, ignored: frozenset[str] = NOTHING) -> bool:
+    return score is not None and check_passes(score.services, ignored)
+
+
+def nothing_is_blocked(report: Report, ignored: frozenset[str] = NOTHING) -> bool:
     """Без обхода и так всё открывается: чинить нечего, и дело не в стратегии."""
-    return fully_works(report.baseline)
+    return fully_works(report.baseline, ignored)
 
 
 def choose(report: Report) -> StrategyScore | None:

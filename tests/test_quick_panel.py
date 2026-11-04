@@ -27,6 +27,7 @@ ON = Status(core_present=True, winws_count=1, active_strategy="general")
 
 
 class FakeCheck:
+    results: list = []
     everything_works = True
     working = ["YouTube"]
     broken: list[str] = []

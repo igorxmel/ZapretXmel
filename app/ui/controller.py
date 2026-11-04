@@ -15,8 +15,10 @@ from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
 from app.core import (
     coreinfo,
+    coverage,
     foreign,
     netspeed,
+    repair,
     service,
     stability,
     strategies,
@@ -221,7 +223,8 @@ class Controller(QObject):
         if not status.is_active or status.active_vpn or not status.active_strategy:
             return
         if check.working:
-            stability.record(status.active_strategy, check.everything_works)
+            ignored = coverage.uncovered_target_names()
+            stability.record(status.active_strategy, repair.check_passes(check.results, ignored))
 
     def _watch_result(self, check) -> None:
         """Решает, что делать с результатом проверки."""

@@ -86,7 +86,10 @@ class _Check:
     def __init__(self, working: list[str], broken: list[str]):
         self.working = working
         self.broken = broken
-        self.judged = [*working, *broken]
+        self.results = [
+            *(ServiceResult(n, [CheckResult(n, True, "", target=n)]) for n in working),
+            *(ServiceResult(n, [CheckResult(n, False, "", target=n)]) for n in broken),
+        ]
         self.everything_works = bool(working) and not broken
 
 
@@ -108,6 +111,7 @@ ON = Status(core_present=True, winws_count=1, active_strategy="A")
     ],
 )
 def test_only_meaningful_checks_are_written(home: Path, status, check, written: bool) -> None:
+    (paths.core_utils() / "targets.txt").write_text("", encoding="utf-8")
     controller = Controller(Settings())
     controller.status = status
 

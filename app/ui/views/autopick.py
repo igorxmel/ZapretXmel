@@ -27,7 +27,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import merge, strategies
+from app.core import coverage, merge, strategies
 from app.core.batfile import StrategySpec
 from app.core.diagnostics import vpn
 from app.core.probe import dpi, services
@@ -83,6 +83,7 @@ class AutoPickView(QWidget):
         self._dpi_targets: list[dpi.DpiTarget] = []
         # Сборка, которая сейчас на проверке.
         self._built: StrategySpec | None = None
+        self._uncovered: list[str] = []
         self._services: list[services.Service] = []
         self._service_chips: list[Chip] = []
         self._ignore_vpn = False
@@ -154,6 +155,8 @@ class AutoPickView(QWidget):
         self._note.setTextFormat(Qt.TextFormat.RichText)
         body.addWidget(self._note)
 
+        body.addWidget(self._build_coverage_box())
+
         self._progress = QProgressBar()
         self._progress.setTextVisible(False)
         self._progress.hide()
@@ -165,6 +168,45 @@ class AutoPickView(QWidget):
         body.addWidget(self._status)
 
         return card
+
+    def _build_coverage_box(self) -> QWidget:
+        """Свои сайты вне списков: подбор их проверит, но ни одна стратегия на них не повлияет."""
+        self._coverage_box = QWidget()
+        row = QHBoxLayout(self._coverage_box)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(SPACE["sm"])
+
+        self._coverage_note = QLabel("")
+        self._coverage_note.setObjectName("Muted")
+        self._coverage_note.setWordWrap(True)
+        self._coverage_note.setStyleSheet(f"color: {COLORS['warning']};")
+        row.addWidget(self._coverage_note, 1)
+
+        self._coverage_button = QPushButton("Добавить в мой список")
+        self._coverage_button.setToolTip(
+            "Допишет эти сайты в «Свои домены» в разделе «Списки». Убрать их можно там же."
+        )
+        self._coverage_button.clicked.connect(self._add_to_own_list)
+        row.addWidget(self._coverage_button)
+
+        self._coverage_box.hide()
+        return self._coverage_box
+
+    def _show_coverage(self) -> None:
+        self._uncovered = coverage.own_uncovered_hosts()
+        self._coverage_box.setVisible(bool(self._uncovered))
+        if self._uncovered:
+            self._coverage_note.setText(
+                f"Нет в списках: {', '.join(self._uncovered)}. Подбор проверит эти сайты, "
+                "но ни одна стратегия на них не повлияет."
+            )
+
+    def _add_to_own_list(self) -> None:
+        coverage.add_to_own_list(self._uncovered)
+        self._show_coverage()
+        self.controller.message.emit(
+            "Сайты добавлены в свой список. Если обход включён, перезапустите его."
+        )
 
     def _build_results_card(self) -> Card:
         card = Card("Результаты")
@@ -210,6 +252,7 @@ class AutoPickView(QWidget):
         self._ignore_vpn = False
         services.ensure_user_targets()
         self._rebuild_chips()
+        self._show_coverage()
         self._mode_changed()
         self._warn_if_tunnel()
 

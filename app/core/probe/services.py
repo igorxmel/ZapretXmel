@@ -38,6 +38,9 @@ USER_TARGETS_NAME = "targets-user.txt"
 USER_TARGETS_TEMPLATE = """\
 # Свои цели для подбора стратегии.
 #
+# Цель только проверяется: стратегия действует лишь на сайты из своих списков. Чтобы обход
+# затронул новый сайт, добавьте его в разделе «Списки» или кнопкой на экране подбора.
+#
 # Заголовок со знаками ### задаёт сервис — по нему будет отдельная оценка.
 # Строка вида Имя = "https://адрес" проверяет сайт, PING: — только отклик.
 #
@@ -53,6 +56,8 @@ class CheckResult:
     name: str
     ok: bool
     detail: str = ""
+    # Какую цель проверяли: на одну цель приходится несколько проб с разными именами.
+    target: str = ""
 
 
 @dataclass(frozen=True)
@@ -197,6 +202,7 @@ def check(service: Service, timeout: int = 6, parallel: int = 1) -> ServiceResul
                     name=target.name,
                     ok=result.ping_ms is not None,
                     detail="пинг" if result.ping_ms is not None else "нет отклика",
+                    target=target.name,
                 )
             )
             continue
@@ -207,6 +213,7 @@ def check(service: Service, timeout: int = 6, parallel: int = 1) -> ServiceResul
                     name=f"{target.name} · {probe.protocol}",
                     ok=probe.outcome is Outcome.OK,
                     detail=str(probe.outcome),
+                    target=target.name,
                 )
             )
 

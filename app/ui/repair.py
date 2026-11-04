@@ -10,7 +10,7 @@ import logging
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
-from app.core import repair, strategies
+from app.core import coverage, repair, strategies
 from app.core.probe import services
 from app.core.probe.autopick import Report, save_report
 from app.ui.theme.tokens import COLORS
@@ -38,6 +38,8 @@ class RepairFlow(QObject):
         self._specs: list = []
         self._tried: list[str] = []
         self._full_pass = False
+        # Цели, на которые стратегии не влияют: их провал не повод перебирать всё заново.
+        self._ignored: frozenset[str] = frozenset()
         self._quick: QuickCheckWorker | None = None
         self._picker: AutoPickWorker | None = None
 
@@ -69,6 +71,7 @@ class RepairFlow(QObject):
         self._specs = strategies.load_all()
         self._tried = []
         self._full_pass = False
+        self._ignored = coverage.uncovered_target_names()
 
         self.progress.emit("Проверяю, что не работает…")
         self._run_quick(self._first_check_done)
@@ -111,8 +114,10 @@ class RepairFlow(QObject):
 
     def _first_check_done(self, check) -> None:
         self.controller.remember_check(check)
-        if check.everything_works and self.controller.status.is_active:
-            self._finish("Всё уже работает, чинить нечего.", COLORS["success"])
+        if repair.check_passes(check.results, self._ignored) and self.controller.status.is_active:
+            self._finish(
+                "Всё уже работает, чинить нечего." + self._coverage_note(), COLORS["success"]
+            )
             return
 
         names = [spec.name for spec in self._specs]
@@ -160,16 +165,17 @@ class RepairFlow(QObject):
             self._finish("Починка остановлена, вернул как было.", COLORS["text_muted"])
             return
 
-        if repair.nothing_is_blocked(report):
+        if repair.nothing_is_blocked(report, self._ignored):
             self._restore()
             self._finish(
-                "Сейчас всё открывается и без обхода, менять стратегию незачем.",
+                "Сейчас всё открывается и без обхода, менять стратегию незачем."
+                + self._coverage_note(),
                 COLORS["success"],
             )
             return
 
         best = repair.choose(report)
-        if repair.fully_works(best):
+        if repair.fully_works(best, self._ignored):
             self._apply(best.name)
             return
 
@@ -196,13 +202,22 @@ class RepairFlow(QObject):
         verify = lambda check: self._verified(name, check)  # noqa: E731
         QTimer.singleShot(SETTLE_MS, lambda: self._run_quick(verify))
 
+    def _coverage_note(self) -> str:
+        """О своих сайтах вне списков говорим отдельно: иначе провал читается как поломка."""
+        hosts = coverage.own_uncovered_hosts()
+        if not hosts:
+            return ""
+        return f" На {', '.join(hosts)} стратегии не влияют: их нет в списках."
+
     def _verified(self, name: str, check) -> None:
         self.controller.remember_check(check)
-        if check.everything_works:
-            self._finish(f"Готово: включена «{name}», всё работает.", COLORS["success"])
-        elif check.working:
-            listed = ", ".join(check.broken)
-            self._finish(f"Включена «{name}», но не работает: {listed}.", COLORS["warning"])
+        broken = coverage.broken_services(check.results, self._ignored)
+        note = self._coverage_note()
+        if repair.check_passes(check.results, self._ignored):
+            self._finish(f"Готово: включена «{name}», всё работает.{note}", COLORS["success"])
+        elif coverage.has_working_checks(check.results, self._ignored):
+            listed = ", ".join(broken)
+            self._finish(f"Включена «{name}», но не работает: {listed}.{note}", COLORS["warning"])
         else:
             self._finish(
                 f"Включена «{name}», но проверка ничего не открыла. Проверьте интернет.",

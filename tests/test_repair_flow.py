@@ -22,7 +22,12 @@ NAMES = ["a", "b", "c", "d", "e"]
 
 
 def _check(working: list[str], broken: list[str]) -> SimpleNamespace:
+    results = [
+        *(ServiceResult(name, [CheckResult(name, True, "", target=name)]) for name in working),
+        *(ServiceResult(name, [CheckResult(name, False, "", target=name)]) for name in broken),
+    ]
     return SimpleNamespace(
+        results=results,
         working=working,
         broken=broken,
         everything_works=bool(working) and not broken,
@@ -103,11 +108,18 @@ class Harness:
             repair_module.QTimer, "singleShot", lambda _ms, call: call()
         )
         monkeypatch.setattr(repair_module.repair.stability, "load", dict)
+        monkeypatch.setattr(repair_module.coverage, "uncovered_target_names", frozenset)
+        monkeypatch.setattr(repair_module.coverage, "own_uncovered_hosts", list)
+
+
+@pytest.fixture(scope="module")
+def app() -> QApplication:
+    # Ссылку надо держать: удалённый сборщиком QApplication роняет Qt целиком.
+    return QApplication.instance() or QApplication([])
 
 
 @pytest.fixture
-def flow(monkeypatch: pytest.MonkeyPatch) -> RepairFlow:
-    QApplication.instance() or QApplication([])
+def flow(app: QApplication, monkeypatch: pytest.MonkeyPatch) -> RepairFlow:
     monkeypatch.setattr(Settings, "save", lambda _self: None)
     monkeypatch.setattr("app.core.stability.record", lambda *_, **__: None)
     controller = Controller(Settings(selected_strategy="a"))
@@ -249,3 +261,38 @@ def test_watch_stays_quiet_while_repairing(flow, monkeypatch) -> None:
     flow.controller.watch_now()
 
     assert created == []
+
+
+def _ignore_my_site(monkeypatch: pytest.MonkeyPatch) -> None:
+    ignored = frozenset({"Мой сайт"})
+    monkeypatch.setattr(repair_module.coverage, "uncovered_target_names", lambda: ignored)
+
+
+def test_own_site_outside_lists_does_not_cause_a_full_pass(flow, monkeypatch) -> None:
+    """Иначе кнопка каждый раз перебирала всё и в конце жаловалась на сайт, а не на стратегию."""
+    mine = _check(["YouTube"], ["Мой сайт"])
+    harness = Harness(monkeypatch, [mine], lambda names: _report(names))
+    _ignore_my_site(monkeypatch)
+    monkeypatch.setattr(repair_module.coverage, "own_uncovered_hosts", lambda: ["my-site.example"])
+    answers = _answers(flow)
+
+    flow.start()
+
+    assert harness.passes == [], "обход работает: чинить нечего"
+    assert flow.controller.log == []
+    assert "чинить нечего" in answers[0] and "my-site.example" in answers[0]
+
+
+def test_uncovered_failure_leaves_the_result_a_success(flow, monkeypatch) -> None:
+    broken_first = _check([], ["YouTube", "Мой сайт"])
+    fixed = _check(["YouTube"], ["Мой сайт"])
+    harness = Harness(
+        monkeypatch, [broken_first, fixed], lambda names: _report(names, winner=names[0])
+    )
+    _ignore_my_site(monkeypatch)
+    answers = _answers(flow)
+
+    flow.start()
+
+    assert len(harness.passes) == 1
+    assert "всё работает" in answers[0]
