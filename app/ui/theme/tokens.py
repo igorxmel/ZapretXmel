@@ -150,7 +150,7 @@ SIZE: Final[dict[str, int]] = {
     "window_width": 1320,
     "window_height": 880,
     "mini_width": 400,
-    "mini_height": 780,
+    "mini_height": 820,
     "row_height": 30,
     "control_height": 28,
 }

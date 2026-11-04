@@ -10,7 +10,9 @@ from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QPainter
 from PyQt6.QtWidgets import (
     QFrame,
+    QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMenu,
     QPushButton,
     QScrollArea,
@@ -20,11 +22,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.core import nettools
 from app.ui.controller import Controller, Status
 from app.ui.frameless import SVG_ICON_SIZE, svg_renderer
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.views.controls import PowerPair, QuickPanel, StatusNotices
 from app.ui.widgets import banner_pixmap
+from app.ui.workers import Task
 
 BANNER_WIDTH = 230
 
@@ -90,6 +94,7 @@ class MiniView(QWidget):
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
+        self._site_task: Task | None = None
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -129,6 +134,8 @@ class MiniView(QWidget):
             lambda: QTimer.singleShot(0, lambda: scroll.ensureWidgetVisible(self.panel.answer))
         )
 
+        layout.addWidget(self._build_site_check())
+
         layout.addStretch(1)
 
         footer = QVBoxLayout()
@@ -161,6 +168,61 @@ class MiniView(QWidget):
         footer.addWidget(self.menu_button)
 
         controller.status_changed.connect(self.apply_status)
+
+    def _build_site_check(self) -> QWidget:
+        """Свой сайт: самый частый вопрос, и ради него не стоит открывать диагностику."""
+        box = QWidget()
+        column = QVBoxLayout(box)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(SPACE["sm"])
+
+        row = QHBoxLayout()
+        row.setSpacing(SPACE["sm"])
+        self.site = QLineEdit()
+        self.site.setPlaceholderText("Свой сайт, например example.org")
+        self.site.returnPressed.connect(self._check_site)
+        row.addWidget(self.site, 1)
+
+        self.site_button = QPushButton("Проверить")
+        self.site_button.clicked.connect(self._check_site)
+        row.addWidget(self.site_button)
+        column.addLayout(row)
+
+        self.site_result = QLabel("")
+        self.site_result.setObjectName("Dim")
+        self.site_result.setWordWrap(True)
+        column.addWidget(self.site_result)
+        return box
+
+    def _say_site(self, text: str, colour: str) -> None:
+        self.site_result.setStyleSheet(f"color: {colour};")
+        self.site_result.setText(text)
+
+    def _check_site(self) -> None:
+        if self._site_task is not None and self._site_task.isRunning():
+            return
+
+        raw = self.site.text().strip()
+        host = nettools.normalize_host(raw)
+        if not host:
+            self._say_site(
+                f"«{raw}» не похоже на адрес сайта." if raw else "Впишите адрес сайта.",
+                COLORS["warning"],
+            )
+            return
+
+        self.site_button.setEnabled(False)
+        self._say_site(f"Проверяю {host}…", COLORS["text_muted"])
+        self._site_task = Task(nettools.where_blocked, host)
+        self._site_task.done.connect(self._site_checked)
+        self._site_task.failed.connect(lambda text: self._say_site(text, COLORS["danger"]))
+        self._site_task.finished.connect(lambda: self.site_button.setEnabled(True))
+        self._site_task.start()
+
+    def _site_checked(self, outcome) -> None:
+        colours = {"ok": "success", "warning": "warning"}
+        colour = COLORS[colours.get(outcome.level, "danger")]
+        self._say_site(outcome.verdict or outcome.title, colour)
 
     def reload(self) -> None:
         self.panel.reload()
