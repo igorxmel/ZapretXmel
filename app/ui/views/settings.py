@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 
 from app.core import (
     autostart,
+    backup,
     fakes,
     gamefilter,
     ipset,
@@ -322,8 +323,65 @@ class SettingsView(QWidget):
         welcome.clicked.connect(self._show_welcome)
         body.addWidget(welcome)
 
+        transfer = QHBoxLayout()
+        transfer.setSpacing(SPACE["sm"])
+
+        export_button = QPushButton("Выгрузить настройки")
+        export_button.setToolTip(
+            "Настройки, свои списки, цели, профили и стратегии одним файлом. Ключи нейросети "
+            "в него не попадают."
+        )
+        export_button.clicked.connect(self._export_settings)
+        transfer.addWidget(export_button)
+
+        import_button = QPushButton("Загрузить настройки")
+        import_button.clicked.connect(self._import_settings)
+        transfer.addWidget(import_button)
+        body.addLayout(transfer)
+
         body.addStretch(1)
         return card
+
+    def _export_settings(self) -> None:
+        name, _ = QFileDialog.getSaveFileName(
+            self, "Выгрузить настройки", "ZapretXmel-настройки.zip", "Архив (*.zip)"
+        )
+        if not name:
+            return
+        try:
+            count = backup.export(Path(name), self.controller.settings)
+        except OSError as error:
+            self.controller.error.emit(f"Не удалось выгрузить настройки: {error}")
+            return
+        self.controller.message.emit(f"Настройки выгружены, своих файлов: {count}")
+
+    def _import_settings(self) -> None:
+        name, _ = QFileDialog.getOpenFileName(self, "Загрузить настройки", "", "Архив (*.zip)")
+        if not name:
+            return
+
+        if not dialogs.confirm(
+            self,
+            "Загрузить настройки",
+            "Загружайте только свой архив.",
+            "Настройки и одноимённые файлы будут заменены. Стратегии из архива запускаются с "
+            "правами администратора, поэтому чужому файлу доверять нельзя.",
+            action="Загрузить",
+        ):
+            return
+
+        try:
+            result = backup.restore(Path(name), self.controller.settings)
+        except backup.BackupError as error:
+            self.controller.error.emit(f"Не удалось загрузить настройки: {error}")
+            return
+
+        self.reload()
+        self.controller.refresh()
+        note = f"Настройки загружены, файлов: {len(result.restored)}"
+        if result.skipped:
+            note += f", пропущено: {len(result.skipped)}"
+        self.controller.message.emit(note)
 
     def _build_checks_card(self) -> Card:
         """Сторож и то, с какими сроками идут проверки.
