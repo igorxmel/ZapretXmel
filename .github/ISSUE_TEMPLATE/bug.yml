@@ -1,0 +1,26 @@
+name: Поломка
+description: Что-то работает не так
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Что случилось
+      description: Что вы делали, что ожидали увидеть и что получилось.
+    validations:
+      required: true
+  - type: textarea
+    id: report
+    attributes:
+      label: Отчёт из программы
+      description: >-
+        Раздел «Поддержка» → «Сообщить о поломке» → «Скопировать и открыть GitHub», затем вставьте
+        сюда. Имя пользователя и публичные адреса из него уже убраны, но просмотрите текст сами.
+    validations:
+      required: false
+  - type: input
+    id: provider
+    attributes:
+      label: Провайдер
+      description: Необязательно. Стратегии зависят от провайдера, поэтому это часто помогает.
+    validations:
+      required: false

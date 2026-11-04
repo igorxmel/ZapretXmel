@@ -11,13 +11,15 @@ from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
+    QPlainTextEdit,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
 
-from app.core import donate
+from app.core import donate, report
 from app.core.updater import github
+from app.ui import dialogs
 from app.ui.controller import Controller
 from app.ui.theme.tokens import BRAND, COLORS, SPACE
 from app.ui.widgets import Card, Divider, banner_pixmap, view_header
@@ -32,7 +34,8 @@ REPO = "igorxmel/ZapretXmel"
 REPO_URL = f"https://github.com/{REPO}"
 # Лимит GitHub общий на адрес, поэтому спрашиваем не при каждом открытии экрана.
 STARS_REFRESH_SECONDS = 600
-ISSUES_URL = f"{REPO_URL}/issues/new"
+ISSUES_URL = f"{REPO_URL}/issues/new?template=bug.yml"
+REPORT_ACTION = "Скопировать и открыть GitHub"
 
 # Те, кто ловил поломки на себе, пока их не поймали все остальные.
 TESTERS = ("Dencraz", "Drendr", "DynamitNS")
@@ -76,6 +79,7 @@ class SupportView(QWidget):
         super().__init__(parent)
         self.controller = controller
         self._stars_task: Task | None = None
+        self._report_task: Task | None = None
         self._stars_asked_at: float | None = None
         self._star_count: int | None = None
 
@@ -122,13 +126,13 @@ class SupportView(QWidget):
         self._paint_testers()
         body.addWidget(self._testers)
 
-        issue = QPushButton("Сообщить о поломке")
-        issue.setToolTip(
-            "Откроется страница issue на GitHub. Приложите журнал из раздела "
-            "«Логи» — по нему видно, что именно случилось."
+        self._issue = QPushButton("Сообщить о поломке")
+        self._issue.setToolTip(
+            "Соберёт отчёт и покажет его вам. Имя пользователя и публичные адреса из него убраны, "
+            "а отправляете его вы сами."
         )
-        issue.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(ISSUES_URL)))
-        body.addWidget(issue)
+        self._issue.clicked.connect(self._collect_report)
+        body.addWidget(self._issue)
 
         body.addWidget(Divider())
 
@@ -157,6 +161,41 @@ class SupportView(QWidget):
 
         body.addStretch(1)
         return card
+
+    def _collect_report(self) -> None:
+        self._issue.setEnabled(False)
+        self._issue.setText("Собираю отчёт…")
+        self._report_task = Task(report.build_text)
+        self._report_task.done.connect(self._show_report)
+        self._report_task.failed.connect(self._report_failed)
+        self._report_task.finished.connect(self._report_collected)
+        self._report_task.start()
+
+    def _report_collected(self) -> None:
+        self._issue.setEnabled(True)
+        self._issue.setText("Сообщить о поломке")
+
+    def _report_failed(self, message: str) -> None:
+        self.controller.error.emit(f"Отчёт не собрался: {message}")
+
+    def _show_report(self, text: str) -> None:
+        """Текст уходит через буфер обмена: в адресе ссылки он осел бы в истории браузера."""
+        dialog = dialogs.Dialog(
+            self,
+            "Сообщить о поломке",
+            "Просмотрите отчёт перед отправкой.",
+            "Откроется страница задачи на GitHub, отчёт будет в буфере обмена: вставьте его в поле "
+            "«Отчёт из программы». Сама программа ничего не отправляет.",
+        )
+        view = QPlainTextEdit(text)
+        view.setReadOnly(True)
+        view.setMinimumSize(620, 300)
+        dialog.insert_widget(view)
+        dialog.add_action("Отмена")
+        dialog.add_action(REPORT_ACTION, primary=True)
+        if dialog.ask() == REPORT_ACTION:
+            QApplication.clipboard().setText(text)
+            QDesktopServices.openUrl(QUrl(ISSUES_URL))
 
     def _copy_link(self) -> None:
         QApplication.clipboard().setText(REPO_URL)
