@@ -36,6 +36,7 @@ REPO_URL = f"https://github.com/{REPO}"
 STARS_REFRESH_SECONDS = 600
 ISSUES_URL = f"{REPO_URL}/issues/new?template=bug.yml"
 REPORT_ACTION = "Скопировать и открыть GitHub"
+REPORT_WIDTH = 760
 
 # Те, кто ловил поломки на себе, пока их не поймали все остальные.
 TESTERS = ("Dencraz", "Drendr", "DynamitNS")
@@ -189,8 +190,10 @@ class SupportView(QWidget):
         )
         view = QPlainTextEdit(text)
         view.setReadOnly(True)
-        view.setMinimumSize(620, 300)
+        view.setMinimumHeight(320)
         dialog.insert_widget(view)
+        # Обычный вопрос узкий, а здесь человек читает длинный текст перед отправкой.
+        dialog.setFixedWidth(REPORT_WIDTH)
         dialog.add_action("Отмена")
         dialog.add_action(REPORT_ACTION, primary=True)
         if dialog.ask() == REPORT_ACTION:
