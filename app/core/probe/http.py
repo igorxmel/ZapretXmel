@@ -16,6 +16,7 @@ import functools
 import logging
 import re
 import subprocess
+import threading
 import time
 from dataclasses import dataclass
 from enum import StrEnum
@@ -69,9 +70,27 @@ PROTOCOLS: tuple[tuple[str, tuple[str, ...]], ...] = (
 # с «сайт недоступен».
 _CAPABILITY_HOST = "https://www.gstatic.com"
 
+# Schannel по умолчанию ходит проверять отзыв сертификата, и у него это жёсткая ошибка: нет ответа
+# от сервера отзыва, значит, нет и соединения. Браузеры в таком случае просто идут дальше, поэтому
+# сайт открывался, а проверка считала его сломанным. Цепочка сертификата проверяется как обычно,
+# так что подмена по-прежнему видна.
+NO_REVOKE = "--ssl-no-revoke"
+
+_capability_lock = threading.Lock()
+
+
+def supported_protocols() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Один замер на всех: `functools.cache` сам по себе не мешает потокам мерить одновременно.
+
+    Быстрая проверка спрашивает из всех потоков сразу, и первая после запуска гоняла по три curl
+    на каждый поток.
+    """
+    with _capability_lock:
+        return _detect_protocols()
+
 
 @functools.cache
-def supported_protocols() -> tuple[tuple[str, tuple[str, ...]], ...]:
+def _detect_protocols() -> tuple[tuple[str, tuple[str, ...]], ...]:
     """Протоколы, которые системный curl действительно умеет.
 
     В Windows 10 curl собран со Schannel, и `--tls-max 1.3` там отвергается:
@@ -87,7 +106,7 @@ def supported_protocols() -> tuple[tuple[str, tuple[str, ...]], ...]:
     for name, args in PROTOCOLS:
         command = [
             str(CURL), "-I", "-s", "--show-error", "-o", "NUL",
-            "-m", "8", "--connect-timeout", "4", *args, _CAPABILITY_HOST,
+            "-m", "8", "--connect-timeout", "4", NO_REVOKE, *args, _CAPABILITY_HOST,
         ]
         try:
             completed = subprocess.run(  # noqa: S603 — фиксированный путь к системному curl
@@ -177,6 +196,7 @@ def probe(target: Target, protocol: str, args: tuple[str, ...], timeout: int = 5
         str(timeout),
         "--connect-timeout",
         str(min(2, timeout)),
+        NO_REVOKE,
         *args,
         target.url,
     ]

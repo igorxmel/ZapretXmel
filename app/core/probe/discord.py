@@ -20,6 +20,7 @@ import secrets
 import socket
 import ssl
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -136,8 +137,21 @@ def check_cdn(timeout: int = DEFAULT_TIMEOUT) -> StepResult:
     return StepResult(Step.CDN, ok, detail, _timed(started))
 
 
-def check_all(timeout: int = DEFAULT_TIMEOUT) -> list[StepResult]:
-    return [check_api(timeout), check_gateway(timeout=timeout), check_cdn(timeout)]
+def check_all(timeout: int = DEFAULT_TIMEOUT, parallel: bool = False) -> list[StepResult]:
+    """Шаги клиента. По очереди в подборе, параллельно в быстрой проверке.
+
+    Неответивший шаг ждёт таймаут на соединение и ещё один на чтение, и три таких шага подряд
+    растягивали «быструю» проверку на полминуты.
+    """
+    if not parallel:
+        return [check_api(timeout), check_gateway(timeout=timeout), check_cdn(timeout)]
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        steps = [
+            pool.submit(check_api, timeout),
+            pool.submit(check_gateway, timeout=timeout),
+            pool.submit(check_cdn, timeout),
+        ]
+        return [step.result() for step in steps]
 
 
 def summarise(results: list[StepResult]) -> str:

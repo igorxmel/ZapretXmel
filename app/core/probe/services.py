@@ -58,6 +58,8 @@ class CheckResult:
     detail: str = ""
     # Какую цель проверяли: на одну цель приходится несколько проб с разными именами.
     target: str = ""
+    # Что ответил curl: без этого по журналу не понять, какая цель и почему не прошла.
+    reason: str = ""
 
 
 @dataclass(frozen=True)
@@ -183,7 +185,7 @@ def check(service: Service, timeout: int = 6, parallel: int = 1) -> ServiceResul
             service=service.name,
             checks=[
                 CheckResult(name=step.title, ok=step.ok, detail=step.detail)
-                for step in discord.check_all(timeout=timeout)
+                for step in discord.check_all(timeout=timeout, parallel=parallel > 1)
             ],
         )
 
@@ -214,6 +216,7 @@ def check(service: Service, timeout: int = 6, parallel: int = 1) -> ServiceResul
                     ok=probe.outcome is Outcome.OK,
                     detail=str(probe.outcome),
                     target=target.name,
+                    reason=probe.detail,
                 )
             )
 
