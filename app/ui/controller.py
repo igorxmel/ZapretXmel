@@ -133,6 +133,10 @@ class Controller(QObject):
         # секунды, поэтому опрос состояния её ждать не должен.
         self._watch_worker = None
         self._watch_tried: list[str] = []
+        # Что не прошло в прошлый раз, и о чём уже сказано (см. `_watch_result`).
+        self._watch_suspects: list[str] = []
+        self._watch_reported: list[str] = []
+        self._watch_rechecking = False
         # Профиль поднимается и гасится не сам по себе, а по итогам опроса,
         # и действие не должно запускать само себя заново.
         self._profile_busy = False
@@ -242,6 +246,9 @@ class Controller(QObject):
         )
 
         if decision.quiet:
+            self._watch_suspects = []
+            self._watch_reported = []
+            self._watch_rechecking = False
             # Всё в порядке — счётчик попыток можно обнулить: следующая
             # поломка начнётся с чистого листа. Сюда же попадает выключенный
             # обход: проверка находит закрытые сервисы, но ломаться было
@@ -254,13 +261,46 @@ class Controller(QObject):
             self.watch_calm.emit()
             return
 
+        # Тревога только после второго провала подряд, а перепроверка одна: при мигающей сети
+        # иначе проверки шли бы каждую минуту.
+        broken = watch.confirmed(check.broken, self._watch_suspects)
+        self._watch_suspects = list(check.broken)
+        if not broken:
+            if not self._watch_rechecking:
+                self._watch_rechecking = True
+                self._schedule_watch_recheck()
+            return
+        self._watch_rechecking = False
+
+        decision = watch.decide(
+            broken,
+            active=status.is_active,
+            vpn=bool(status.active_vpn),
+            autoswitch=self.settings.watch_autoswitch,
+            favorites=stability.rank(list(self.settings.favorites)),
+            current=status.active_strategy or self.settings.selected_strategy,
+            tried=self._watch_tried,
+        )
+
+        # Об одном и том же говорим один раз: отметка в трее и так остаётся, а уведомление
+        # каждые 15 минут приучает его не читать. Частичная починка тоже не новость о поломке.
+        if not decision.switch_to and set(broken) <= set(self._watch_reported):
+            return
+        self._watch_reported = list(broken)
+
         self.watch_alert.emit(decision.message, bool(decision.switch_to))
         if not decision.switch_to:
             return
 
+        # У новой стратегии свой счёт: провалы прежней ей в вину не ставим.
+        self._watch_suspects = []
+        self._watch_reported = []
         self._watch_tried.append(decision.switch_to)
         self.select_strategy(decision.switch_to)
         self.restart()
+
+    def _schedule_watch_recheck(self) -> None:
+        QTimer.singleShot(watch.RECHECK_SECONDS * 1000, self.watch_now)
 
     # --- состояние ------------------------------------------------------
 

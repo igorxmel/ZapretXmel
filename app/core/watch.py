@@ -23,6 +23,9 @@ log = logging.getLogger(__name__)
 # Дальше — дело подбора: он меряет честно, а сторож только latает.
 MAX_SWITCHES = 3
 
+# Через сколько перепроверить, прежде чем поднимать тревогу.
+RECHECK_SECONDS = 60
+
 
 @dataclass(frozen=True)
 class Decision:
@@ -36,6 +39,15 @@ class Decision:
     def quiet(self) -> bool:
         """Правда, когда говорить не о чем."""
         return not self.message
+
+
+def confirmed(broken: list[str], suspects: list[str]) -> list[str]:
+    """Сервисы, не прошедшие две проверки подряд.
+
+    Одной проверке верить нельзя: достаточно одной цели из нескольких, не ответившей за таймаут. В
+    журналах сервис то появлялся в списке сломанных, то исчезал, а тревога загоралась каждый раз.
+    """
+    return [name for name in broken if name in suspects]
 
 
 def next_candidate(favorites: list[str], current: str, tried: list[str]) -> str:

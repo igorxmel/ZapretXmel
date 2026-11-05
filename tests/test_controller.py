@@ -133,7 +133,13 @@ def test_dead_profile_disappears_from_the_list() -> None:
     assert controller._alive_profiles() == ("obsidian",)
 
 
-def _watch_result(active: bool, broken: list[str]):
+def _watch_result(
+    active: bool,
+    broken: list[str],
+    suspects: list[str] | None = None,
+    reported: list[str] | None = None,
+    rechecking: bool = False,
+):
     """Зовёт обработчик сторожа на заглушке и собирает его сигналы.
 
     Настоящий `Controller` поднимает Qt и таймеры, а проверяется здесь только
@@ -146,6 +152,10 @@ def _watch_result(active: bool, broken: list[str]):
             watch_autoswitch=False, favorites=[], selected_strategy="general"
         ),
         _watch_tried=["tried"],
+        _watch_suspects=suspects or [],
+        _watch_reported=reported or [],
+        _watch_rechecking=rechecking,
+        _schedule_watch_recheck=lambda: events.append("recheck"),
         remember_check=lambda check: None,
         watch_calm=SimpleNamespace(emit=lambda: events.append("calm")),
         _note_stability=lambda _check: None,
@@ -156,10 +166,66 @@ def _watch_result(active: bool, broken: list[str]):
 
 
 def test_active_bypass_with_broken_services_raises_the_alert() -> None:
-    events, controller = _watch_result(active=True, broken=["YouTube"])
+    events, controller = _watch_result(active=True, broken=["YouTube"], suspects=["YouTube"])
 
     assert events == ["alert"]
     assert controller._watch_tried == ["tried"], "попытки не сбрасываются до победы"
+
+
+def test_first_failure_is_rechecked_instead_of_alarming() -> None:
+    """Одна цель не ответила за таймаут, а значок краснел, хотя всё открывалось."""
+    events, controller = _watch_result(active=True, broken=["YouTube"])
+
+    assert events == ["recheck"]
+    assert controller._watch_suspects == ["YouTube"]
+
+
+def test_recheck_with_other_service_does_not_loop() -> None:
+    events, controller = _watch_result(
+        active=True, broken=["Google"], suspects=["YouTube"], rechecking=True
+    )
+
+    assert events == [], "ждём обычной проверки, а не перепроверяем каждую минуту"
+    assert controller._watch_suspects == ["Google"]
+
+
+def test_same_failure_is_reported_once() -> None:
+    """Отметка остаётся, а уведомление каждые 15 минут ничего нового не сообщает."""
+    events, _ = _watch_result(
+        active=True, broken=["YouTube"], suspects=["YouTube"], reported=["YouTube"]
+    )
+
+    assert events == []
+
+
+def test_partial_recovery_is_not_a_new_alarm() -> None:
+    events, _ = _watch_result(
+        active=True, broken=["YouTube"], suspects=["YouTube"], reported=["YouTube", "Google"]
+    )
+
+    assert events == []
+
+
+def test_new_failure_is_reported() -> None:
+    events, _ = _watch_result(
+        active=True,
+        broken=["YouTube", "Google"],
+        suspects=["YouTube", "Google"],
+        reported=["YouTube"],
+    )
+
+    assert events == ["alert"]
+
+
+def test_recovery_forgets_what_was_reported() -> None:
+    events, controller = _watch_result(
+        active=True, broken=[], suspects=["YouTube"], reported=["YouTube"], rechecking=True
+    )
+
+    assert events == ["calm"]
+    assert controller._watch_suspects == []
+    assert controller._watch_reported == []
+    assert controller._watch_rechecking is False
 
 
 def test_disabled_bypass_clears_the_alert() -> None:
