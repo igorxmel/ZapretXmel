@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import ctypes
+import logging
 import sys
 from ctypes import wintypes
 
@@ -32,6 +33,8 @@ from PyQt6.QtWidgets import (
 
 from app.core import paths
 from app.ui.theme.tokens import COLORS, SPACE
+
+log = logging.getLogger(__name__)
 
 WINDOWS = sys.platform == "win32"
 
@@ -146,8 +149,16 @@ class CaptionButton(QPushButton):
 
 
 def svg_renderer(icon: str, colour: str) -> QSvgRenderer:
-    """Значок из `assets/icons` в нужном цвете. Цвет в самих файлах не задан: он от темы."""
-    markup = (paths.assets_dir() / "icons" / f"{icon}.svg").read_text(encoding="utf-8")
+    """Значок из `assets/icons` в нужном цвете. Цвет в самих файлах не задан: он от темы.
+
+    Пропавший файл даёт пустой значок, а не падение: зовётся это из отрисовки, и исключение
+    оттуда показывало окно «программа не может продолжать» на каждой перерисовке кнопки.
+    """
+    try:
+        markup = (paths.assets_dir() / "icons" / f"{icon}.svg").read_text(encoding="utf-8")
+    except OSError as error:
+        log.warning("Значок %s не прочитан: %s", icon, error)
+        return QSvgRenderer()
     return QSvgRenderer(QByteArray(markup.replace("currentColor", colour).encode()))
 
 

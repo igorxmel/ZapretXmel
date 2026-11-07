@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import filecmp
+import shutil
 import sys
 from functools import cache
 from pathlib import Path
@@ -46,14 +48,36 @@ def is_frozen() -> bool:
 def assets_dir() -> Path:
     """Картинки приложения.
 
-    В сборке PyInstaller ресурсы распаковываются во временную папку `_MEIPASS`,
-    а не лежат рядом с .exe — поэтому путь ищется в обоих местах.
+    В сборке PyInstaller ресурсы распаковываются во временную папку `_MEIPASS`. Брать их оттуда
+    нельзя: программа работает сутками, а чистильщики временных файлов стирают всё, что не
+    занято. Библиотеки заняты и уцелели, а значки пропали, и окно падало на первой же отрисовке
+    кнопки заголовка. Поэтому картинки копируются к данным программы и берутся оттуда.
     """
     if getattr(sys, "frozen", False):
         bundled = Path(getattr(sys, "_MEIPASS", "")) / "assets"
         if bundled.is_dir():
-            return bundled
+            return _stable_copy(bundled, data_dir() / "assets")
     return app_root() / "assets"
+
+
+def _stable_copy(source: Path, target: Path) -> Path:
+    """Дописывает в `target` недостающее и изменившееся. Не вышло — остаёмся на `source`.
+
+    Сверяем содержимое, а не дату: распакованные файлы каждый раз новее, а значок мог
+    поменяться с версией при том же размере.
+    """
+    try:
+        for file in source.rglob("*"):
+            if not file.is_file():
+                continue
+            copy = target / file.relative_to(source)
+            if copy.is_file() and filecmp.cmp(file, copy, shallow=False):
+                continue
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(file, copy)
+    except OSError:
+        return source
+    return target
 
 
 def logo_file() -> Path:
@@ -134,6 +158,7 @@ def reset_cache() -> None:
     install_root.cache_clear()
     core_dir.cache_clear()
     data_dir.cache_clear()
+    assets_dir.cache_clear()
 
 
 @cache
