@@ -74,6 +74,45 @@ def test_few_checks_prove_nothing(home: Path) -> None:
     assert stability.rank(["A", "B"]) == ["A", "B"]
 
 
+def test_old_checks_drop_out_of_the_window(home: Path) -> None:
+    """Вечный счёт держал оценку стратегии, переставшей работать, на сотнях старых удач."""
+    for day in range(1, 11):
+        stability.record("A", True, now=datetime(2026, 10, day))
+    stability.record("A", False, now=datetime(2026, 11, 1))
+
+    assert stability.load()["A"].recent(datetime(2026, 11, 1)) == [False]
+    assert stability.describe("A", now=datetime(2026, 11, 1)).startswith("прошла 0 из 1")
+
+
+def test_changed_strategy_file_starts_a_new_journal(home: Path) -> None:
+    bat = paths.core_dir() / "A.bat"
+    bat.write_text("старые аргументы", encoding="utf-8")
+    for _ in range(stability.ENOUGH_CHECKS):
+        stability.record("A", False)
+
+    bat.write_text("новые аргументы", encoding="utf-8")
+
+    assert stability.describe("A") == "пока не проверялась"
+    assert stability.rank(["B", "A"]) == ["B", "A"], "неизвестная, а не плохая"
+    stability.record("A", True)
+    assert stability.load()["A"].checks == 1
+
+
+def test_journal_of_old_versions_is_started_over(home: Path) -> None:
+    (paths.data_dir() / stability.FILENAME).write_text(
+        '{"A": {"checks": 300, "passed": 290, "working_since": ""}}', encoding="utf-8"
+    )
+
+    assert stability.load() == {}
+
+
+def test_entries_are_capped(home: Path) -> None:
+    for _ in range(stability.MAX_ENTRIES + 5):
+        stability.record("A", True)
+
+    assert stability.load()["A"].checks == stability.MAX_ENTRIES
+
+
 def test_broken_journal_does_not_break_anything(home: Path) -> None:
     (paths.data_dir() / stability.FILENAME).write_text("{не json", encoding="utf-8")
 

@@ -463,6 +463,7 @@ class MainWindow(FramelessWindow):
         )
         self.controller.foreign_conflict.connect(self._ask_about_foreign)
         self.controller.watch_alert.connect(self._watch_alert)
+        self.controller.advice.connect(self._advice)
         # Тревога гаснет сама, когда очередная проверка прошла целиком.
         # Обновление при этом не трогаем: оно никуда не делось.
         self.controller.watch_calm.connect(lambda: self._tray.set_alert(False))
@@ -588,6 +589,14 @@ class MainWindow(FramelessWindow):
         )
         if switched:
             log.info("Сторож переключил стратегию: %s", message)
+
+    def _advice(self, text: str) -> None:
+        """Совет о лучшей стратегии: в окне и в трее, но без тревоги — ничего не сломалось."""
+        self._show_toast(text, COLORS["text_dim"])
+        if not self.isVisible() or self.isMinimized():
+            self._tray.showMessage(
+                "ZapretXmel", text, build_icon(self.controller.status.is_active), 10000
+            )
 
     def _ask_about_foreign(self, path: str) -> None:
         """Спрашивает разрешение подвинуть другую установку zapret.

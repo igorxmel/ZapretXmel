@@ -20,7 +20,7 @@ from PyQt6.QtCore import QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PyQt6.QtWidgets import QMenu, QSystemTrayIcon, QWidget
 
-from app.core import paths
+from app.core import paths, stability
 from app.ui.controller import Controller, Status
 from app.ui.theme.tokens import BRAND, COLORS
 from app.ui.widgets import logo_pixmap
@@ -237,6 +237,9 @@ class Tray(QSystemTrayIcon):
         # заодно обновление.
         self._has_update = False
         self._has_alert = False
+        # Отметки стабильности у избранного. Читаются при открытии меню, а не на каждом опросе.
+        self._marks: dict[str, str] = {}
+        self._last_strategy = ""
 
         self.setIcon(self._icon())
         self.setToolTip("ZapretXmel")
@@ -284,6 +287,7 @@ class Tray(QSystemTrayIcon):
         quit_action.triggered.connect(self.quit_requested.emit)
         menu.addAction(quit_action)
 
+        menu.aboutToShow.connect(self._refresh_marks)
         self.setContextMenu(menu)
         self.activated.connect(self._on_activated)
         controller.status_changed.connect(self.apply_status)
@@ -304,11 +308,16 @@ class Tray(QSystemTrayIcon):
         self._favorites_menu.menuAction().setVisible(bool(favorites))
 
         for name in favorites:
-            action = QAction(name, self._favorites_menu)
+            mark = self._marks.get(name)
+            action = QAction(f"{name}   {mark}" if mark else name, self._favorites_menu)
             action.setCheckable(True)
             action.setChecked(name == active)
             action.triggered.connect(lambda _, chosen=name: self._switch_to(chosen))
             self._favorites_menu.addAction(action)
+
+    def _refresh_marks(self) -> None:
+        self._marks = stability.marks(list(self.controller.settings.favorites))
+        self._rebuild_favorites(self._last_strategy)
 
     def _switch_to(self, name: str) -> None:
         self.controller.select_strategy(name)
@@ -361,6 +370,7 @@ class Tray(QSystemTrayIcon):
         self._strategy_action.setVisible(bool(strategy))
         self._strategy_action.setText(f"Стратегия: {strategy}" if strategy else "")
 
+        self._last_strategy = strategy
         self._rebuild_favorites(strategy)
 
         # Подсказка короткая: Windows показывает её крупной плашкой у курсора,

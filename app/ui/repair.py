@@ -122,7 +122,8 @@ class RepairFlow(QObject):
 
         names = [spec.name for spec in self._specs]
         favorites = list(self.controller.settings.favorites)
-        short = repair.shortlist(names, favorites, self._previous)
+        broken = coverage.broken_services(check.results, self._ignored)
+        short = repair.shortlist(names, favorites, self._previous, broken)
         if not short:
             self._full_pass = True
             short = names

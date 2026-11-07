@@ -15,15 +15,20 @@ SHORTLIST_SIZE = 3
 NOTHING: frozenset[str] = frozenset()
 
 
-def shortlist(names: list[str], favorites: list[str], current: str) -> list[str]:
+def shortlist(
+    names: list[str], favorites: list[str], current: str, broken: list[str] | None = None
+) -> list[str]:
     """Что пробовать сначала: избранное, затем лучшее по журналу.
+
+    Если известно, что сломано, лучшее считается по этим сервисам: при сломанном YouTube нужна
+    стратегия, у которой держится именно он.
 
     Текущую стратегию не берём: она только что не прошла проверку. Но если больше нечего
     пробовать, остаётся полный перебор.
     """
     available = [name for name in names if name != current]
-    liked = [name for name in stability.rank(favorites) if name in available]
-    others = [name for name in stability.rank(available) if name not in liked]
+    liked = [name for name in stability.rank(favorites, broken) if name in available]
+    others = [name for name in stability.rank(available, broken) if name not in liked]
     return [*liked, *others][:SHORTLIST_SIZE]
 
 

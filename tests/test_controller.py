@@ -139,6 +139,8 @@ def _watch_result(
     suspects: list[str] | None = None,
     reported: list[str] | None = None,
     rechecking: bool = False,
+    last_failed: bool = False,
+    keep_records: bool = False,
 ):
     """Зовёт обработчик сторожа на заглушке и собирает его сигналы.
 
@@ -156,13 +158,40 @@ def _watch_result(
         _watch_reported=reported or [],
         _watch_rechecking=rechecking,
         _schedule_watch_recheck=lambda: events.append("recheck"),
-        remember_check=lambda check: None,
+        _watch_last_failed=last_failed,
+        remember_check=lambda check, record=True: events.append("record") if record else None,
         watch_calm=SimpleNamespace(emit=lambda: events.append("calm")),
         _note_stability=lambda _check: None,
         watch_alert=SimpleNamespace(emit=lambda message, switched: events.append("alert")),
     )
     Controller._watch_result(controller, SimpleNamespace(broken=broken))
+    if not keep_records:
+        events[:] = [event for event in events if event != "record"]
     return events, controller
+
+
+def test_single_failure_is_not_written_to_the_journal() -> None:
+    events, controller = _watch_result(active=True, broken=["YouTube"], keep_records=True)
+
+    assert "record" not in events
+    assert controller._watch_last_failed is True
+
+
+def test_repeated_failure_is_written() -> None:
+    events, controller = _watch_result(
+        active=True, broken=["YouTube"], suspects=["YouTube"], last_failed=True, keep_records=True
+    )
+
+    assert "record" in events
+
+
+def test_passing_check_is_written_and_clears_the_flag() -> None:
+    events, controller = _watch_result(
+        active=True, broken=[], last_failed=True, keep_records=True
+    )
+
+    assert "record" in events
+    assert controller._watch_last_failed is False
 
 
 def test_active_bypass_with_broken_services_raises_the_alert() -> None:

@@ -104,6 +104,8 @@ class Controller(QObject):
     watch_calm = pyqtSignal()
     # Результат любой быстрой проверки — своей или сторожевой.
     check_done = pyqtSignal(object)
+    # Другая стратегия держится заметно лучше включённой: подсказка, а не переключение.
+    advice = pyqtSignal(str)
 
     def __init__(self, settings: Settings, parent: QObject | None = None):
         super().__init__(parent)
@@ -137,6 +139,10 @@ class Controller(QObject):
         self._watch_suspects: list[str] = []
         self._watch_reported: list[str] = []
         self._watch_rechecking = False
+        # Не прошла ли прошлая проверка сторожа: в журнал идёт только провал, повторившийся дважды.
+        self._watch_last_failed = False
+        # О какой паре «включённая → лучше» уже сказано: совет повторять незачем.
+        self._advised: set[tuple[str, str]] = set()
         # Профиль поднимается и гасится не сам по себе, а по итогам опроса,
         # и действие не должно запускать само себя заново.
         self._profile_busy = False
@@ -204,11 +210,12 @@ class Controller(QObject):
         self._watch_worker.done.connect(self._watch_result)
         self._watch_worker.start()
 
-    def remember_check(self, check) -> None:
+    def remember_check(self, check, record: bool = True) -> None:
         """Запоминает результат проверки, откуда бы он ни пришёл."""
         self.last_check = check
         self.last_check_at = datetime.now()
-        self._note_stability(check)
+        if record:
+            self._note_stability(check)
         self.check_done.emit(check)
         # Человек только что убедился, что всё работает, — красной отметке
         # в трее здесь делать нечего. Ждать ради этого сторожа незачем: он
@@ -227,12 +234,40 @@ class Controller(QObject):
         if not status.is_active or status.active_vpn or not status.active_strategy:
             return
         if check.working:
-            ignored = coverage.uncovered_target_names()
-            stability.record(status.active_strategy, repair.check_passes(check.results, ignored))
+            ignored = getattr(check, "ignored", None)
+            if ignored is None:
+                ignored = coverage.uncovered_target_names()
+            stability.record(
+                status.active_strategy,
+                repair.check_passes(check.results, ignored),
+                working=list(check.working),
+                broken=list(check.broken),
+            )
+            self._advise(status.active_strategy)
+
+    def _advise(self, active: str) -> None:
+        """Подсказывает стратегию, которая за две недели держалась заметно лучше.
+
+        Только подсказка: переключать без спроса тут не за что, проверки другой стратегии
+        собраны в другие дни. Об одной и той же паре говорим один раз за запуск.
+        """
+        better, theirs, ours = stability.better_choice(active)
+        if not better or (active, better) in self._advised:
+            return
+        self._advised.add((active, better))
+        self.advice.emit(
+            f"За две недели «{better}» держалась лучше включённой «{active}»: прошла {theirs}% "
+            f"проверок против {ours}%. Переключиться можно в разделе «Стратегии»."
+        )
 
     def _watch_result(self, check) -> None:
         """Решает, что делать с результатом проверки."""
-        self.remember_check(check)
+        # Одиночный провал в журнал не идёт: одна цель, не ответившая за таймаут, обнуляла
+        # «без сбоев» и занижала оценку стратегии, которая на деле работала. Провал, повторившийся
+        # на следующей проверке (перепроверка через минуту), записывается.
+        failed = bool(check.broken)
+        self.remember_check(check, record=not failed or self._watch_last_failed)
+        self._watch_last_failed = failed
         status = self.status
         decision = watch.decide(
             check.broken,

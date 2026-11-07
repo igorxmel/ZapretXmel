@@ -146,11 +146,28 @@ class StrategiesView(QWidget):
         self._row_args = KeyValueRow("Аргументов winws")
         self._row_stability = KeyValueRow("Стабильность")
         self._row_stability.setToolTip(
-            "Результаты проверок, пока эта стратегия работала. Хранятся только на этом компьютере."
+            "Проверки за последние две недели, пока эта стратегия работала. Одиночный сбой сторожа"
+            " не считается, если следующая проверка прошла. Если файл стратегии изменился, счёт"
+            " начинается заново. Хранится только на этом компьютере."
         )
         body.addWidget(self._row_sections)
         body.addWidget(self._row_args)
         body.addWidget(self._row_stability)
+        self._row_services = KeyValueRow("По сервисам")
+        self._row_services.setToolTip(
+            "Как часто каждый сервис работал с этой стратегией за последние две недели. Помогает"
+            " понять, что именно у неё отваливается."
+        )
+        body.addWidget(self._row_services)
+        self._row_hours = KeyValueRow("Сбои")
+        self._row_hours.setToolTip(
+            "Когда сбои собираются в одни и те же часы, дело обычно в провайдере: многие строже"
+            " вечером. Стратегия при этом может быть лучшей из доступных."
+        )
+        body.addWidget(self._row_hours)
+        # Отметки «98%» в списке. Считаются при перечитывании, а не на каждом опросе состояния:
+        # опрос идёт раз в несколько секунд и читал бы журнал по кругу.
+        self._marks: dict[str, str] = {}
 
         self._sections = QListWidget()
         self._sections.setSelectionMode(QListWidget.SelectionMode.NoSelection)
@@ -190,6 +207,7 @@ class StrategiesView(QWidget):
         favorites = self.controller.settings.favorites
         self._specs.sort(key=lambda spec: spec.name not in favorites)
 
+        self._marks = stability.marks([spec.name for spec in self._specs])
         self._list.clear()
         for spec in self._specs:
             item = QListWidgetItem(spec.name)
@@ -218,6 +236,12 @@ class StrategiesView(QWidget):
         self._row_sections.set_value(str(len(spec.sections)))
         self._row_args.set_value(str(len(spec.argv)))
         self._row_stability.set_value(stability.describe(spec.name))
+        self._row_services.set_value(
+            stability.describe_services(spec.name) or "пока мало проверок"
+        )
+        hours = stability.describe_hours(spec.name)
+        self._row_hours.set_value(hours)
+        self._row_hours.setVisible(bool(hours))
 
         self._sync_favorite_button()
 
@@ -275,14 +299,15 @@ class StrategiesView(QWidget):
             item = self._list.item(row)
             name = item.data(Qt.ItemDataRole.UserRole)
             star = "★ " if name in favorites else ""
+            mark = f"   {self._marks[name]}" if name in self._marks else ""
 
             if name == status.active_strategy and status.is_active:
-                item.setText(f"{star}{name}   ● активна")
+                item.setText(f"{star}{name}{mark}   ● активна")
                 item.setForeground(Qt.GlobalColor.white)
             elif name == self.controller.settings.selected_strategy:
-                item.setText(f"{star}{name}   ○ выбрана")
+                item.setText(f"{star}{name}{mark}   ○ выбрана")
             else:
-                item.setText(f"{star}{name}")
+                item.setText(f"{star}{name}{mark}")
 
         self._sync_favorite_button()
 
