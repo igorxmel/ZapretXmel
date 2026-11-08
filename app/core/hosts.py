@@ -31,6 +31,21 @@ HOSTS_URL = (
 
 CREATE_NO_WINDOW = 0x08000000
 
+# Права администратора есть, а файл всё равно не открывается: его закрывает
+# антивирус (у Касперского и Dr.Web это защита hosts по умолчанию) или с файла
+# сняты права. Раньше раздел «Обновления» от этого падал при каждом открытии.
+LOCKED = (
+    "Windows не даёт открыть файл hosts. Обычно его защищает антивирус: "
+    "разрешите ZapretXmel менять hosts в его настройках или поправьте файл вручную"
+)
+
+
+class HostsLocked(RuntimeError):
+    """Файл hosts закрыт для программы — текст ошибки можно показывать человеку."""
+
+    def __init__(self) -> None:
+        super().__init__(LOCKED)
+
 
 def hosts_path() -> Path:
     root = os.environ.get("SYSTEMROOT", r"C:\Windows")
@@ -43,17 +58,35 @@ class HostsStatus:
     managed: bool
     managed_lines: int
     total_lines: int
+    readable: bool = True
 
 
 def _read() -> str:
     path = hosts_path()
-    if not path.exists():
-        return ""
-    return path.read_text(encoding="utf-8", errors="replace")
+    try:
+        if not path.exists():
+            return ""
+        return path.read_text(encoding="utf-8", errors="replace")
+    except OSError as error:
+        log.warning("Файл hosts не читается: %s", error)
+        raise HostsLocked() from error
+
+
+def _write(content: str) -> None:
+    try:
+        hosts_path().write_text(content, encoding="utf-8")
+    except OSError as error:
+        log.warning("Файл hosts не записывается: %s", error)
+        raise HostsLocked() from error
 
 
 def status() -> HostsStatus:
-    content = _read()
+    try:
+        content = _read()
+    except HostsLocked:
+        return HostsStatus(
+            exists=True, managed=False, managed_lines=0, total_lines=0, readable=False
+        )
     if not content:
         return HostsStatus(exists=False, managed=False, managed_lines=0, total_lines=0)
 
@@ -112,7 +145,7 @@ def apply(section: str) -> int:
     block = "\n".join([BEGIN_MARKER, *lines, END_MARKER])
     updated = f"{current}\n\n{block}\n" if current else f"{block}\n"
 
-    hosts_path().write_text(updated, encoding="utf-8")
+    _write(updated)
     flush_dns()
     log.info("В hosts записано строк: %d", len(lines))
     return len(lines)
@@ -125,7 +158,7 @@ def remove() -> bool:
         return False
 
     backup()
-    hosts_path().write_text(_strip_section(content), encoding="utf-8")
+    _write(_strip_section(content))
     flush_dns()
     return True
 

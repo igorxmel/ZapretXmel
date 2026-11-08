@@ -667,9 +667,14 @@ class UpdatesView(QWidget):
         self._ipset_show.setEnabled(ipset_list.present)
 
         state = hosts.status()
-        self._row_hosts.set_value(
-            f"{state.managed_lines} строк" if state.managed else "не записана"
-        )
+        if not state.readable:
+            self._row_hosts.set_value("нет доступа к файлу")
+            self._row_hosts.setToolTip(hosts.LOCKED)
+        else:
+            self._row_hosts.set_value(
+                f"{state.managed_lines} строк" if state.managed else "не записана"
+            )
+            self._row_hosts.setToolTip("")
 
         self._backups.clear()
         backups = install.list_backups()
@@ -877,7 +882,13 @@ class UpdatesView(QWidget):
         self.reload()
 
     def _remove_hosts(self) -> None:
-        if hosts.remove():
+        try:
+            removed = hosts.remove()
+        except hosts.HostsLocked as error:
+            self._status.setStyleSheet(f"color: {COLORS['danger']};")
+            self._status.setText(str(error))
+            return
+        if removed:
             self.controller.message.emit("Секция убрана из hosts")
         else:
             self.controller.message.emit("В hosts нет нашей секции")
