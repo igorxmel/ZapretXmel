@@ -49,10 +49,12 @@ class Settings:
     # Мини-окно: только главные кнопки, выбор стратегии и проверка.
     compact_mode: bool = False
     minimize_to_tray: bool = True
-    # Сообщать о новых версиях программы, ядра и прокси для Telegram.
-    notify_updates: bool = True
-    # Источники, о которых напоминать не надо: «app», «core», «proxy».
+    # Источники, о которых напоминать не надо: «app», «core», «proxy». Когда
+    # отмечены все три, фоновая проверка не ходит на GitHub вовсе.
     ignored_updates: list[str] = field(default_factory=list)
+    # Ставить найденные обновления самим, без нажатия. Включается только с
+    # отдельного согласия: человек больше не видит, что именно поставилось.
+    auto_update: bool = False
     # Анимации в интерфейсе. Короткие и служебные, но на слабой машине или
     # через удалённый рабочий стол любое движение лишнее.
     animations: bool = True
@@ -100,6 +102,14 @@ class Settings:
         """Собирает настройки, игнорируя незнакомые и отсутствующие ключи."""
         known = {f.name for f in fields(cls)}
         data = {k: v for k, v in raw.items() if k in known}
+        # Прежняя галочка «Сообщать о новых версиях» выключала проверку целиком.
+        # Её место заняли «Не напоминать» у каждого источника: выключенная
+        # галочка становится всеми тремя отметками, и программа по-прежнему
+        # не ходит на GitHub без спроса.
+        if raw.get("notify_updates") is False:
+            data["ignored_updates"] = sorted(
+                {*data.get("ignored_updates", []), "app", "core", "proxy"}
+            )
         ai_raw = data.pop("ai", {})
         settings = cls(**data)
         if isinstance(ai_raw, dict):

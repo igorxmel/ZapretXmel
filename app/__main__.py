@@ -317,7 +317,7 @@ def main() -> int:
     from app.ui.shell import MainWindow
 
     window = MainWindow(settings)
-    if settings.start_minimized:
+    if settings.start_minimized or singleton.TRAY_FLAG in sys.argv:
         window.hide()
     else:
         window.present()

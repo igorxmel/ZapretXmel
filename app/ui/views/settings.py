@@ -208,14 +208,6 @@ class SettingsView(QWidget):
         self._minimize_to_tray.toggled.connect(self._save_flags)
         body.addWidget(self._minimize_to_tray)
 
-        self._notify_updates = QCheckBox("Сообщать о новых версиях")
-        self._notify_updates.setToolTip(
-            "Программа, ядро zapret и прокси для Telegram проверяются один раз "
-            "при запуске. Обновляется всё равно вручную, в разделе «Обновления»."
-        )
-        self._notify_updates.toggled.connect(self._save_flags)
-        body.addWidget(self._notify_updates)
-
         body.addWidget(Divider())
 
         # Куда всё складывается — вопрос, который возникает у каждого: по
@@ -306,15 +298,6 @@ class SettingsView(QWidget):
             "ui_scale", SCALES.get(title, 0.0), title.lower()
         ))
         body.addWidget(self._scale)
-
-        self._testing = QCheckBox("Получать тестовые сборки")
-        self._testing.setToolTip(
-            "Версии «-rc» выходят раньше обычных и нужны, чтобы поймать "
-            "поломки до того, как их поймают все остальные. В них что-то "
-            "может работать хуже — на то они и тестовые."
-        )
-        self._testing.toggled.connect(self._toggle_testing)
-        body.addWidget(self._testing)
 
         body.addWidget(Divider())
 
@@ -545,7 +528,6 @@ class SettingsView(QWidget):
             self._start_proxy.setChecked(settings.start_proxy_on_launch)
             self._start_minimized.setChecked(settings.start_minimized)
             self._minimize_to_tray.setChecked(settings.minimize_to_tray)
-            self._notify_updates.setChecked(settings.notify_updates)
             self._watch.setChecked(settings.watch_enabled)
             self._watch_interval.setValue(settings.watch_interval_minutes)
             self._watch_autoswitch.setChecked(settings.watch_autoswitch)
@@ -555,7 +537,6 @@ class SettingsView(QWidget):
             self._shortcut.setChecked(shortcut.exists())
             self._start_menu.setChecked(shortcut.exists(shortcut.START_MENU))
             self._animations.setChecked(self.controller.settings.animations)
-            self._testing.setChecked(self.controller.settings.testing_builds)
             self._select_by_value(self._scale, SCALES, self.controller.settings.ui_scale)
             self._select_by_value(self._theme, THEMES, self.controller.settings.theme)
             self._select_by_value(
@@ -735,37 +716,6 @@ class SettingsView(QWidget):
 
         QApplication.quit()
 
-    def _toggle_testing(self, wanted: bool) -> None:
-        """Тестовые сборки включаются только с отдельного согласия.
-
-        Это не настройка удобства, а согласие ловить поломки раньше всех:
-        человек должен понимать, на что подписывается, а не случайно задеть
-        галочку и потом удивляться, почему что-то отвалилось.
-        """
-        if self._loading:
-            return
-
-        if wanted and not dialogs.confirm(
-            self,
-            "Тестовые сборки",
-            "Получать версии до того, как их проверят?",
-            "Тестовые сборки (с «-rc» в номере) выходят раньше обычных, и "
-            "в них что-то может работать хуже — на то они и тестовые. "
-            "Смысл в том, чтобы поломки находились на вас, а не на всех "
-            "остальных.\n\n"
-            "Выключить это можно в любой момент: следующая обычная версия "
-            "встанет поверх тестовой.",
-            action="Согласен ловить поломки",
-        ):
-            self._loading = True
-            try:
-                self._testing.setChecked(False)
-            finally:
-                self._loading = False
-            return
-
-        self._save_flags()
-
     def _toggle_shortcut(self, wanted: bool) -> None:
         self._toggle_link(shortcut.DESKTOP, wanted)
 
@@ -909,12 +859,10 @@ class SettingsView(QWidget):
         settings.start_proxy_on_launch = self._start_proxy.isChecked()
         settings.start_minimized = self._start_minimized.isChecked()
         settings.minimize_to_tray = self._minimize_to_tray.isChecked()
-        settings.notify_updates = self._notify_updates.isChecked()
         settings.animations = self._animations.isChecked()
         # Срабатывает сразу: длительность спрашивается в момент запуска
         # анимации, а не при создании виджета.
         motion.set_enabled(settings.animations)
-        settings.testing_builds = self._testing.isChecked()
         settings.watch_enabled = self._watch.isChecked()
         settings.watch_interval_minutes = self._watch_interval.value()
         settings.watch_autoswitch = self._watch_autoswitch.isChecked()

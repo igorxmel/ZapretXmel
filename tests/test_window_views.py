@@ -10,6 +10,7 @@ from PyQt6.QtTest import QTest
 from PyQt6.QtWidgets import QApplication
 
 from app import __version__
+from app.core import updates
 from app.core.config import Settings
 from app.ui.shell import MainWindow
 from app.ui.theme.tokens import SIZE
@@ -24,7 +25,11 @@ def app() -> QApplication:
 def window(app: QApplication, monkeypatch: pytest.MonkeyPatch) -> MainWindow:
     monkeypatch.setattr(Settings, "save", lambda _self: None)
     shown = MainWindow(
-        Settings(first_run_done=True, last_seen_version=__version__, notify_updates=False)
+        Settings(
+            first_run_done=True,
+            last_seen_version=__version__,
+            ignored_updates=list(updates.ALL_SOURCES),
+        )
     )
     shown.controller._timer.stop()
     shown.show()

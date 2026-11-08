@@ -30,6 +30,11 @@ SOURCE_APP = "app"
 SOURCE_CORE = "core"
 SOURCE_PROXY = "proxy"
 _SOURCES = {APP: SOURCE_APP, CORE: SOURCE_CORE, PROXY: SOURCE_PROXY}
+ALL_SOURCES = (SOURCE_APP, SOURCE_CORE, SOURCE_PROXY)
+
+# Порядок автообновления. Программа последней: после неё может понадобиться
+# перезапуск, и всё остальное к этому времени должно уже стоять.
+_AUTO_ORDER = (PROXY, CORE, APP)
 
 
 @dataclass(frozen=True)
@@ -133,6 +138,38 @@ def without_ignored(found: list[Available], ignored: list[str]) -> list[Availabl
     возможности обновиться, когда сам решит.
     """
     return [item for item in found if item.source not in ignored]
+
+
+def everything_ignored(ignored: list[str]) -> bool:
+    """Правда, если напоминать не надо ни о чём: тогда и спрашивать GitHub незачем."""
+    return all(source in ignored for source in ALL_SOURCES)
+
+
+def auto_candidates(
+    found: list[Available], ignored: list[str], skip: set[tuple[str, str]]
+) -> list[Available]:
+    """Что поставить самим, по порядку.
+
+    Отмеченное «Не напоминать» не ставится: так можно держать старое ядро и
+    обновлять сами только прокси. Тестовые сборки не ставятся никогда — это то,
+    на что соглашаются осознанно, по одной. Программа ставится, только если
+    скачанное есть с чем сверить (`selfupdate.can_verify`): без этого
+    недокачанный .exe встал бы на место рабочего без единого нажатия, и
+    заметить это было бы некому.
+
+    `skip` — пары «что, версия», уже поставленные или не вставшие за этот запуск:
+    повторять неудачу каждые два часа незачем.
+    """
+    chosen = []
+    for item in without_ignored(found, ignored):
+        if item.release is None or (item.what, item.latest) in skip:
+            continue
+        if item.release.prerelease:
+            continue
+        if item.what == APP and not selfupdate.can_verify(item.release):
+            continue
+        chosen.append(item)
+    return sorted(chosen, key=lambda item: _AUTO_ORDER.index(item.what))
 
 
 def summary(found: list[Available]) -> str:

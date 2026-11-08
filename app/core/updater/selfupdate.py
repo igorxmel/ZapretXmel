@@ -142,6 +142,17 @@ def _discard(path: Path) -> None:
             log.debug("Файл %s занят, оставляю как есть", leftover.name)
 
 
+def can_verify(release: github.Release) -> bool:
+    """Есть ли с чем сверить скачанную сборку: хеш от GitHub или файл с хешем.
+
+    Без них недокачанный файл встал бы на место рабочего незамеченным.
+    """
+    return any(
+        (item.name == ASSET_NAME and item.digest) or item.name == ASSET_NAME + ".sha256"
+        for item in release.assets
+    )
+
+
 def _published_hash(release: github.Release) -> str:
     """Берёт SHA-256 из файла рядом со сборкой. Пусто — значит его нет."""
     asset = next((item for item in release.assets if item.name == ASSET_NAME + ".sha256"), None)
@@ -184,15 +195,16 @@ def apply(downloaded: Path, progress: Progress | None = None) -> None:
     log.info("Программа обновлена, старый файл отодвинут в %s", backup.name)
 
 
-def restart() -> None:
+def restart(extra: list[str] | None = None) -> None:
     """Запускает обновлённую программу и просит текущую закрыться.
 
     Окружение чистим обязательно: без этого новая версия подхватывает
-    временную папку старой и не находит ни одного плагина Qt.
+    временную папку старой и не находит ни одного плагина Qt. `extra` —
+    флаги для нового экземпляра: остаться в трее, поднять обход и прокси.
     """
     try:
         subprocess.Popen(  # noqa: S603 — собственный файл
-            [str(executable()), singleton.RESTART_FLAG],
+            [str(executable()), singleton.RESTART_FLAG, *(extra or [])],
             close_fds=True,
             cwd=str(executable().parent),
             env=process.child_environment(),

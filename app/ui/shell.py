@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 
 from PyQt6.QtCore import QEasingCurve, QPoint, QPropertyAnimation, QSize, Qt, QTimer
 from PyQt6.QtGui import QCloseEvent, QIcon
@@ -19,8 +20,9 @@ from PyQt6.QtWidgets import (
 )
 
 from app import __version__
-from app.core import changelog, foreground, updates
+from app.core import changelog, foreground, singleton, updates
 from app.core.config import Settings
+from app.core.updater import selfupdate
 from app.ui import dialogs, motion
 from app.ui.activation import ActivationListener
 from app.ui.controller import Controller, Status
@@ -71,6 +73,11 @@ UPDATE_CHECK_DELAY_MS = 60_000
 # лимите в шестьдесят в час, то есть ничего.
 UPDATE_CHECK_INTERVAL_MS = 2 * 60 * 60 * 1000
 
+# Автообновление не начинает работу, пока программа чем-то занята. Тогда
+# спрашиваем ещё раз через пять минут: ждать два часа до следующей проверки
+# незачем, находка уже на руках.
+AUTO_UPDATE_RETRY_MS = 5 * 60 * 1000
+
 TOAST_MS = 6000
 
 # Разделы программы: боковое меню полного окна и меню мини-окна.
@@ -108,6 +115,15 @@ class MainWindow(FramelessWindow):
         # Последняя находка: её отдают экранам, чтобы те не спрашивали
         # GitHub о том же самом второй раз.
         self._found_updates: list = []
+        # Автообновление: что уже поставлено или не встало за этот запуск
+        # («что», версия) — второй раз за то же не берёмся.
+        self._auto_done: set[tuple[str, str]] = set()
+        # Версия программы, которая уже стоит на месте старой и ждёт запуска.
+        # Работающий экземпляр всё ещё старый, и проверка находила её снова.
+        self._staged_app = ""
+        # Окно «Что нового» отложено до первого показа окна: после тихого
+        # перезапуска в трей оно всплыло бы само, а обещали молчать.
+        self._whats_new_pending = False
         self._nav_ready = False
         self._current_section = "dashboard"
         self._compact = False
@@ -450,6 +466,9 @@ class MainWindow(FramelessWindow):
         self.views["updates"].something_updated.connect(self._recheck_after_install)
         self.views["telegram"].something_updated.connect(self._recheck_after_install)
         self.views["updates"].ignored_changed.connect(self._show_reminder)
+        self.views["updates"].update_policy_changed.connect(self._recheck_after_install)
+        self.views["updates"].auto_installed.connect(self._auto_installed)
+        self.views["updates"].auto_failed.connect(self._auto_failed)
         self.views["settings"].tray_style_changed.connect(self._tray.refresh_style)
         self.controller.status_changed.connect(self.views["telegram"].on_status)
 
@@ -639,17 +658,25 @@ class MainWindow(FramelessWindow):
             self.show_welcome()
             return
 
-        self._show_whats_new()
+        if self.isVisible():
+            self._show_whats_new()
+        else:
+            self._whats_new_pending = True
+            self._tell_about_silent_update()
 
         # Служба стартует вместе с Windows сама, поэтому включать нечего —
-        # это нужно только режиму обычного процесса.
-        if self.settings.start_bypass_on_launch and status.core_present and not status.is_active:
+        # это нужно только режиму обычного процесса. После автообновления
+        # прежний экземпляр просит поднять то, что работало у него.
+        resume_bypass = singleton.RESUME_BYPASS_FLAG in sys.argv
+        resume_proxy = singleton.RESUME_PROXY_FLAG in sys.argv
+        wanted_bypass = self.settings.start_bypass_on_launch or resume_bypass
+        if wanted_bypass and status.core_present and not status.is_active:
             self._show_toast("Включаю обход…", COLORS["text_dim"])
             QTimer.singleShot(0, self.controller.start)
 
         # Прокси — дочерний процесс программы, своей службы у него нет.
         if (
-            self.settings.start_proxy_on_launch
+            (self.settings.start_proxy_on_launch or resume_proxy)
             and status.telegram_installed
             and not status.telegram_running
         ):
@@ -665,9 +692,6 @@ class MainWindow(FramelessWindow):
         сообщение о новой версии в первую секунду перебивает то, ради чего
         программу открыли.
         """
-        if not self.settings.notify_updates:
-            return
-
         QTimer.singleShot(UPDATE_CHECK_DELAY_MS, self._check_updates_now)
         self._updates_timer.start(UPDATE_CHECK_INTERVAL_MS)
 
@@ -682,7 +706,10 @@ class MainWindow(FramelessWindow):
         self._start_update_check()
 
     def _check_updates_now(self) -> None:
-        if not self.settings.notify_updates:
+        # Отдельной галочки «проверять» нет: если не напоминать ни о чём, то и
+        # на GitHub без спроса не ходим. Так программа молчит в сети для тех,
+        # кому это важно, а прежняя галочка в настройках не нужна.
+        if updates.everything_ignored(self.settings.ignored_updates):
             return
         self._start_update_check()
 
@@ -712,6 +739,12 @@ class MainWindow(FramelessWindow):
             self._show_toast(f"Не удалось проверить: {message}", COLORS["danger"])
 
     def _updates_found(self, found: list) -> None:
+        # Звать обновиться на то, что уже поставлено и ждёт запуска, — врать.
+        found = [
+            item
+            for item in found
+            if not (item.what == updates.APP and item.latest == self._staged_app)
+        ]
         manual, self._updates_manual = self._updates_manual, False
         quiet, self._updates_quiet = self._updates_quiet, False
         ignored = self.settings.ignored_updates
@@ -720,6 +753,7 @@ class MainWindow(FramelessWindow):
 
         self.views["updates"].set_pending(found)
         shown = self._show_reminder()
+        self._auto_update()
 
         if not shown:
             # При фоновой проверке молчим: «всё свежее» — не новость. А вот на
@@ -748,6 +782,137 @@ class MainWindow(FramelessWindow):
             text,
             build_icon(self.controller.status.is_active),
             6000,
+        )
+
+    # --- автообновление ---------------------------------------------------
+
+    def _program_idle(self) -> bool:
+        """Ничем ли не занята программа: ни подбор, ни починка, ни установка.
+
+        Обновление ядра выключает обход, а обновление самой программы может
+        перезапустить её. Посреди подбора стратегии это обрывает работу, ради
+        которой человек ждал несколько минут.
+        """
+        return not self._busy_sections and not self.controller._busy
+
+    def _auto_update(self) -> None:
+        """Ставит следующую находку, если автообновление включено.
+
+        По одной за раз: окончание установки ядра или прокси само запускает
+        перепроверку, а она приводит сюда за следующей.
+        """
+        if not self.settings.auto_update:
+            return
+
+        due = updates.auto_candidates(
+            self._found_updates, self.settings.ignored_updates, self._auto_done
+        )
+        if not due:
+            return
+
+        view = self.views["updates"]
+        if not self._program_idle() or view.auto_busy():
+            QTimer.singleShot(AUTO_UPDATE_RETRY_MS, self._auto_update)
+            return
+
+        item = due[0]
+        log.info("Автообновление: ставлю %s", item.label)
+        if not view.auto_install(item):
+            QTimer.singleShot(AUTO_UPDATE_RETRY_MS, self._auto_update)
+
+    def _notify(self, text: str) -> None:
+        """Уведомление в углу экрана — единственное, что видно при автообновлении."""
+        self._tray.showMessage(
+            "ZapretXmel", text, build_icon(self.controller.status.is_active), 8000
+        )
+
+    def _auto_installed(self, what: str, version: str) -> None:
+        self._auto_done.add((what, version))
+        log.info("Автообновление: %s %s поставлено", what, version)
+
+        if what != updates.APP:
+            self._notify(
+                f"Обновлено автоматически: {what} {version}. "
+                "Что изменилось — в разделе «Обновления»."
+            )
+            return
+
+        self._staged_app = version
+        self._show_reminder_without_app()
+
+        # Новая сборка уже на месте старой. Работающий экземпляр остаётся
+        # прежним, и сам он не перезапускается, пока человек может им
+        # пользоваться: закрыть окно у него из-под рук хуже, чем подождать.
+        if self._can_restart_quietly():
+            self._restart_quietly(version)
+            return
+
+        self._notify(
+            f"Программа обновлена до {version}. Новая версия запустится при "
+            "следующем запуске, список изменений покажется сам."
+        )
+
+    def _show_reminder_without_app(self) -> None:
+        """Снимает напоминание о программе, которая уже поставлена."""
+        self._found_updates = [
+            item for item in self._found_updates if item.what != updates.APP
+        ]
+        self.views["updates"].set_pending(self._found_updates)
+        self._show_reminder()
+
+    def _auto_failed(self, what: str, message: str) -> None:
+        # Неудачную версию за этот запуск больше не берём: иначе та же ошибка
+        # повторялась бы каждые пять минут.
+        failed = next(
+            (item for item in self._found_updates if item.what == what), None
+        )
+        if failed is not None:
+            self._auto_done.add((what, failed.latest))
+        log.warning("Автообновление: %s не поставилось: %s", what, message)
+        self._notify(f"Не удалось обновить {what}: {message}")
+
+    def _can_restart_quietly(self) -> bool:
+        """Можно ли перезапуститься прямо сейчас, никому не помешав.
+
+        Только когда окно спрятано в трей, ничего не идёт и не работает профиль
+        приложения: профили поднимаются по своим правилам, и восстанавливать их
+        за человека мы не возьмёмся.
+        """
+        return (
+            not self.isVisible()
+            and self._program_idle()
+            and not self.controller._alive_profiles()
+        )
+
+    def _restart_quietly(self, version: str) -> None:
+        """Перезапускает обновлённую программу в трей, с тем же обходом и прокси."""
+        status = self.controller.status
+        extra = [singleton.TRAY_FLAG]
+        # Служба живёт без программы, а обычный процесс и прокси — нет.
+        if status.is_active and self.settings.run_mode != "service":
+            extra.append(singleton.RESUME_BYPASS_FLAG)
+        if status.telegram_running:
+            extra.append(singleton.RESUME_PROXY_FLAG)
+
+        log.info("Автообновление: перезапускаюсь в версию %s (%s)", version, " ".join(extra))
+        try:
+            selfupdate.restart(extra)
+        except selfupdate.SelfUpdateError as error:
+            self._notify(
+                f"Программа обновлена до {version}, но перезапуститься не вышло: {error}. "
+                "Новая версия запустится при следующем запуске."
+            )
+            return
+        self.quit()
+
+    def _tell_about_silent_update(self) -> None:
+        """Говорит в углу экрана, что программа обновилась, пока окно спрятано."""
+        seen = self.settings.last_seen_version
+        if not seen or seen == __version__:
+            return
+        self._notify(
+            f"Программа обновилась до {__version__}. Что изменилось — "
+            "покажу, когда откроете окно."
         )
 
     def _show_reminder(self) -> list:
@@ -881,6 +1046,10 @@ class MainWindow(FramelessWindow):
         self.raise_()
         self.activateWindow()
         foreground.force(int(self.winId()))
+
+        if self._whats_new_pending:
+            self._whats_new_pending = False
+            self._show_whats_new()
 
     def showEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
         """Пересчитывает полоску меню, когда окно наконец показали.

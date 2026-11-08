@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 
 from app.core import coreinfo, hosts, ipset, paths, telegram, updates
 from app.core.updater import github, install, selfupdate
+from app.ui import dialogs
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, KeyValueRow, set_markdown, view_header
@@ -36,6 +37,17 @@ _CARD_SOURCES = {updates.CORE: CORE, updates.PROXY: PROXY}
 IGNORE_HINT = (
     "Убирает полосу, подсветку и отметку в трее. Здесь новая версия "
     "будет видна по-прежнему, и обновиться можно в любой момент."
+)
+TESTING_HINT = (
+    "Версии «-rc» выходят раньше обычных и нужны, чтобы поймать поломки до того, "
+    "как их поймают все остальные. В них что-то может работать хуже — на то они и "
+    "тестовые. Сами они не ставятся даже при автообновлении."
+)
+AUTO_HINT = (
+    "Программа, ядро zapret и прокси для Telegram обновляются сами, когда программа "
+    "ничем не занята. Об установке скажет только уведомление в углу экрана, "
+    "список изменений — здесь. "
+    "Источник с «Не напоминать» сам не обновляется."
 )
 IGNORE_TEXT = {
     CORE: "Не напоминать об обновлениях ядра",
@@ -54,6 +66,11 @@ class UpdatesView(QWidget):
     something_updated = pyqtSignal()
     # Галочку «не напоминать» переключили: напоминания надо пересобрать.
     ignored_changed = pyqtSignal()
+    # Тестовые сборки или автообновление включили: стоит спросить GitHub заново.
+    update_policy_changed = pyqtSignal()
+    # Автообновление: что поставилось («что», версия) и что не встало («что», причина).
+    auto_installed = pyqtSignal(str, str)
+    auto_failed = pyqtSignal(str, str)
 
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
@@ -67,6 +84,12 @@ class UpdatesView(QWidget):
         self._proxy_task: Task | None = None
         self._source = CORE
         self._known: dict[str, updates.Available] = {}
+        # Что сейчас ставится само, без нажатия: о конце такой установки
+        # говорит уже окно, а не строка состояния в разделе.
+        self._auto = ""
+        # Было ли включено то, что установка выключает: обход для ядра, прокси
+        # для самого прокси. Сами поставили — сами и включим обратно.
+        self._auto_resume = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -115,17 +138,39 @@ class UpdatesView(QWidget):
         row.addWidget(self._app_install)
         body.addLayout(row)
 
+        flags = QHBoxLayout()
+        flags.setSpacing(SPACE["lg"])
         self._app_ignore = QCheckBox("Не напоминать об обновлениях программы")
         self._app_ignore.setToolTip(IGNORE_HINT)
         self._app_ignore.setChecked(self._ignored(updates.SOURCE_APP))
         self._app_ignore.clicked.connect(
             lambda checked: self._set_ignored(updates.SOURCE_APP, checked)
         )
-        body.addWidget(self._app_ignore)
+        flags.addWidget(self._app_ignore)
+
+        # Галочки жили в настройках, но относятся они к обновлениям: человек
+        # ищет их здесь, а не среди запуска и трея.
+        self._testing = QCheckBox("Получать тестовые сборки")
+        self._testing.setToolTip(TESTING_HINT)
+        self._testing.setChecked(self.controller.settings.testing_builds)
+        self._testing.clicked.connect(self._toggle_testing)
+        flags.addWidget(self._testing)
+
+        # Одной строкой с остальными: вторая строка отнимала высоту у описания
+        # релиза ниже, и при окне в 700 точек оно сжималось до пары строк.
+        self._auto_box = QCheckBox("Обновлять автоматически")
+        self._auto_box.setToolTip(AUTO_HINT)
+        self._auto_box.setChecked(self.controller.settings.auto_update)
+        self._auto_box.clicked.connect(self._toggle_auto)
+        flags.addWidget(self._auto_box)
+        flags.addStretch(1)
+        body.addLayout(flags)
 
         self._app_status = QLabel("")
         self._app_status.setObjectName("Muted")
         self._app_status.setWordWrap(True)
+        # Пустая строка всё равно занимала место под собой и отступ.
+        self._app_status.hide()
         body.addWidget(self._app_status)
 
         self._app_progress = QProgressBar()
@@ -134,6 +179,109 @@ class UpdatesView(QWidget):
         body.addWidget(self._app_progress)
 
         return card
+
+    # --- тестовые сборки и автообновление ---------------------------------
+
+    def _toggle_testing(self, wanted: bool) -> None:
+        """Тестовые сборки включаются только с отдельного согласия.
+
+        Это не настройка удобства, а согласие ловить поломки раньше всех:
+        человек должен понимать, на что подписывается, а не случайно задеть
+        галочку и потом удивляться, почему что-то отвалилось.
+        """
+        if wanted and not dialogs.confirm(
+            self,
+            "Тестовые сборки",
+            "Получать версии до того, как их проверят?",
+            "Тестовые сборки (с «-rc» в номере) выходят раньше обычных, и "
+            "в них что-то может работать хуже — на то они и тестовые. "
+            "Смысл в том, чтобы поломки находились на вас, а не на всех "
+            "остальных.\n\n"
+            "Сами они не ставятся, даже если включено автообновление: о "
+            "тестовой сборке программа только скажет.\n\n"
+            "Выключить это можно в любой момент: следующая обычная версия "
+            "встанет поверх тестовой.",
+            action="Согласен ловить поломки",
+        ):
+            self._testing.setChecked(False)
+            return
+
+        settings = self.controller.settings
+        settings.testing_builds = wanted
+        settings.save()
+        self.update_policy_changed.emit()
+
+    def _toggle_auto(self, wanted: bool) -> None:
+        """Автообновление включается только после явного предупреждения.
+
+        Главное, что человек теряет, — момент, когда он видит список изменений.
+        Об этом и говорим прямо, а кнопка согласия называет действие, а не «Да».
+        """
+        if wanted and not dialogs.confirm(
+            self,
+            "Автообновление",
+            "Ставить обновления без вопросов?",
+            "Программа, ядро zapret и прокси для Telegram будут обновляться сами, "
+            "молча. Об установке скажет только уведомление в правом нижнем углу "
+            "экрана. Что изменилось в новой версии, придётся смотреть самим — "
+            "здесь, в разделе «Обновления».\n\n"
+            "Ставится, только когда программа ничем не занята. На время "
+            "обновления ядра обход выключается на несколько секунд, прокси — тоже. "
+            "Новая версия самой программы запустится при следующем запуске, а если "
+            "окно спрятано в трей — сразу.\n\n"
+            "Тестовые сборки и источники с «Не напоминать» сами не ставятся.",
+            action="Включить автообновление",
+        ):
+            self._auto_box.setChecked(False)
+            return
+
+        settings = self.controller.settings
+        settings.auto_update = wanted
+        settings.save()
+        self.update_policy_changed.emit()
+
+    def auto_busy(self) -> bool:
+        """Идёт ли сейчас любая установка из этого раздела."""
+        return self._app_busy() or self._card_busy()
+
+    def auto_install(self, item: updates.Available) -> bool:
+        """Ставит найденное без нажатия. False — сейчас не получилось начать.
+
+        Путь тот же, что у кнопки: так у автообновления нет своих ошибок, а
+        прогресс виден в разделе, если человек туда заглянет.
+        """
+        if self.auto_busy() or item.release is None:
+            return False
+
+        self._auto = item.what
+        if item.what == updates.APP:
+            self._new_app = item.release
+            self._update_app()
+        elif item.what == updates.CORE:
+            self._auto_resume = self.controller.status.is_active
+            self._latest = item.release
+            self._install()
+        elif item.what == updates.PROXY:
+            self._auto_resume = telegram.is_running_anywhere()
+            self._update_proxy()
+        else:
+            self._auto = ""
+            return False
+        return True
+
+    def _auto_finished(self, version: str) -> bool:
+        """Сообщает о конце автоустановки. False — ставили по кнопке."""
+        what, self._auto = self._auto, ""
+        if not what:
+            return False
+        self.auto_installed.emit(what, version)
+        return True
+
+    def _auto_broke(self, message: str) -> None:
+        what, self._auto = self._auto, ""
+        self._auto_resume = False
+        if what:
+            self.auto_failed.emit(what, message)
 
     # --- сама программа ---------------------------------------------------
 
@@ -196,8 +344,20 @@ class UpdatesView(QWidget):
         self._app_worker.failed.connect(self._app_failed)
         self._app_worker.start()
 
-    def _app_updated(self, _result) -> None:
+    def _app_updated(self, version) -> None:
         self._app_progress.hide()
+        # Сами поставили — перезапускаться или ждать, решает окно: оно знает,
+        # спрятано ли оно и занят ли человек.
+        if self._auto == updates.APP:
+            self.busy_changed.emit(False)
+            self._app_check.setEnabled(False)
+            self._app_say(
+                f"Версия {version} установлена и запустится при следующем запуске",
+                COLORS["success"],
+            )
+            self._auto_finished(str(version))
+            return
+
         self._app_say("Обновлено, перезапускаюсь…", COLORS["success"])
         try:
             selfupdate.restart()
@@ -212,10 +372,13 @@ class UpdatesView(QWidget):
         self._app_check.setEnabled(True)
         self._app_install.setEnabled(getattr(self, "_new_app", None) is not None)
         self._app_say(message, COLORS["danger"])
+        if self._auto == updates.APP:
+            self._auto_broke(message)
 
     def _app_say(self, text: str, colour: str = COLORS["text_muted"]) -> None:
         self._app_status.setStyleSheet(f"color: {colour};")
         self._app_status.setText(text)
+        self._app_status.setVisible(bool(text))
 
     # --- ядро -----------------------------------------------------------
 
@@ -612,6 +775,11 @@ class UpdatesView(QWidget):
         self.reload()
         self.controller.message.emit(f"Ядро обновлено до версии {version}")
         self.controller.refresh()
+        resume, self._auto_resume = self._auto_resume, False
+        if self._auto_finished(version) and resume:
+            # Установка выключила обход. По кнопке человек включит его сам,
+            # а молча оставить его без обхода нельзя.
+            self.controller.start_after_core_update()
         self.something_updated.emit()
 
     def _rollback(self) -> None:
@@ -651,6 +819,7 @@ class UpdatesView(QWidget):
         self._progress.setValue(0)
         self._progress.show()
 
+        self.busy_changed.emit(True)
         self._proxy_worker = TelegramInstallWorker()
         self._proxy_worker.progress.connect(self._status.setText)
         self._proxy_worker.percent.connect(self._progress.setValue)
@@ -659,18 +828,29 @@ class UpdatesView(QWidget):
         self._proxy_worker.start()
 
     def _proxy_updated(self, version: str) -> None:
+        self.busy_changed.emit(False)
         self._progress.hide()
         self._check_button.setEnabled(True)
         self._status.setStyleSheet(f"color: {COLORS['success']};")
         self._status.setText(f"Прокси обновлён до версии {version}")
         self.reload()
+        resume, self._auto_resume = self._auto_resume, False
+        if self._auto_finished(version) and resume and not telegram.is_running_anywhere():
+            # Замена файла сняла работающий прокси, Telegram ждёт его обратно.
+            self.controller.toggle_telegram()
         self.something_updated.emit()
 
     def _proxy_failed(self, message: str) -> None:
+        self.busy_changed.emit(False)
         self._progress.hide()
         self._check_button.setEnabled(True)
         self._status.setStyleSheet(f"color: {COLORS['danger']};")
         self._status.setText(message)
+        if self._auto == updates.PROXY:
+            resume = self._auto_resume
+            self._auto_broke(message)
+            if resume and telegram.is_installed() and not telegram.is_running_anywhere():
+                self.controller.toggle_telegram()
 
     def _show_ipset_file(self) -> None:
         """Открывает папку со списком и подсвечивает сам файл."""
@@ -709,3 +889,9 @@ class UpdatesView(QWidget):
         self._check_button.setEnabled(True)
         self._status.setStyleSheet(f"color: {COLORS['danger']};")
         self._status.setText(message)
+        if self._auto == updates.CORE:
+            resume = self._auto_resume
+            self._auto_broke(message)
+            # Установка не удалась, но старое ядро на месте: обход надо вернуть.
+            if resume:
+                self.controller.start_after_core_update()

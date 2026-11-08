@@ -727,6 +727,29 @@ class Controller(QObject):
         self.refresh()
         return result.executable
 
+    def start_after_core_update(self) -> None:
+        """Возвращает обход после того, как ядро обновилось само.
+
+        Апстрим иногда переименовывает и убирает стратегии. Тогда выбранной
+        больше нет, и молча включать первую по алфавиту нельзя: берём ту, что
+        держалась лучше всех по журналу, и говорим об этом.
+        """
+        from app.core import stability
+
+        wanted = self.settings.selected_strategy
+        if wanted and strategies.load_one(wanted) is None:
+            names = [spec.name for spec in strategies.load_all()]
+            if names:
+                choice = stability.rank(names)[0]
+                self.settings.selected_strategy = choice
+                self.settings.save()
+                log.info("После обновления ядра нет стратегии «%s», беру «%s»", wanted, choice)
+                self.advice.emit(
+                    f"В новом ядре нет стратегии «{wanted}». Включена «{choice}» — "
+                    "она лучше других держалась по журналу."
+                )
+        self.start()
+
     def restart(self) -> None:
         """Перезапуск нужен после смены стратегии, списков или игрового фильтра."""
         was_active = self.status.is_active
