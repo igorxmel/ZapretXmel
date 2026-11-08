@@ -13,6 +13,7 @@ import pytest
 
 from app.core import appprofile
 from app.core.appprofile import Profile
+from app.core.config import Settings
 from app.ui.controller import Controller
 
 PROFILE = Profile(
@@ -36,6 +37,7 @@ def bare(monkeypatch: pytest.MonkeyPatch) -> Controller:
     controller._profile_busy = False
     controller._profile_failed = ""
     controller._profile_declined = ""
+    controller.settings = Settings()
     controller.started = []
 
     monkeypatch.setattr(appprofile, "load_all", lambda: [PROFILE])

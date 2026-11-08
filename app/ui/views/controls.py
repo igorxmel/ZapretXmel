@@ -206,6 +206,14 @@ class PowerPair(QWidget):
 
     def apply_status(self, status: Status) -> None:
         self.bypass.apply(active=status.is_active, enabled=True, state=self._bypass_state(status))
+        paused = bool(status.vpn_paused) and not status.is_active
+        self.bypass.button.set_paused(paused)
+        self.bypass.button.setToolTip(
+            "Обход ждёт, пока выключат VPN. Нажмите, чтобы выключить его совсем.\n"
+            "Чтобы обход работал вместе с VPN, снимите галочку в «Состоянии»."
+            if paused
+            else ""
+        )
 
         # Кнопка Telegram остаётся нажимаемой и без прокси: щелчок предлагает
         # его поставить — иначе непонятно, что делать дальше.
@@ -224,6 +232,9 @@ class PowerPair(QWidget):
             return "нажмите, чтобы установить ядро"
         if status.active_strategy:
             return f"стратегия «{status.active_strategy}»"
+        # Подпись под кнопкой видна и в мини-окне, где других надписей о паузе нет.
+        if status.vpn_paused:
+            return "на паузе: работает VPN"
         if status.selected_strategy:
             return f"выбрана «{status.selected_strategy}»"
         return "стратегия не выбрана"
@@ -259,11 +270,25 @@ class StatusNotices(QWidget):
         return label
 
     def apply_status(self, status: Status) -> None:
-        self._vpn.setText(
-            f"Трафик идёт через {status.active_vpn}. Пока туннель включён, обход ни на что "
-            "не влияет, а проверки измеряют VPN — выключите его перед подбором стратегии."
-        )
-        self._vpn.setVisible(bool(status.active_vpn))
+        if status.vpn_paused and not status.is_active:
+            text = (
+                f"Обход на паузе, пока трафик идёт через {status.active_vpn or status.vpn_paused}. "
+                "Когда VPN выключат, он включится сам."
+            )
+        elif status.is_active:
+            text = (
+                f"Трафик идёт через {status.active_vpn}. Сайты из списков обхода через VPN "
+                "могут не открываться, а проверки измеряют VPN. Обход можно ставить на паузу "
+                "на время VPN — галочка в «Состоянии»."
+            )
+        else:
+            text = (
+                f"Трафик идёт через {status.active_vpn}. Проверки сейчас измеряют VPN — "
+                "выключите его перед подбором стратегии."
+            )
+        self._vpn.setText(text)
+        vpn_shown = bool(status.active_vpn or (status.vpn_paused and not status.is_active))
+        self._vpn.setVisible(vpn_shown)
 
         self._foreign.setText(
             f"На компьютере уже есть zapret: {status.foreign_install}. Служба у него и "
@@ -272,7 +297,7 @@ class StatusNotices(QWidget):
         )
         self._foreign.setVisible(bool(status.foreign_install))
 
-        self.setVisible(bool(status.active_vpn or status.foreign_install))
+        self.setVisible(vpn_shown or bool(status.foreign_install))
 
 
 class QuickPanel(QWidget):

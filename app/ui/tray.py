@@ -350,7 +350,9 @@ class Tray(QSystemTrayIcon):
         self._active = status.is_active
         self._proxy = status.telegram_running
         self.setIcon(self._icon())
-        self._toggle_action.setText("Выключить обход" if status.is_active else "Включить обход")
+        # На паузе обход считается включённым: пункт его выключает, как и кнопка.
+        on = status.is_active or bool(status.vpn_paused)
+        self._toggle_action.setText("Выключить обход" if on else "Включить обход")
         self._toggle_action.setEnabled(status.core_present)
 
         self._status_action.setText(status.state_label.capitalize())

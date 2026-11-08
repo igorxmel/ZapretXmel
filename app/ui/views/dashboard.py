@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
+    QComboBox,
+    QFileDialog,
     QFrame,
     QHBoxLayout,
     QPushButton,
@@ -12,11 +15,29 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import service
+from app.core import service, vpnpause
 from app.ui.controller import Controller, Status
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.views.controls import PowerPair, QuickPanel, StatusNotices
 from app.ui.widgets import Card, Divider, KeyValueRow, StatusPill, view_header
+
+PICK_APP = "pick-app"
+
+
+class _FreshCombo(QComboBox):
+    """Список, который перечитывает пункты перед каждым открытием.
+
+    Адаптер VPN появляется, только когда VPN подключён: список, собранный при
+    запуске программы, его бы не знал.
+    """
+
+    def __init__(self, refill, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._refill = refill
+
+    def showPopup(self) -> None:  # noqa: N802 — имя из Qt
+        self._refill()
+        super().showPopup()
 
 
 class DashboardView(QWidget):
@@ -79,6 +100,79 @@ class DashboardView(QWidget):
 
         return card
 
+    def _build_vpn_block(self, body) -> None:
+        """VPN в карточке состояния: что найдено и гасить ли обход при нём.
+
+        На обзоре, а не в настройках: VPN включают и выключают каждый день. И в
+        «Состоянии», а не под кнопками: там рядом то, что VPN и показывает, —
+        работает ли обход сейчас, — и было пусто.
+        """
+        self._row_vpn = KeyValueRow("VPN")
+        self._row_vpn.setToolTip(
+            "Адаптер, через который сейчас идёт трафик, если он похож на VPN"
+        )
+        body.addWidget(self._row_vpn)
+
+        self._pause_for_vpn = QCheckBox("Выключать обход, пока работает VPN")
+        self._pause_for_vpn.setToolTip(
+            "Через VPN перестают открываться как раз сайты и приложения из списков обхода. "
+            "Пока туннель включён, обход стоит на паузе, а когда VPN выключат, "
+            "включается снова. Если включить обход вручную, он останется включённым"
+        )
+        self._pause_for_vpn.setChecked(self.controller.settings.pause_for_vpn)
+        self._pause_for_vpn.toggled.connect(self._toggle_pause_for_vpn)
+
+        # Какой VPN ждать. Обычно туннель находится сам, но клиент может назвать
+        # адаптер нейтрально, а кому-то нужна пауза по самой программе.
+        self._vpn_target = _FreshCombo(self._fill_vpn_targets)
+        self._vpn_target.setToolTip(
+            "Обычно VPN находится сам — по адаптеру, через который идёт трафик. "
+            "Если не находится, выберите его адаптер. Программа подходит, когда "
+            "адаптера нет: тогда пауза держится, пока программа запущена, даже "
+            "если VPN в ней не подключён"
+        )
+        self._fill_vpn_targets()
+        self._vpn_target.activated.connect(self._choose_vpn_target)
+        self._vpn_target.setEnabled(self._pause_for_vpn.isChecked())
+
+        body.addWidget(self._pause_for_vpn)
+        body.addWidget(self._vpn_target)
+
+    def _toggle_pause_for_vpn(self, enabled: bool) -> None:
+        # Ставит паузу или снимает её следующий опрос, через пару секунд.
+        self.controller.settings.pause_for_vpn = enabled
+        self.controller.settings.save()
+        self._vpn_target.setEnabled(enabled)
+
+    def _fill_vpn_targets(self) -> None:
+        current = self.controller.settings.vpn_target
+        targets = [""] + [vpnpause.ADAPTER + name for name in vpnpause.adapters()]
+        if current and current not in targets:
+            targets.append(current)
+
+        self._vpn_target.blockSignals(True)
+        self._vpn_target.clear()
+        for target in targets:
+            self._vpn_target.addItem(vpnpause.label(target), target)
+        self._vpn_target.addItem("Выбрать программу…", PICK_APP)
+        self._vpn_target.setCurrentIndex(max(0, self._vpn_target.findData(current)))
+        self._vpn_target.blockSignals(False)
+
+    def _choose_vpn_target(self, index: int) -> None:
+        target = self._vpn_target.itemData(index)
+        if target == PICK_APP:
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Программа VPN", "", "Программы (*.exe)"
+            )
+            if not path:
+                self._fill_vpn_targets()
+                return
+            target = vpnpause.APP + path.replace("/", "\\")
+
+        self.controller.settings.vpn_target = target
+        self.controller.settings.save()
+        self._fill_vpn_targets()
+
     def _build_status_card(self) -> Card:
         card = Card("Состояние")
         body = card.body()
@@ -130,6 +224,8 @@ class DashboardView(QWidget):
             self._row_network,
         ):
             body.addWidget(row)
+
+        self._build_vpn_block(body)
 
         body.addStretch(1)
         return card
@@ -184,6 +280,13 @@ class DashboardView(QWidget):
         self._row_strategies.set_value(str(status.strategy_count))
         self._row_proxy.set_value(self._proxy_state(status))
         self._row_network.set_value(status.network_label or "—")
+        self._row_vpn.set_value(self._vpn_state(status))
+
+    @staticmethod
+    def _vpn_state(status: Status) -> str:
+        if status.vpn_paused and not status.is_active:
+            return f"{status.vpn_trigger or status.vpn_paused} · обход на паузе"
+        return status.vpn_trigger or status.active_vpn or "не обнаружен"
 
     @staticmethod
     def _proxy_state(status: Status) -> str:

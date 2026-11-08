@@ -337,6 +337,7 @@ class PowerButton(QAbstractButton):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._busy = False
         self._accent = QColor(accent)
+        self._paused = False
 
         # Кольцо не перекрашивается рывком, а наливается цветом. Значение
         # анимации — от 0 (выключено) до 1 (работает).
@@ -390,6 +391,17 @@ class PowerButton(QAbstractButton):
         self._available = value
         self._sync_enabled()
 
+    def set_paused(self, paused: bool) -> None:
+        """Выключено не человеком, а на время — например, пока работает VPN.
+
+        Серое кольцо читалось как «выключили», и подпись под кнопкой этого не
+        перебивала. Жёлтое говорит «ждёт»: так же предупреждения окрашены по
+        всей программе.
+        """
+        if paused != self._paused:
+            self._paused = paused
+            self.update()
+
     def set_busy(self, busy: bool) -> None:
         """Идёт ли работа. На вид кнопка не меняется — только не нажимается."""
         self._busy = busy
@@ -408,6 +420,11 @@ class PowerButton(QAbstractButton):
 
         ring = QColor(COLORS["border_strong"])
         glyph = _blend(QColor(COLORS["text_dim"]), QColor(COLORS["text"]), self._fill)
+        if self._paused:
+            # Подложка под цветной дугой: при паузе зелёное сходит и открывает
+            # жёлтое, при возврате заливается поверх него.
+            ring = QColor(COLORS["warning"])
+            glyph = _blend(ring, QColor(COLORS["text"]), self._fill)
 
         if self.underMouse() and self.isEnabled():
             # На светлой теме осветлять нечего: кольцо и так светлое, и

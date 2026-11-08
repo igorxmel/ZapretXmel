@@ -23,6 +23,7 @@ from app.core import (
     stability,
     strategies,
     telegram,
+    vpnpause,
     watch,
     winws,
 )
@@ -53,6 +54,11 @@ class Status:
     active_strategy: str = ""
     selected_strategy: str = ""
     active_vpn: str = ""
+    # Туннель, из-за которого обход на паузе (`vpnpause`), или пусто.
+    vpn_paused: str = ""
+    # VPN, из-за которого пауза нужна прямо сейчас: выбранный адаптер или
+    # программа, а без выбора — тот же `active_vpn`.
+    vpn_trigger: str = ""
     # Папка другой установки zapret, если она есть: служба у неё и у нас одна
     # и та же, и без этого состояние на экране относилось бы к ней молча.
     foreign_install: str = ""
@@ -77,6 +83,8 @@ class Status:
         if not self.core_present:
             return "ядро не установлено"
         if not self.is_active:
+            if self.vpn_paused:
+                return "обход на паузе: работает VPN"
             return "обход выключен"
         if self.run_mode == "service":
             return "обход работает как служба"
@@ -159,6 +167,11 @@ class Controller(QObject):
         self.last_check_at: datetime | None = None
         self._watch_timer = QTimer(self)
         self._watch_timer.timeout.connect(self.watch_now)
+        # Пауза на время VPN: что видели на прошлых опросах, и не идёт ли
+        # сейчас само переключение — `stop` и `start` публикуют состояние,
+        # и публикация привела бы сюда же.
+        self._vpn = vpnpause.Tracker()
+        self._vpn_switching = False
 
     @property
     def repair(self):
@@ -372,6 +385,7 @@ class Controller(QObject):
             run_mode="process" if own_process_alive else "service",
             selected_strategy=self.settings.selected_strategy,
             active_vpn=tunnel.adapter if (tunnel := vpn.detect_fast()) else "",
+            vpn_paused=self.settings.vpn_paused,
             foreign_install=str(stranger.root) if stranger else "",
             telegram_installed=telegram.is_installed(),
             telegram_version=telegram.installed_version(),
@@ -382,6 +396,11 @@ class Controller(QObject):
             profile_action=self._decide_about_profiles(),
             log_tail=list(self._process.output) if self._process else [],
         )
+
+        # Только при включённой паузе: перебор процессов ради выбранной
+        # программы стоит денег, а опрос идёт каждые три секунды.
+        if self.settings.pause_for_vpn or self.settings.vpn_paused:
+            status.vpn_trigger = vpnpause.trigger(self.settings.vpn_target, status.active_vpn)
 
         if own_process_alive:
             status.active_strategy = self.settings.selected_strategy
@@ -394,9 +413,74 @@ class Controller(QObject):
         self.status = status
         self.status_changed.emit(status)
 
+        self._follow_vpn(status)
+
         action, name = status.profile_action
         if action:
             self._follow_apps(action, name)
+
+    def _follow_vpn(self, status: Status) -> None:
+        """Ставит обход на паузу при VPN и снимает её, когда VPN выключили."""
+        if self._vpn_switching:
+            return
+        action = vpnpause.decide(
+            self._vpn,
+            status.vpn_trigger,
+            enabled=self.settings.pause_for_vpn,
+            active=status.is_active,
+            paused=bool(self.settings.vpn_paused),
+            busy=self._busy or self.picking,
+        )
+        if not action:
+            return
+
+        self._vpn_switching = True
+        try:
+            if action == vpnpause.PAUSE:
+                self._pause_for_vpn(status.vpn_trigger)
+            else:
+                self._resume_after_vpn()
+        finally:
+            self._vpn_switching = False
+
+    def _pause_for_vpn(self, tunnel: str) -> None:
+        log.info("Трафик идёт через %s — ставлю обход на паузу", tunnel)
+        # Отметка раньше выключения: `stop` публикует состояние, и окно
+        # должно сразу показать паузу, а не «обход выключен».
+        self.hold_for_vpn(tunnel)
+        self.stop()
+        if self.status.is_active:
+            # Выключить не вышло — и паузы, значит, нет: снимать нечего.
+            self.settings.vpn_paused = ""
+            self.settings.save()
+            return
+        self.message.emit(f"Обход на паузе, пока работает {tunnel}. Включится сам после VPN")
+
+    def _resume_after_vpn(self) -> None:
+        log.info("VPN выключен — снимаю паузу обхода")
+        self.settings.vpn_paused = ""
+        self.settings.save()
+        self.start()
+        if self.status.is_active:
+            self.message.emit("VPN выключен — обход включён снова")
+
+    def hold_for_vpn(self, tunnel: str) -> None:
+        """Отмечает паузу, не трогая сам обход: при запуске его просто не включают."""
+        self.settings.vpn_paused = tunnel
+        self.settings.save()
+
+    def cancel_vpn_pause(self) -> None:
+        """Выключает обход, стоящий на паузе: после VPN он сам уже не включится.
+
+        Жёлтая кнопка — это «включено, но ждёт», и нажатие на неё выключает,
+        как на зелёной. Включить обход при работающем VPN этим не выйдет: для
+        этого снимают галочку.
+        """
+        log.info("Пауза обхода снята вручную — обход выключен")
+        self.settings.vpn_paused = ""
+        self.settings.save()
+        self.message.emit("Обход выключен")
+        self.refresh()
 
     def refresh(self) -> Status:
         """Синхронно перечитывает состояние — после действий пользователя."""
@@ -443,7 +527,27 @@ class Controller(QObject):
         self.refresh()
 
     def start(self, replace_foreign: bool = False) -> None:
-        """Включает обход выбранным способом — службой или обычным процессом."""
+        """Включает обход — или ставит на паузу, если стоит галочка и работает VPN.
+
+        Включить, чтобы через шесть секунд выключить, незачем: обход сразу
+        встаёт на паузу и включится сам, когда VPN выключат. Это касается любого
+        включения — кнопкой, из трея, после смены стратегии или обновления ядра.
+        """
+        tunnel = self.status.vpn_trigger
+        if self.settings.pause_for_vpn and tunnel:
+            log.info("Трафик идёт через %s — обход не включаю, ставлю на паузу", tunnel)
+            self.hold_for_vpn(tunnel)
+            self.message.emit(f"Обход включится сам, когда выключат {tunnel}")
+            self.refresh()
+            return
+
+        if self.settings.vpn_paused:
+            self.settings.vpn_paused = ""
+            self.settings.save()
+        self._launch(replace_foreign)
+
+    def _launch(self, replace_foreign: bool) -> None:
+        """Сам запуск — службой или обычным процессом, без оглядки на VPN."""
         spec = self.selected_spec()
         if spec is None:
             self.error.emit("Не выбрана стратегия — сначала установите ядро.")
@@ -496,7 +600,12 @@ class Controller(QObject):
             self.refresh()
 
     def toggle(self) -> None:
-        self.stop() if self.status.is_active else self.start()
+        if self.status.is_active:
+            self.stop()
+        elif self.settings.vpn_paused:
+            self.cancel_vpn_pause()
+        else:
+            self.start()
 
     def _decide_about_profiles(self) -> tuple[str, str]:
         """Что сделать с профилем приложения: («start»|«stop», имя профиля).
@@ -562,6 +671,10 @@ class Controller(QObject):
         # иначе каждая проверка снова лезет поднимать winws, и журнал
         # заполняется одной строкой в тысячи повторов.
         if name in (self._profile_failed, self._profile_declined):
+            return
+
+        # Профиль — тот же winws, и с VPN он конфликтует так же, как обход.
+        if self.settings.vpn_paused:
             return
 
         profile = next((item for item in appprofile.load_all() if item.name == name), None)

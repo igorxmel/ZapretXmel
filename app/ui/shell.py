@@ -671,8 +671,14 @@ class MainWindow(FramelessWindow):
         resume_proxy = singleton.RESUME_PROXY_FLAG in sys.argv
         wanted_bypass = self.settings.start_bypass_on_launch or resume_bypass
         if wanted_bypass and status.core_present and not status.is_active:
-            self._show_toast("Включаю обход…", COLORS["text_dim"])
-            QTimer.singleShot(0, self.controller.start)
+            if self.settings.pause_for_vpn and status.vpn_trigger:
+                # Включить, чтобы через шесть секунд выключить, незачем:
+                # сразу пауза, а обход вернётся, когда VPN выключат.
+                self.controller.hold_for_vpn(status.vpn_trigger)
+                self.controller.refresh()
+            else:
+                self._show_toast("Включаю обход…", COLORS["text_dim"])
+                QTimer.singleShot(0, self.controller.start)
 
         # Прокси — дочерний процесс программы, своей службы у него нет.
         if (
