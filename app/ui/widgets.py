@@ -353,6 +353,12 @@ class PowerButton(QAbstractButton):
         # вторая же смена состояния роняла программу.
         self._glow.finished.connect(self._settled)
 
+        # Пауза обводится своей жёлтой дугой так же, как работа — зелёной.
+        # Мгновенная перекраска выглядела как сбой, а не как смена состояния.
+        self._hold = 0.0
+        self._hold_anim = QPropertyAnimation(self, b"hold", self)
+        self._hold_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
     def _animate_fill(self, on: bool) -> None:
         """Ведёт кольцо к новому состоянию от того, где оно сейчас.
 
@@ -386,6 +392,15 @@ class PowerButton(QAbstractButton):
 
     fill = pyqtProperty(float, fget=get_fill, fset=set_fill)
 
+    def get_hold(self) -> float:
+        return self._hold
+
+    def set_hold(self, value: float) -> None:
+        self._hold = value
+        self.update()
+
+    hold = pyqtProperty(float, fget=get_hold, fset=set_hold)
+
     def set_available(self, value: bool) -> None:
         """Можно ли нажимать вообще — без оглядки на идущий переход."""
         self._available = value
@@ -398,9 +413,30 @@ class PowerButton(QAbstractButton):
         перебивала. Жёлтое говорит «ждёт»: так же предупреждения окрашены по
         всей программе.
         """
-        if paused != self._paused:
-            self._paused = paused
-            self.update()
+        if paused == self._paused:
+            return
+        self._paused = paused
+        self._hold_anim.stop()
+
+        # Вместе с паузой меняется и работа: зелёная дуга уже сходит или
+        # наливается. Жёлтая тогда — подложка под ней: при паузе зелёное
+        # открывает её целиком, при возврате закрывает и только потом уходит.
+        # Смотрим на само кольцо, а не на то, идёт ли анимация: щелчок по
+        # кнопке на миг запускает её сам, и пауза из серого выходила рывком.
+        if paused and self._fill > 0.5:
+            self.set_hold(1.0)
+            return
+        greening = (
+            self._glow.state() == QPropertyAnimation.State.Running
+            and self._glow.endValue() == 1.0
+        )
+        if not paused and greening:
+            return
+
+        self._hold_anim.setDuration(motion.duration(RING_FILL_MS))
+        self._hold_anim.setStartValue(self._hold)
+        self._hold_anim.setEndValue(1.0 if paused else 0.0)
+        self._hold_anim.start()
 
     def set_busy(self, busy: bool) -> None:
         """Идёт ли работа. На вид кнопка не меняется — только не нажимается."""
@@ -410,6 +446,9 @@ class PowerButton(QAbstractButton):
     def _settled(self) -> None:
         self._settling = False
         self._sync_enabled()
+        # Зелёная дуга закрыла жёлтую целиком — убрать её теперь незаметно.
+        if not self._paused and self._hold and self._fill >= 1.0:
+            self.set_hold(0.0)
 
     def _sync_enabled(self) -> None:
         self.setEnabled(self._available and not self._busy and not self._settling)
@@ -419,12 +458,9 @@ class PowerButton(QAbstractButton):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         ring = QColor(COLORS["border_strong"])
-        glyph = _blend(QColor(COLORS["text_dim"]), QColor(COLORS["text"]), self._fill)
-        if self._paused:
-            # Подложка под цветной дугой: при паузе зелёное сходит и открывает
-            # жёлтое, при возврате заливается поверх него.
-            ring = QColor(COLORS["warning"])
-            glyph = _blend(ring, QColor(COLORS["text"]), self._fill)
+        warning = QColor(COLORS["warning"])
+        resting = _blend(QColor(COLORS["text_dim"]), warning, self._hold)
+        glyph = _blend(resting, QColor(COLORS["text"]), self._fill)
 
         if self.underMouse() and self.isEnabled():
             # На светлой теме осветлять нечего: кольцо и так светлое, и
@@ -445,6 +481,16 @@ class PowerButton(QAbstractButton):
         # двенадцати часов по часовой стрелке и доходит до полного круга.
         # Смена цвета на тёмном фоне почти не читается — а растущая дуга
         # видна сразу и объясняет, что состояние меняется прямо сейчас.
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        if self._hold > 0.0:
+            # Пауза — под зелёной дугой: при смене одного на другое зелёное
+            # сходит с жёлтого или наливается поверх него.
+            painter.setPen(QPen(warning, 2.5, cap=Qt.PenCapStyle.RoundCap))
+            if self._hold >= 1.0:
+                painter.drawEllipse(circle)
+            else:
+                painter.drawArc(circle, 90 * 16, -round(360 * 16 * self._hold))
+
         if self._fill > 0.0:
             accent = QPen(self._accent, 2.5, cap=Qt.PenCapStyle.RoundCap)
             painter.setPen(accent)
