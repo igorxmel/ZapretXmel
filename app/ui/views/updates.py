@@ -313,21 +313,40 @@ class UpdatesView(QWidget):
 
     def _app_checked(self, release) -> None:
         self._app_check.setEnabled(True)
+        # Находка фоновой проверки могла устареть: эту версию уже поставили.
+        if release is not None and not github.is_newer(release.version, selfupdate.newest_here()):
+            release = None
         self._new_app = release
 
         if release is None:
+            if selfupdate.staged_version():
+                self._offer_restart()
+                return
             self._app_say("Установлена последняя версия программы", COLORS["success"])
             self._app_install.setEnabled(False)
             return
 
+        self._app_install.setText("Обновить и перезапустить")
         self._app_install.setEnabled(True)
         self._app_say(
             f"Доступна версия {release.label}",
             COLORS["warning"],
         )
 
+    def _offer_restart(self) -> None:
+        """Новая версия уже на диске — осталось её запустить."""
+        self._app_say(
+            f"Версия {selfupdate.staged_version()} установлена и запустится после перезапуска",
+            COLORS["success"],
+        )
+        self._app_install.setText("Перезапустить")
+        self._app_install.setEnabled(True)
+
     def _update_app(self) -> None:
         release = getattr(self, "_new_app", None)
+        if release is None and selfupdate.staged_version() and self._auto != updates.APP:
+            self._app_updated(selfupdate.staged_version())
+            return
         if release is None or self._app_busy():
             return
 
@@ -350,11 +369,8 @@ class UpdatesView(QWidget):
         # спрятано ли оно и занят ли человек.
         if self._auto == updates.APP:
             self.busy_changed.emit(False)
-            self._app_check.setEnabled(False)
-            self._app_say(
-                f"Версия {version} установлена и запустится при следующем запуске",
-                COLORS["success"],
-            )
+            self._new_app = None
+            self._offer_restart()
             self._auto_finished(str(version))
             return
 
@@ -370,7 +386,9 @@ class UpdatesView(QWidget):
         self.busy_changed.emit(False)
         self._app_progress.hide()
         self._app_check.setEnabled(True)
-        self._app_install.setEnabled(getattr(self, "_new_app", None) is not None)
+        self._app_install.setEnabled(
+            getattr(self, "_new_app", None) is not None or bool(selfupdate.staged_version())
+        )
         self._app_say(message, COLORS["danger"])
         if self._auto == updates.APP:
             self._auto_broke(message)

@@ -38,6 +38,12 @@ NEW_SUFFIX = ".new"
 
 Progress = Callable[[str], None]
 
+# Версия, которая уже стоит на месте файла программы и ждёт перезапуска.
+# Работающий экземпляр к этому времени отодвинут в `.old` и занят. Не зная об
+# этом, раздел «Обновления» предлагал ту же версию снова, вторая установка
+# пыталась удалить `.old` — то есть саму себя — и падала с «Отказано в доступе».
+_staged = ""
+
 
 class SelfUpdateError(Exception):
     """Обновление программы не удалось."""
@@ -54,6 +60,16 @@ def executable() -> Path:
 
 def current_version() -> str:
     return __version__
+
+
+def staged_version() -> str:
+    """Поставленная, но ещё не запущенная версия. Пусто — такой нет."""
+    return _staged
+
+
+def newest_here() -> str:
+    """Самая новая версия на диске: поставленная, если есть, иначе запущенная."""
+    return _staged or current_version()
 
 
 def cleanup() -> None:
@@ -82,7 +98,7 @@ def check(
     pre-release и в обычный «последний релиз» не попадают.
     """
     release = github.latest_release(repo, timeout=timeout, testing=testing)
-    return release if github.is_newer(release.version, current_version()) else None
+    return release if github.is_newer(release.version, newest_here()) else None
 
 
 def download(
@@ -184,7 +200,22 @@ def apply(downloaded: Path, progress: Progress | None = None) -> None:
     if progress:
         progress("Заменяю файл программы…")
 
-    backup.unlink(missing_ok=True)
+    if _staged:
+        # В `.old` лежит работающая программа, её не трогаем. На месте файла —
+        # прошлое обновление, оно не запущено, и его можно просто заменить.
+        try:
+            os.replace(downloaded, current)
+        except OSError as error:
+            raise SelfUpdateError(f"не удалось поставить новую версию: {error}") from error
+        log.info("Программа обновлена поверх ещё не запущенной версии %s", _staged)
+        return
+
+    try:
+        backup.unlink(missing_ok=True)
+    except OSError as error:
+        raise SelfUpdateError(
+            "файл прошлой версии ещё занят. Перезапустите программу и попробуйте снова"
+        ) from error
     os.replace(current, backup)
     try:
         os.replace(downloaded, current)
@@ -219,4 +250,6 @@ def update(
     on_bytes: Callable[[int, int], None] | None = None,
 ) -> None:
     """Скачивает и ставит новую версию. Перезапуск вызывается отдельно."""
+    global _staged
     apply(download(release, progress, on_bytes), progress)
+    _staged = release.version
