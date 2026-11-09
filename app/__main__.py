@@ -171,10 +171,17 @@ def install_crash_handler() -> None:
 PREDECESSOR_WAIT = 5.0
 PREDECESSOR_STEP = 0.25
 
+# После обновления прежний экземпляр закрывается сам, но выход у него не
+# мгновенный: гасит прокси, профили, опрос. Пяти секунд не хватило — и
+# человек видел «прошлый запуск завис» сразу после «Обновить и перезапустить».
+# Ждём дольше, а не дождавшись, снимаем его без вопроса: он сам попросил
+# заменить себя, и спрашивать здесь не о чем.
+RESTARTED_WAIT = 20.0
 
-def _wait_for_predecessor(restarted: bool = False) -> bool:
+
+def _wait_for_predecessor(restarted: bool = False, wait: float = PREDECESSOR_WAIT) -> bool:
     """Ждёт, пока освободится мьютекс. True — дождались и заняли его."""
-    deadline = time.monotonic() + PREDECESSOR_WAIT
+    deadline = time.monotonic() + wait
     while time.monotonic() < deadline:
         time.sleep(PREDECESSOR_STEP)
         if singleton.acquire():
@@ -186,6 +193,37 @@ def _wait_for_predecessor(restarted: bool = False) -> bool:
         if not restarted and singleton.focus_existing():
             return False
     return False
+
+
+def take_over() -> bool:
+    """Решает, что делать, когда мьютекс занят. True — запуск продолжается."""
+    restarted = singleton.RESTART_FLAG in sys.argv
+
+    # После самообновления прежний экземпляр ещё показывает окно и успешно
+    # «отвечает» на просьбу показаться — а через мгновение закрывается.
+    # Если принять это за живой экземпляр и выйти, не останется ни одного.
+    if not restarted and singleton.focus_existing():
+        return False
+
+    # Сразу после самообновления старый процесс ещё доживает свои
+    # мгновения: окна у него уже нет, а мьютекс ещё занят. Без этого
+    # ожидания новый экземпляр каждый раз объявлял прошлый запуск
+    # зависшим — и человек видел вопрос после каждого обновления.
+    wait = RESTARTED_WAIT if restarted else PREDECESSOR_WAIT
+    if _wait_for_predecessor(restarted=restarted, wait=wait):
+        log.info("Прошлый экземпляр завершился, продолжаем запуск")
+        return True
+
+    if restarted:
+        log.warning("Прежний экземпляр не закрылся за %.0f с — снимаю его", wait)
+        singleton.terminate_others()
+        if singleton.acquire():
+            return True
+
+    # Не дождались и окна нет — экземпляр действительно завис. Просто
+    # выйти здесь нельзя: человек жмёт на ярлык, и ничего не
+    # происходит, причём сколько угодно раз подряд.
+    return revive_stuck_instance()
 
 
 def revive_stuck_instance() -> bool:
@@ -289,22 +327,7 @@ def main() -> int:
     # мгновения, и более ранняя проверка приняла бы его за чужой экземпляр.
     if not singleton.acquire():
         log.info("Программа уже запущена")
-        # После самообновления прежний экземпляр ещё показывает окно и успешно
-        # «отвечает» на просьбу показаться — а через мгновение закрывается.
-        # Если принять это за живой экземпляр и выйти, не останется ни одного.
-        if singleton.RESTART_FLAG not in sys.argv and singleton.focus_existing():
-            return 0
-
-        # Сразу после самообновления старый процесс ещё доживает свои
-        # мгновения: окна у него уже нет, а мьютекс ещё занят. Без этого
-        # ожидания новый экземпляр каждый раз объявлял прошлый запуск
-        # зависшим — и человек видел вопрос после каждого обновления.
-        if _wait_for_predecessor(restarted=singleton.RESTART_FLAG in sys.argv):
-            log.info("Прошлый экземпляр завершился, продолжаем запуск")
-        # Не дождались и окна нет — экземпляр действительно завис. Просто
-        # выйти здесь нельзя: человек жмёт на ярлык, и ничего не
-        # происходит, причём сколько угодно раз подряд.
-        elif not revive_stuck_instance():
+        if not take_over():
             return 0
 
     # Задачи автозапуска из прежних версий не стартовали от батареи. Чиним в

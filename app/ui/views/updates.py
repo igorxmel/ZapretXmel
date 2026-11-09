@@ -5,7 +5,6 @@ from __future__ import annotations
 from PyQt6.QtCore import QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices, QFont, QFontMetrics
 from PyQt6.QtWidgets import (
-    QApplication,
     QButtonGroup,
     QCheckBox,
     QComboBox,
@@ -71,6 +70,8 @@ class UpdatesView(QWidget):
     # Автообновление: что поставилось («что», версия) и что не встало («что», причина).
     auto_installed = pyqtSignal(str, str)
     auto_failed = pyqtSignal(str, str)
+    # Новая версия программы на месте — перезапускает окно, штатным выходом.
+    restart_requested = pyqtSignal(str)
 
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
@@ -375,12 +376,13 @@ class UpdatesView(QWidget):
             return
 
         self._app_say("Обновлено, перезапускаюсь…", COLORS["success"])
-        try:
-            selfupdate.restart()
-        except selfupdate.SelfUpdateError as error:
-            self._app_failed(str(error))
-            return
-        QApplication.quit()
+        # Перезапускает окно: оно закрывается штатно — гасит прокси и опрос — и
+        # передаёт новой версии, что поднять заново. Отсюда программа
+        # закрывалась мимо всего этого.
+        self.restart_requested.emit(str(version))
+
+    def restart_failed(self, message: str) -> None:
+        self._app_failed(message)
 
     def _app_failed(self, message: str) -> None:
         self.busy_changed.emit(False)

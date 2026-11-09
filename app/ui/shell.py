@@ -469,6 +469,7 @@ class MainWindow(FramelessWindow):
         self.views["updates"].update_policy_changed.connect(self._recheck_after_install)
         self.views["updates"].auto_installed.connect(self._auto_installed)
         self.views["updates"].auto_failed.connect(self._auto_failed)
+        self.views["updates"].restart_requested.connect(self._restart_after_update)
         self.views["settings"].tray_style_changed.connect(self._tray.refresh_style)
         self.controller.status_changed.connect(self.views["telegram"].on_status)
 
@@ -890,15 +891,31 @@ class MainWindow(FramelessWindow):
             and not self.controller._alive_profiles()
         )
 
-    def _restart_quietly(self, version: str) -> None:
-        """Перезапускает обновлённую программу в трей, с тем же обходом и прокси."""
+    def _restart_after_update(self, version: str) -> None:
+        """Перезапуск по кнопке: окно на месте, обход и прокси — как были."""
+        extra = self._resume_flags()
+        log.info("Перезапускаюсь в версию %s (%s)", version, " ".join(extra))
+        try:
+            selfupdate.restart(extra)
+        except selfupdate.SelfUpdateError as error:
+            self.views["updates"].restart_failed(str(error))
+            return
+        self.quit()
+
+    def _resume_flags(self) -> list[str]:
+        """Что новому экземпляру поднять заново."""
         status = self.controller.status
-        extra = [singleton.TRAY_FLAG]
+        extra = []
         # Служба живёт без программы, а обычный процесс и прокси — нет.
         if status.is_active and self.settings.run_mode != "service":
             extra.append(singleton.RESUME_BYPASS_FLAG)
         if status.telegram_running:
             extra.append(singleton.RESUME_PROXY_FLAG)
+        return extra
+
+    def _restart_quietly(self, version: str) -> None:
+        """Перезапускает обновлённую программу в трей, с тем же обходом и прокси."""
+        extra = [singleton.TRAY_FLAG, *self._resume_flags()]
 
         log.info("Автообновление: перезапускаюсь в версию %s (%s)", version, " ".join(extra))
         try:
