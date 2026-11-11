@@ -156,7 +156,10 @@ def remove_everything() -> Removed:
 
 def leftovers() -> list[str]:
     """Что останется после удаления всего — чтобы сказать об этом заранее."""
-    remaining = [f"сам файл программы ({paths.executable().name})"]
+    if paths.is_installed():
+        remaining = ["сама программа — её удаляют в «Параметры → Приложения»"]
+    else:
+        remaining = [f"сам файл программы ({paths.executable().name})"]
     if telegram.is_installed():
         remaining.append("прокси, прописанный в настройках Telegram")
     return remaining

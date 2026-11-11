@@ -1,19 +1,27 @@
-"""Сборка распространяемой версии.
+"""Сборка распространяемой версии — в двух вариантах.
 
-Собирает один .exe, внутрь которого кладутся картинки. Ядро zapret внутрь не
-попадает намеренно: оно скачивается из официальных релизов Flowseal при первом
-запуске и обновляется отдельно — так пользователь всегда получает актуальную
-сборку, а не ту, что была на момент нашей.
+- `ZapretXmel.exe` — переносная: один файл, кладётся куда угодно.
+- `ZapretXmel-Setup.exe` — установщик (Inno Setup) поверх сборки папкой. Она
+  запускается вдвое быстрее: ей не нужно при каждом запуске распаковывать
+  полсотни мегабайт во временную папку под проверкой антивируса.
 
-    python tools/build_release.py
+Ядро zapret внутрь не попадает намеренно: оно скачивается из официальных
+релизов Flowseal при первом запуске и обновляется отдельно — так пользователь
+всегда получает актуальную сборку, а не ту, что была на момент нашей.
 
-Рядом с .exe кладётся файл с его SHA-256: по нему программа при самообновлении
-и человек вручную могут убедиться, что скачали то же самое.
+    python tools/build_release.py                 # оба варианта
+    python tools/build_release.py --portable-only # без установщика
+
+Для установщика нужен Inno Setup 6 (`ISCC.exe` в PATH, в стандартной папке
+или в переменной ISCC). Рядом с каждым файлом кладётся его SHA-256: по нему
+программа при самообновлении и человек вручную могут убедиться, что скачали
+то же самое.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 import shutil
 import subprocess
@@ -33,8 +41,18 @@ for stream in (sys.stdout, sys.stderr):
 from app import __version__  # noqa: E402
 
 NAME = "ZapretXmel"
+SETUP_NAME = f"{NAME}-Setup"
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
+INSTALLER_SCRIPT = ROOT / "installer" / f"{NAME}.iss"
+
+ISCC_PLACES = tuple(
+    Path(os.environ.get(variable, default)) / "Inno Setup 6" / "ISCC.exe"
+    for variable, default in (
+        ("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
+        ("PROGRAMFILES", r"C:\Program Files"),
+    )
+)
 
 
 def version_numbers(version: str) -> tuple[int, int, int, int]:
@@ -122,15 +140,17 @@ def ensure_dependencies() -> None:
         ) from None
 
 
-def build() -> Path:
-    ensure_dependencies()
+def build(onedir: bool = False) -> Path:
+    """Собирает программу. Одним файлом — в `dist`, папкой — в `build/onedir`.
 
-    for directory in (DIST, BUILD):
-        shutil.rmtree(directory, ignore_errors=True)
-
+    Папка не кладётся в `dist`: в релиз она уходит только внутри установщика.
+    """
     BUILD.mkdir(parents=True, exist_ok=True)
     version_file = BUILD / "version_info.txt"
     version_file.write_text(version_resource(__version__), encoding="utf-8")
+
+    mode = "onedir" if onedir else "onefile"
+    target = BUILD / "onedir" if onedir else DIST
 
     command = [
         sys.executable,
@@ -138,7 +158,10 @@ def build() -> Path:
         "PyInstaller",
         "--noconfirm",
         "--clean",
-        "--onefile",
+        f"--{mode}",
+        f"--distpath={target}",
+        f"--workpath={BUILD / mode}",
+        f"--specpath={BUILD / mode}",
         "--windowed",
         # UPX сжимает исполняемый файл упаковщиком, и именно упакованные файлы
         # антивирусы подозревают первыми. Выигрыш — несколько мегабайт, цена —
@@ -176,14 +199,50 @@ def build() -> Path:
         str(ROOT / "app" / "__main__.py"),
     ]
 
-    print("собираю:", NAME, __version__)
+    print("собираю:", NAME, __version__, mode)
     result = subprocess.run(command, cwd=ROOT, check=False)  # noqa: S603
     if result.returncode != 0:
         raise SystemExit("PyInstaller завершился с ошибкой")
 
-    built = DIST / f"{NAME}.exe"
+    built = target / NAME / f"{NAME}.exe" if onedir else target / f"{NAME}.exe"
     if not built.exists():
         raise SystemExit(f"не найден результат сборки: {built}")
+    return built
+
+
+def find_iscc() -> Path:
+    """Компилятор Inno Setup: из переменной ISCC, из PATH или из стандартной папки."""
+    candidates = [os.environ.get("ISCC", ""), shutil.which("ISCC") or "", *ISCC_PLACES]
+    for candidate in candidates:
+        if candidate and Path(candidate).is_file():
+            return Path(candidate)
+    raise SystemExit(
+        "не найден Inno Setup 6 (ISCC.exe) — поставьте его или соберите без установщика:\n"
+        "    python tools/build_release.py --portable-only"
+    )
+
+
+def build_installer(folder: Path) -> Path:
+    """Собирает установщик поверх сборки папкой."""
+    numbers = ".".join(str(part) for part in version_numbers(__version__))
+    command = [
+        str(find_iscc()),
+        "/Q",
+        f"/DAppVersion={__version__}",
+        f"/DFileVersion={numbers}",
+        f"/DSourceDir={folder}",
+        f"/DOutputDir={DIST}",
+        f"/DRoot={ROOT}",
+        str(INSTALLER_SCRIPT),
+    ]
+    print("собираю установщик:", SETUP_NAME, __version__)
+    result = subprocess.run(command, cwd=ROOT, check=False)  # noqa: S603
+    if result.returncode != 0:
+        raise SystemExit("Inno Setup завершился с ошибкой")
+
+    built = DIST / f"{SETUP_NAME}.exe"
+    if not built.exists():
+        raise SystemExit(f"не найден установщик: {built}")
     return built
 
 
@@ -198,17 +257,30 @@ def write_hash(path: Path) -> Path:
     return target
 
 
-def main() -> int:
-    built = build()
-    checksum = write_hash(built)
+def main(argv: list[str] | None = None) -> int:
+    portable_only = "--portable-only" in (sys.argv[1:] if argv is None else argv)
+    ensure_dependencies()
+    if not portable_only:
+        find_iscc()  # до долгой сборки, а не после неё
 
-    size = built.stat().st_size / 1024 / 1024
+    for directory in (DIST, BUILD):
+        shutil.rmtree(directory, ignore_errors=True)
+
+    built = [build()]
+    if not portable_only:
+        built.append(build_installer(build(onedir=True).parent))
+
     print()
-    print(f"готово: {built}  ({size:.1f} МБ)")
-    print(f"хеш:    {checksum}")
+    for path in built:
+        checksum = write_hash(path)
+        size = path.stat().st_size / 1024 / 1024
+        print(f"готово: {path}  ({size:.1f} МБ)")
+        print(f"хеш:    {checksum}")
     print()
-    print("Выкладывать в релиз нужно оба файла: .exe и .sha256.")
-    print(f"Имя .exe менять нельзя — самообновление ищет ровно «{NAME}.exe».")
+    print("Выкладывать в релиз нужно все файлы вместе с .sha256.")
+    print(
+        f"Имена менять нельзя — самообновление ищет ровно «{NAME}.exe» и «{SETUP_NAME}.exe»."
+    )
     return 0
 
 

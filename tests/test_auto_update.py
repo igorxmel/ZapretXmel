@@ -250,7 +250,7 @@ def test_visible_window_is_not_restarted(window, monkeypatch: pytest.MonkeyPatch
     window._auto_installed(updates.APP, "9")
 
     assert restarted == []
-    assert "при следующем запуске" in messages[0]
+    assert "после перезапуска" in messages[0]
     assert (updates.APP, "9") in window._auto_done
 
 

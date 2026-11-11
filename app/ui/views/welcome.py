@@ -366,16 +366,19 @@ class WelcomeWindow(FramelessWindow):
             action="Открыть" if installed else "Настроить",
         )
 
-        has_shortcut = shortcut.exists()
+        # Установленной программе ярлыки сделал установщик, и убирает их он же.
+        has_shortcut = paths.is_installed() or shortcut.exists()
+        if paths.is_installed():
+            hint = "Ярлыки в «Пуске» и на рабочем столе сделал установщик."
+        elif has_shortcut:
+            hint = f"Ярлык лежит на рабочем столе: {shortcut.path().name}"
+        else:
+            hint = "Это переносная версия: один файл там, куда его положили."
         self._shortcut_step.set_state(
             done=has_shortcut,
-            hint=(
-                f"Ярлык лежит на рабочем столе: {shortcut.path().name}"
-                if has_shortcut
-                else "Установщика у программы нет: это один файл там, куда его положили."
-            ),
+            hint=hint,
             action="Убрать" if has_shortcut else "Создать",
-            enabled=paths.is_frozen(),
+            enabled=paths.is_frozen() and not paths.is_installed(),
         )
 
         # Место считается выбранным всегда: по умолчанию это папка рядом с

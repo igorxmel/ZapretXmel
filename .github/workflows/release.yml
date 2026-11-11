@@ -1,6 +1,7 @@
 name: Релиз
 
-# Собирает .exe и выкладывает его, когда появляется тег вида 1.2.3 или v1.2.3.
+# Собирает переносной .exe и установщик и выкладывает их, когда появляется тег
+# вида 1.2.3 или v1.2.3.
 #
 # Первый релиз лучше выпустить руками: так видно, что именно попало в сборку,
 # и можно убедиться, что самообновление находит файл. Автоматизировать стоит
@@ -46,6 +47,10 @@ jobs:
       - name: Линтер
         run: python -m ruff check app/ tests/ tools/
 
+      # Установщик собирается Inno Setup — на сборочной машине его может не быть.
+      - name: Поставить Inno Setup
+        run: choco install innosetup -y --no-progress
+
       - name: Собрать
         run: python tools/build_release.py
 
@@ -57,14 +62,47 @@ jobs:
       - name: Проверить, что сборка запускается
         shell: pwsh
         run: |
-          $app = Start-Process -FilePath dist/ZapretXmel.exe -ArgumentList '--version' -PassThru
-          if (-not $app.WaitForExit(60000)) {
-            $app.Kill()
-            throw "сборка не завершилась за минуту — скорее всего, показала диалог об ошибке"
+          foreach ($exe in 'dist/ZapretXmel.exe', 'build/onedir/ZapretXmel/ZapretXmel.exe') {
+            $app = Start-Process -FilePath $exe -ArgumentList '--version' -PassThru
+            if (-not $app.WaitForExit(60000)) {
+              $app.Kill()
+              throw "$exe не завершился за минуту — скорее всего, показал диалог об ошибке"
+            }
+            if ($app.ExitCode -ne 0) {
+              throw "$exe завершился с кодом $($app.ExitCode)"
+            }
           }
-          if ($app.ExitCode -ne 0) {
-            throw "сборка завершилась с кодом $($app.ExitCode)"
-          }
+
+      # Установщик проверяется целиком, как у человека: тихая установка,
+      # запуск установленной программы и удаление. Удаление зовёт саму
+      # программу (--uninstall), и если она там упадёт, папка не исчезнет.
+      - name: Проверить установщик
+        shell: pwsh
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'ZapretXmel-test'
+          $setup = Start-Process dist/ZapretXmel-Setup.exe -PassThru -Wait -ArgumentList `
+            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$dir", "/LOG=$env:RUNNER_TEMP\setup.log"
+          if ($setup.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\setup.log"; throw "установщик вернул $($setup.ExitCode)" }
+          if (-not (Test-Path "$dir\_internal")) { throw "установщик не положил сборку папкой" }
+
+          $app = Start-Process "$dir\ZapretXmel.exe" -ArgumentList '--version' -PassThru
+          if (-not $app.WaitForExit(60000) -or $app.ExitCode -ne 0) { throw "установленная программа не запускается" }
+
+          Start-Process "$dir\unins000.exe" -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
+          # Деинсталлятор перезапускает себя копией и сразу возвращает управление.
+          $deadline = (Get-Date).AddMinutes(2)
+          while ((Test-Path "$dir\ZapretXmel.exe") -and (Get-Date) -lt $deadline) { Start-Sleep 2 }
+          if (Test-Path "$dir\ZapretXmel.exe") { throw "удаление не убрало программу" }
+          if (Test-Path "$dir\data") { throw "удаление оставило данные программы" }
+
+      # Запуск руками ничего не выкладывает, но собранное нужно где-то взять,
+      # чтобы проверить установщик до релиза.
+      - name: Сохранить сборку
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZapretXmel-${{ github.sha }}
+          path: dist/
 
       # Два последних шага имеют смысл только для тега. Запуск руками
       # (workflow_dispatch) нужен, чтобы прогнать проверки и сборку, ничего
@@ -97,6 +135,8 @@ jobs:
           files: |
             dist/ZapretXmel.exe
             dist/ZapretXmel.exe.sha256
+            dist/ZapretXmel-Setup.exe
+            dist/ZapretXmel-Setup.exe.sha256
           body_path: release-notes.md
           # Тег с дефисом (1.1.0-rc.1) — тестовая сборка. GitHub не отдаёт
           # такие в «последнем релизе», поэтому ссылка на релиз и обычные

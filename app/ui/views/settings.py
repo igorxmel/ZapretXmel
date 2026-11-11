@@ -542,6 +542,10 @@ class SettingsView(QWidget):
             self._select_by_value(
                 self._tray_style, TRAY_STYLES, self.controller.settings.tray_style
             )
+            # Установленной программе ярлыки сделал установщик, и убирает их он
+            # же. Свои рядом с ними были бы вторыми в «Пуске».
+            self._shortcut.setVisible(not paths.is_installed())
+            self._start_menu.setVisible(not paths.is_installed())
             self._shortcut.setEnabled(paths.is_frozen())
             self._shortcut.setToolTip(
                 ""

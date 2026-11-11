@@ -44,6 +44,19 @@ def is_frozen() -> bool:
     return bool(getattr(sys, "frozen", False))
 
 
+def is_installed() -> bool:
+    """Поставлена ли программа установщиком, а не лежит одним файлом.
+
+    Установщик ставит сборку папкой: библиотеки лежат рядом с exe, в `_internal`.
+    Переносная версия — один exe, который при каждом запуске распаковывает их во
+    временную папку. От этого зависит, как программа обновляется и удаляется.
+    """
+    if not is_frozen():
+        return False
+    bundle = getattr(sys, "_MEIPASS", "")
+    return bool(bundle) and Path(bundle).resolve().parent == app_root()
+
+
 @cache
 def assets_dir() -> Path:
     """Картинки приложения.

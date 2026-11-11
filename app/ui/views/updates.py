@@ -336,10 +336,7 @@ class UpdatesView(QWidget):
 
     def _offer_restart(self) -> None:
         """Новая версия уже на диске — осталось её запустить."""
-        self._app_say(
-            f"Версия {selfupdate.staged_version()} установлена и запустится после перезапуска",
-            COLORS["success"],
-        )
+        self._app_say(selfupdate.staged_note(selfupdate.staged_version()), COLORS["success"])
         self._app_install.setText("Перезапустить")
         self._app_install.setEnabled(True)
 

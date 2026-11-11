@@ -9,6 +9,11 @@ ZapretXmel: чтобы человек не скачивал новую сбор�
 старте. Вспомогательный процесс-«подменщик» при таком порядке не нужен — а
 значит, нечему и сломаться на полпути.
 
+Установленный вариант (сборка папкой) так не обновить: файлов в нём две сотни, и
+подменять их по одному на ходу нельзя. Он скачивает установщик новой версии и
+запускает его в тихом режиме. Установщик ждёт, пока программа закроется, ставит
+новую поверх и, если его об этом попросили, запускает её.
+
 Из исходников обновляться нечему: там это делает git. В таком режиме проверка
 честно говорит, что обновлять нечего, вместо того чтобы молча ничего не делать.
 """
@@ -23,7 +28,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from app import __version__
-from app.core import process, singleton
+from app.core import paths, process, singleton
 from app.core.updater import github
 
 log = logging.getLogger(__name__)
@@ -33,6 +38,7 @@ log = logging.getLogger(__name__)
 REPO = "igorxmel/ZapretXmel"
 
 ASSET_NAME = "ZapretXmel.exe"
+SETUP_NAME = "ZapretXmel-Setup.exe"
 OLD_SUFFIX = ".old"
 NEW_SUFFIX = ".new"
 
@@ -43,6 +49,11 @@ Progress = Callable[[str], None]
 # этом, раздел «Обновления» предлагал ту же версию снова, вторая установка
 # пыталась удалить `.old` — то есть саму себя — и падала с «Отказано в доступе».
 _staged = ""
+
+# Скачанный установщик новой версии и запущен ли он уже. Установленный вариант
+# ставит обновление только после выхода — при перезапуске или при закрытии.
+_setup: Path | None = None
+_setup_started = False
 
 
 class SelfUpdateError(Exception):
@@ -62,6 +73,18 @@ def current_version() -> str:
     return __version__
 
 
+def asset_name() -> str:
+    """Какой файл релиза нужен этому варианту программы."""
+    return SETUP_NAME if paths.is_installed() else ASSET_NAME
+
+
+def staged_note(version: str) -> str:
+    """Что будет с поставленной версией — для надписей и уведомлений."""
+    if paths.is_installed():
+        return f"Версия {version} скачана и установится при перезапуске или закрытии программы"
+    return f"Версия {version} установлена и запустится после перезапуска"
+
+
 def staged_version() -> str:
     """Поставленная, но ещё не запущенная версия. Пусто — такой нет."""
     return _staged
@@ -78,6 +101,15 @@ def cleanup() -> None:
     Вызывается при старте: пока программа работала, удалить его было нельзя.
     """
     if not is_frozen():
+        return
+
+    if paths.is_installed():
+        # Установщик к этому времени отработал: новая версия уже запущена им.
+        for setup in _setup_dir().glob("*.exe"):
+            try:
+                setup.unlink()
+            except OSError:
+                log.debug("Установщик %s пока занят, удалю в следующий раз", setup.name)
         return
 
     leftover = executable().with_suffix(OLD_SUFFIX + executable().suffix)
@@ -112,11 +144,16 @@ def download(
     мегабайт по дороге могут оборваться, а недокачанную программу мы
     поставим на место рабочей — и она не запустится вовсе.
     """
-    asset = next((item for item in release.assets if item.name == ASSET_NAME), None)
+    name = asset_name()
+    asset = next((item for item in release.assets if item.name == name), None)
     if asset is None:
-        raise SelfUpdateError(f"в релизе {release.tag} нет файла {ASSET_NAME}")
+        raise SelfUpdateError(f"в релизе {release.tag} нет файла {name}")
 
-    target = executable().with_suffix(NEW_SUFFIX + executable().suffix)
+    if paths.is_installed():
+        _setup_dir().mkdir(parents=True, exist_ok=True)
+        target = _setup_dir() / SETUP_NAME
+    else:
+        target = executable().with_suffix(NEW_SUFFIX + executable().suffix)
 
     # Остаток от прошлой попытки убираем сам: иначе вторая загрузка писала
     # бы в занятый файл, а это ошибка доступа посреди обновления.
@@ -149,6 +186,11 @@ def download(
     return target
 
 
+def _setup_dir() -> Path:
+    """Куда класть установщик. Не рядом с программой: туда он сам и ставит."""
+    return paths.data_dir() / "updates"
+
+
 def _discard(path: Path) -> None:
     """Убирает файл, не поднимая шум, если он уже занят."""
     for leftover in (path, path.with_suffix(path.suffix + ".part")):
@@ -163,15 +205,17 @@ def can_verify(release: github.Release) -> bool:
 
     Без них недокачанный файл встал бы на место рабочего незамеченным.
     """
+    name = asset_name()
     return any(
-        (item.name == ASSET_NAME and item.digest) or item.name == ASSET_NAME + ".sha256"
+        (item.name == name and item.digest) or item.name == name + ".sha256"
         for item in release.assets
     )
 
 
 def _published_hash(release: github.Release) -> str:
     """Берёт SHA-256 из файла рядом со сборкой. Пусто — значит его нет."""
-    asset = next((item for item in release.assets if item.name == ASSET_NAME + ".sha256"), None)
+    hashes = asset_name() + ".sha256"
+    asset = next((item for item in release.assets if item.name == hashes), None)
     if asset is None:
         return ""
 
@@ -191,8 +235,16 @@ def apply(downloaded: Path, progress: Progress | None = None) -> None:
     Если второй шаг не удастся, старый возвращается на место — программа
     останется рабочей.
     """
+    global _setup
+
     if not is_frozen():
         raise SelfUpdateError("обновление доступно только в собранной версии")
+
+    if paths.is_installed():
+        # Ставить нечего: установщик сделает это сам, когда программа закроется.
+        _setup = downloaded
+        log.info("Скачан установщик новой версии: %s", downloaded)
+        return
 
     current = executable()
     backup = current.with_suffix(OLD_SUFFIX + current.suffix)
@@ -233,6 +285,12 @@ def restart(extra: list[str] | None = None) -> None:
     временную папку старой и не находит ни одного плагина Qt. `extra` —
     флаги для нового экземпляра: остаться в трее, поднять обход и прокси.
     """
+    if paths.is_installed():
+        if _setup is None:
+            raise SelfUpdateError("установщик новой версии не скачан")
+        _run_setup(relaunch=extra or [])
+        return
+
     try:
         subprocess.Popen(  # noqa: S603 — собственный файл
             [str(executable()), singleton.RESTART_FLAG, *(extra or [])],
@@ -242,6 +300,56 @@ def restart(extra: list[str] | None = None) -> None:
         )
     except OSError as error:
         raise SelfUpdateError(f"не удалось перезапустить программу: {error}") from error
+
+
+def _run_setup(relaunch: list[str] | None) -> None:
+    """Запускает скачанный установщик в тихом режиме.
+
+    `relaunch` — с какими флагами установщику запустить новую версию; `None` —
+    не запускать: обновление ставится при закрытии программы, и открывать её
+    снова никто не просил.
+    """
+    global _setup_started
+
+    command = [
+        str(_setup),
+        "/VERYSILENT",
+        "/SUPPRESSMSGBOXES",
+        "/NORESTART",
+        f"/LOG={paths.logs_dir() / 'setup.log'}",
+    ]
+    if relaunch is not None:
+        command.append("/LAUNCH=1")
+        if relaunch:
+            command.append("/LAUNCHARGS=" + " ".join(relaunch))
+
+    try:
+        subprocess.Popen(  # noqa: S603 — установщик из нашего же релиза, хеш сверен
+            command,
+            close_fds=True,
+            cwd=str(_setup_dir()),
+            env=process.child_environment(),
+        )
+    except OSError as error:
+        raise SelfUpdateError(f"не удалось запустить установщик: {error}") from error
+    _setup_started = True
+    log.info(
+        "Запущен установщик обновления%s", "" if relaunch is not None else " (без перезапуска)"
+    )
+
+
+def install_on_exit() -> None:
+    """Ставит скачанное обновление, когда программу закрывают.
+
+    Иначе у установленного варианта обновление ждало бы перезапуска, о котором
+    человек не знает: закрыл программу, открыл — а версия прежняя.
+    """
+    if not paths.is_installed() or _setup is None or _setup_started:
+        return
+    try:
+        _run_setup(relaunch=None)
+    except SelfUpdateError as error:
+        log.warning("Обновление при закрытии не запустилось: %s", error)
 
 
 def update(

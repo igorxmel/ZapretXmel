@@ -855,8 +855,7 @@ class MainWindow(FramelessWindow):
             return
 
         self._notify(
-            f"Программа обновлена до {version}. Новая версия запустится при "
-            "следующем запуске, список изменений покажется сам."
+            f"{selfupdate.staged_note(version)}. Список изменений покажется сам."
         )
 
     def _show_reminder_without_app(self) -> None:
@@ -1107,6 +1106,10 @@ class MainWindow(FramelessWindow):
         self.controller.shutdown()
         self._tray.hide()
         event.accept()
+
+        # Установленный вариант ставит скачанное обновление после выхода: пока
+        # программа работает, установщик заменить её файлы не может.
+        selfupdate.install_on_exit()
 
         # Выход из цикла событий обязан быть явным. Приложение живёт без окон
         # намеренно (`setQuitOnLastWindowClosed(False)`) — иначе сворачивание в
