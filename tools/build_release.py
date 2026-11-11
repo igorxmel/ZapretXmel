@@ -151,6 +151,9 @@ def build(onedir: bool = False) -> Path:
 
     mode = "onedir" if onedir else "onefile"
     target = BUILD / "onedir" if onedir else DIST
+    # Рабочая папка отдельно от результата: если папка сборки лежит внутри
+    # рабочей, PyInstaller отказывается собирать.
+    work = BUILD / f"work-{mode}"
 
     command = [
         sys.executable,
@@ -160,8 +163,8 @@ def build(onedir: bool = False) -> Path:
         "--clean",
         f"--{mode}",
         f"--distpath={target}",
-        f"--workpath={BUILD / mode}",
-        f"--specpath={BUILD / mode}",
+        f"--workpath={work}",
+        f"--specpath={work}",
         "--windowed",
         # UPX сжимает исполняемый файл упаковщиком, и именно упакованные файлы
         # антивирусы подозревают первыми. Выигрыш — несколько мегабайт, цена —
