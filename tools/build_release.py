@@ -1,7 +1,9 @@
 """Сборка распространяемой версии — в двух вариантах.
 
-- `ZapretXmel.exe` — переносная: один файл, кладётся куда угодно.
-- `ZapretXmel-Setup.exe` — установщик (Inno Setup) поверх сборки папкой. Она
+- `ZapretXmel-Windows-Portable.exe` — переносная: один файл, кладётся куда угодно.
+  Рядом — она же под прежним именем `ZapretXmel.exe`: по нему ищут обновление
+  версии до 0.4.0.
+- `ZapretXmel-Windows-Setup.exe` — установщик (Inno Setup) поверх сборки папкой. Она
   запускается вдвое быстрее: ей не нужно при каждом запуске распаковывать
   полсотни мегабайт во временную папку под проверкой антивируса.
 
@@ -41,7 +43,9 @@ for stream in (sys.stdout, sys.stderr):
 from app import __version__  # noqa: E402
 
 NAME = "ZapretXmel"
-SETUP_NAME = f"{NAME}-Setup"
+# В именах файлов релиза — система: программу собирались переносить и на другие.
+PORTABLE_NAME = f"{NAME}-Windows-Portable"
+SETUP_NAME = f"{NAME}-Windows-Setup"
 DIST = ROOT / "dist"
 BUILD = ROOT / "build"
 INSTALLER_SCRIPT = ROOT / "installer" / f"{NAME}.iss"
@@ -269,7 +273,12 @@ def main(argv: list[str] | None = None) -> int:
     for directory in (DIST, BUILD):
         shutil.rmtree(directory, ignore_errors=True)
 
-    built = [build()]
+    # Сама сборка называется ZapretXmel.exe — это имя видно в диспетчере задач.
+    # В релиз она уходит под именем с системой и копией под прежним.
+    legacy = build()
+    portable = DIST / f"{PORTABLE_NAME}.exe"
+    shutil.copyfile(legacy, portable)
+    built = [portable, legacy]
     if not portable_only:
         built.append(build_installer(build(onedir=True).parent))
 
@@ -282,7 +291,8 @@ def main(argv: list[str] | None = None) -> int:
     print()
     print("Выкладывать в релиз нужно все файлы вместе с .sha256.")
     print(
-        f"Имена менять нельзя — самообновление ищет ровно «{NAME}.exe» и «{SETUP_NAME}.exe»."
+        f"Имена менять нельзя — самообновление ищет ровно «{PORTABLE_NAME}.exe», "
+        f"«{SETUP_NAME}.exe» и, в версиях до 0.4.0, «{NAME}.exe»."
     )
     return 0
 

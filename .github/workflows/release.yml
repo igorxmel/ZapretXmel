@@ -62,7 +62,7 @@ jobs:
       - name: Проверить, что сборка запускается
         shell: pwsh
         run: |
-          foreach ($exe in 'dist/ZapretXmel.exe', 'build/onedir/ZapretXmel/ZapretXmel.exe') {
+          foreach ($exe in 'dist/ZapretXmel-Windows-Portable.exe', 'build/onedir/ZapretXmel/ZapretXmel.exe') {
             $app = Start-Process -FilePath $exe -ArgumentList '--version' -PassThru
             if (-not $app.WaitForExit(60000)) {
               $app.Kill()
@@ -80,7 +80,7 @@ jobs:
         shell: pwsh
         run: |
           $dir = Join-Path $env:RUNNER_TEMP 'ZapretXmel-test'
-          $setup = Start-Process dist/ZapretXmel-Setup.exe -PassThru -Wait -ArgumentList `
+          $setup = Start-Process dist/ZapretXmel-Windows-Setup.exe -PassThru -Wait -ArgumentList `
             '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$dir", "/LOG=$env:RUNNER_TEMP\setup.log"
           if ($setup.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\setup.log"; throw "установщик вернул $($setup.ExitCode)" }
           if (-not (Test-Path "$dir\_internal")) { throw "установщик не положил сборку папкой" }
@@ -132,11 +132,15 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
+          # ZapretXmel.exe — та же переносная под прежним именем: по нему ищут
+          # обновление версии до 0.4.0.
           files: |
+            dist/ZapretXmel-Windows-Portable.exe
+            dist/ZapretXmel-Windows-Portable.exe.sha256
+            dist/ZapretXmel-Windows-Setup.exe
+            dist/ZapretXmel-Windows-Setup.exe.sha256
             dist/ZapretXmel.exe
             dist/ZapretXmel.exe.sha256
-            dist/ZapretXmel-Setup.exe
-            dist/ZapretXmel-Setup.exe.sha256
           body_path: release-notes.md
           # Тег с дефисом (1.1.0-rc.1) — тестовая сборка. GitHub не отдаёт
           # такие в «последнем релизе», поэтому ссылка на релиз и обычные

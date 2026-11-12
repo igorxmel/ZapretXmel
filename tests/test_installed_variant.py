@@ -119,8 +119,26 @@ def test_portable_program_never_runs_setup(installed, monkeypatch) -> None:
 
     selfupdate.install_on_exit()
 
-    assert selfupdate.asset_name() == selfupdate.ASSET_NAME
+    assert selfupdate.asset_name() == selfupdate.PORTABLE_NAME
     assert installed == []
+
+
+def test_portable_takes_the_new_name_and_falls_back_to_the_old(monkeypatch) -> None:
+    """Старые релизы несут переносную только как ZapretXmel.exe."""
+    monkeypatch.setattr(paths, "is_installed", lambda: False)
+    both = _release()
+    both.assets.append(github.Asset(selfupdate.PORTABLE_NAME, "", 1))
+    old = _Release("0.3.4", assets=[github.Asset(selfupdate.ASSET_NAME, "", 1)])
+
+    assert selfupdate.asset_name(both) == selfupdate.PORTABLE_NAME
+    assert selfupdate.asset_name(old) == selfupdate.ASSET_NAME
+
+
+def test_release_names_carry_the_system() -> None:
+    assert "Windows" in selfupdate.PORTABLE_NAME
+    assert "Windows" in selfupdate.SETUP_NAME
+    script = (ROOT / "installer" / "ZapretXmel.iss").read_text(encoding="utf-8-sig")
+    assert f"OutputBaseFilename={Path(selfupdate.SETUP_NAME).stem}" in script
 
 
 def test_leftover_setups_are_removed_at_start(installed, tmp_path) -> None:

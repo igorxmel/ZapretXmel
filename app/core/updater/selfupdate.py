@@ -37,8 +37,13 @@ log = logging.getLogger(__name__)
 # здесь интерфейс.
 REPO = "igorxmel/ZapretXmel"
 
+# В имени файла — система: программу собирались переносить и на другие.
+PORTABLE_NAME = "ZapretXmel-Windows-Portable.exe"
+SETUP_NAME = "ZapretXmel-Windows-Setup.exe"
+# Та же переносная под прежним именем. По нему ищут обновление версии до 0.4.0,
+# и без него они так и остались бы на старой. Новые берут его, только если в
+# релизе нет файла с новым именем.
 ASSET_NAME = "ZapretXmel.exe"
-SETUP_NAME = "ZapretXmel-Setup.exe"
 OLD_SUFFIX = ".old"
 NEW_SUFFIX = ".new"
 
@@ -73,9 +78,19 @@ def current_version() -> str:
     return __version__
 
 
-def asset_name() -> str:
-    """Какой файл релиза нужен этому варианту программы."""
-    return SETUP_NAME if paths.is_installed() else ASSET_NAME
+def asset_name(release: github.Release | None = None) -> str:
+    """Какой файл релиза нужен этому варианту программы.
+
+    С релизом — тот, что в нём действительно есть: у старых релизов переносная
+    лежит только под прежним именем.
+    """
+    wanted = [SETUP_NAME] if paths.is_installed() else [PORTABLE_NAME, ASSET_NAME]
+    if release is not None:
+        present = {item.name for item in release.assets}
+        for name in wanted:
+            if name in present or name + ".sha256" in present:
+                return name
+    return wanted[0]
 
 
 def staged_note(version: str) -> str:
@@ -144,7 +159,7 @@ def download(
     мегабайт по дороге могут оборваться, а недокачанную программу мы
     поставим на место рабочей — и она не запустится вовсе.
     """
-    name = asset_name()
+    name = asset_name(release)
     asset = next((item for item in release.assets if item.name == name), None)
     if asset is None:
         raise SelfUpdateError(f"в релизе {release.tag} нет файла {name}")
@@ -205,7 +220,7 @@ def can_verify(release: github.Release) -> bool:
 
     Без них недокачанный файл встал бы на место рабочего незамеченным.
     """
-    name = asset_name()
+    name = asset_name(release)
     return any(
         (item.name == name and item.digest) or item.name == name + ".sha256"
         for item in release.assets
@@ -214,7 +229,7 @@ def can_verify(release: github.Release) -> bool:
 
 def _published_hash(release: github.Release) -> str:
     """Берёт SHA-256 из файла рядом со сборкой. Пусто — значит его нет."""
-    hashes = asset_name() + ".sha256"
+    hashes = asset_name(release) + ".sha256"
     asset = next((item for item in release.assets if item.name == hashes), None)
     if asset is None:
         return ""
