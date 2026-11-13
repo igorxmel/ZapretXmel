@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import ctypes
 import logging
 import sys
@@ -112,6 +113,24 @@ if WINDOWS:
         ctypes.windll.user32.SetWindowPos(
             handle, 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED
         )
+        round_corners(handle)
+
+    # DWMWA_WINDOW_CORNER_PREFERENCE и DWMWCP_ROUND из dwmapi.h.
+    _CORNER_PREFERENCE = 33
+    _ROUND = 2
+
+    def round_corners(handle: int) -> None:
+        """Скругляет углы окна, как у обычных окон Windows 11.
+
+        Окно без системной рамки Windows 11 оставляла прямоугольным, и среди
+        скруглённых соседей оно выглядело чужим. Windows 10 такой просьбы не
+        знает и молча её пропускает — поэтому ошибка здесь не повод падать.
+        """
+        preference = ctypes.c_int(_ROUND)
+        with contextlib.suppress(OSError, AttributeError):
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                handle, _CORNER_PREFERENCE, ctypes.byref(preference), ctypes.sizeof(preference)
+            )
 
     def frame_border() -> int:
         metric = ctypes.windll.user32.GetSystemMetrics
