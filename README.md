@@ -54,21 +54,15 @@ AI pass, a watchdog that notices when a strategy stops working, and an uninstall
 removes the service and the kernel driver.
 
 The interface is in Russian only. [Releases](https://github.com/igorxmel/ZapretXmel/releases)
-(Windows 10/11, 64-bit, no installer).
+(Windows 10/11, 64-bit): an installer or a portable single file.
 
 </details>
 
-<div align="center">
-  <!-- Снимки следуют теме GitHub: тёмное окно на светлой странице выглядит
-    чужим, а светлое на тёмной слепит. Светлый вариант лежит рядом с суффиксом
-    «-light», оба делает tools/readme_shots.py одним проходом. В src остаётся
-    тёмный — его покажут те читалки, что про <picture> не знают. -->
-  <picture>
-    <source media="(prefers-color-scheme: light)" srcset="media/dashboard-light.png">
-    <img src="media/dashboard.png" width="860" alt="Главный экран">
-  </picture>
-  <p><sub>Главный экран</sub></p>
-</div>
+<!-- Видео загружено через github.com, а не лежит в репозитории: плеером GitHub
+  показывает только такие ссылки, на .mp4 из репозитория он даёт просто ссылку.
+  Ссылка стоит отдельной строкой вне HTML-блока — иначе плеера тоже не будет. -->
+
+https://github.com/user-attachments/assets/6eaac3e2-dad5-4f94-9301-6ff0f79b9526
 
 ## <img src="assets/icons/sparkle.png" width="22" align="top"> Возможности
 
