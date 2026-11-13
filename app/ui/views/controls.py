@@ -361,10 +361,20 @@ class QuickPanel(QWidget):
         self._repair_button.clicked.connect(self._repair_clicked)
         body.addWidget(self._repair_button)
 
-        self._check_result = QLabel("")
+        # Ответ проверки — по строке на смысл. В одну строку «не работает: …
+        # · работает: …» плохо читалось: что сломано, приходилось выискивать.
+        self._answer = QWidget()
+        # Без этого общий стиль окна красит контейнер своим фоном, и ответ
+        # стоял в тёмной плашке посреди карточки.
+        self._answer.setStyleSheet("background: transparent;")
+        answer = QVBoxLayout(self._answer)
+        answer.setContentsMargins(0, 0, 0, 0)
+        answer.setSpacing(SPACE["xs"])
+        self._broken_line = self._answer_line(answer)
+        self._working_line = self._answer_line(answer)
+        self._check_result = self._answer_line(answer)
         self._check_result.setObjectName("Dim")
-        self._check_result.setWordWrap(True)
-        body.addWidget(self._check_result)
+        body.addWidget(self._answer)
 
         # Сторож проверяет сам, и об этом стоит знать, не нажимая ничего.
         self._watch_line = QLabel("")
@@ -434,8 +444,16 @@ class QuickPanel(QWidget):
         self._strategy_box.blockSignals(False)
 
     @property
-    def answer(self) -> QLabel:
-        return self._check_result
+    def answer(self) -> QWidget:
+        return self._answer
+
+    @staticmethod
+    def _answer_line(layout: QVBoxLayout) -> QLabel:
+        line = QLabel("")
+        line.setWordWrap(True)
+        line.hide()
+        layout.addWidget(line)
+        return line
 
     def _chosen(self) -> str:
         return self._strategy_box.currentData() or ""
@@ -543,20 +561,32 @@ class QuickPanel(QWidget):
 
     def _quick_done(self, check) -> None:
         self.controller.remember_check(check)
-        if check.everything_works:
-            colour = COLORS["success"]
-        elif check.working:
-            colour = COLORS["warning"]
-        else:
-            colour = COLORS["danger"]
+        if not check.judged:
+            self._say_check(check.verdict[:1].upper() + check.verdict[1:], COLORS["warning"])
+            return
 
-        verdict = check.verdict[:1].upper() + check.verdict[1:]
-        note = measured_note(self.controller.status, self._chosen())
-        self._say_check(f"{verdict}\n{note}", colour)
+        self._show_line(self._broken_line, "✗  Не работает: ", check.broken, COLORS["danger"])
+        self._show_line(self._working_line, "✓  Работает: ", check.working, COLORS["success"])
+
+        notes = [*check.notes, measured_note(self.controller.status, self._chosen())]
+        self._check_result.setStyleSheet(f"color: {COLORS['text_muted']};")
+        self._check_result.setText("\n".join(notes))
+        self._check_result.show()
+        self.answer_shown.emit()
+
+    @staticmethod
+    def _show_line(line: QLabel, title: str, services: list[str], colour: str) -> None:
+        line.setStyleSheet(f"color: {colour};")
+        line.setText(title + ", ".join(services))
+        line.setVisible(bool(services))
 
     def _say_check(self, text: str, colour: str) -> None:
+        """Одна строка — ход проверки, починки или ошибка. Прошлый ответ убираем."""
+        self._broken_line.hide()
+        self._working_line.hide()
         self._check_result.setStyleSheet(f"color: {colour};")
         self._check_result.setText(text)
+        self._check_result.setVisible(bool(text))
         self.answer_shown.emit()
 
     def _say_watch(self) -> None:

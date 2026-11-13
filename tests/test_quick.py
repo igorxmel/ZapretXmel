@@ -168,6 +168,25 @@ def test_target_outside_lists_does_not_break_the_service() -> None:
     assert "не открылось вне списков: GoogleMain" in check.verdict
 
 
+def test_outside_lists_is_explained_in_plain_words() -> None:
+    """«Не открылось вне списков: CloudflareCDN» на экране понять было нельзя."""
+    check = quick.QuickCheck(
+        [_targets("Cloudflare", ("CloudflareCDN", False), ("Cloudflare", True))],
+        ignored=frozenset({"CloudflareCDN"}),
+    )
+
+    assert len(check.notes) == 1
+    assert "CloudflareCDN" in check.notes[0]
+    assert "нет в списках обхода" in check.notes[0]
+    assert "вне списков" not in check.notes[0]
+
+
+def test_nothing_to_explain_when_all_listed_targets_pass() -> None:
+    check = quick.QuickCheck([_targets("Google", ("GoogleMain", True))])
+
+    assert check.notes == []
+
+
 def test_service_entirely_outside_lists_is_not_judged() -> None:
     ignored = frozenset({"CloudflareWeb", "CloudflareCDN"})
     check = quick.QuickCheck(

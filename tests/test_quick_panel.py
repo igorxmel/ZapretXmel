@@ -31,6 +31,8 @@ class FakeCheck:
     everything_works = True
     working = ["YouTube"]
     broken: list[str] = []
+    judged = ["YouTube"]
+    notes: list[str] = []
     verdict = "всё работает"
 
 
@@ -148,9 +150,11 @@ def test_result_includes_what_was_tested(panel: QuickPanel) -> None:
 
     panel._quick_done(FakeCheck())
 
-    text = panel._check_result.text()
-    assert "Всё работает" in text and "general" in text
-    assert COLORS["success"] in panel._check_result.styleSheet()
+    # Что работает — своей зелёной строкой, что проверено — приглушённой под ней.
+    assert panel._working_line.text().endswith("Работает: YouTube")
+    assert COLORS["success"] in panel._working_line.styleSheet()
+    assert panel._broken_line.isHidden()
+    assert "general" in panel._check_result.text()
 
 
 # --- вопрос перед проверкой -------------------------------------------------

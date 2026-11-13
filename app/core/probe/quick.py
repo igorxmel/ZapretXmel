@@ -89,6 +89,24 @@ class QuickCheck:
         )
 
     @property
+    def notes(self) -> list[str]:
+        """Оговорки к результату — словами, а не внутренними терминами.
+
+        «Не открылось вне списков: CloudflareCDN» понять было нельзя. Речь о
+        сайтах, которых нет в списках обхода: стратегия их не трогает, и если
+        они не открылись, дело не в ней.
+        """
+        found = []
+        if outside := self.outside_lists_failed:
+            found.append(
+                f"Не открылось {', '.join(outside)}, но этого нет в списках обхода — "
+                "стратегия тут ни при чём, скорее сеть или провайдер."
+            )
+        if self.no_ping:
+            found.append("Пинг не проходит, но обхода это не касается.")
+        return found
+
+    @property
     def verdict(self) -> str:
         if not self.judged:
             return "проверять нечего — не нашлось ни одной цели"
