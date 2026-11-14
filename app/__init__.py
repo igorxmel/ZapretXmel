@@ -1,3 +1,3 @@
 """ZapretXmel — графическая надстройка над сборкой zapret от Flowseal."""
 
-__version__ = "0.4.2"
+__version__ = "0.4.3"
