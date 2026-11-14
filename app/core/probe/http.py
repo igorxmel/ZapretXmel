@@ -18,6 +18,7 @@ import re
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
@@ -231,10 +232,16 @@ def probe(target: Target, protocol: str, args: tuple[str, ...], timeout: int = 5
 
 
 def check_target(target: Target, timeout: int = 5, ping_timeout_ms: int = 1000) -> TargetResult:
-    """Полная проверка одной цели: три протокола плюс пинг."""
-    probes: list[ProbeResult] = []
-    if target.url:
-        probes = [probe(target, name, args, timeout) for name, args in supported_protocols()]
+    """Полная проверка одной цели: три протокола плюс пинг — одновременно.
 
-    latency = ping(target.host, ping_timeout_ms) if target.host else None
-    return TargetResult(target=target, probes=probes, ping_ms=latency)
+    По очереди у закрытого адреса складывались таймаут HTTP, таймаут TLS и секунда
+    пинга. Это разные соединения, друг другу они не мешают, и ждать имеет смысл
+    только самое долгое из них.
+    """
+    protocols = supported_protocols() if target.url else []
+    with ThreadPoolExecutor(max_workers=len(protocols) + 1) as pool:
+        latency = pool.submit(ping, target.host, ping_timeout_ms) if target.host else None
+        pending = [pool.submit(probe, target, name, args, timeout) for name, args in protocols]
+        probes = [future.result() for future in pending]
+        ping_ms = latency.result() if latency is not None else None
+    return TargetResult(target=target, probes=probes, ping_ms=ping_ms)

@@ -393,13 +393,20 @@ class AutoPicker:
     def _check_services(
         self, chosen: list[Service]
     ) -> tuple[list[ServiceResult], list[float]]:
-        """Проверяет сервисы параллельно, сохраняя их исходный порядок."""
+        """Проверяет сервисы параллельно, сохраняя их исходный порядок.
+
+        Адреса внутри сервиса — тоже параллельно. По очереди они шли ради времени
+        ответа, сравнимого между стратегиями, но оно в оценку не попадает. А ждать
+        приходилось по таймауту на каждый закрытый адрес подряд: стратегия, которая
+        что-то не пропускала, проверялась до 45 секунд вместо 10.
+        """
         results: list[ServiceResult] = []
         durations: list[float] = []
 
         with ThreadPoolExecutor(max_workers=self.parallel) as pool:
             futures = {
-                pool.submit(services.check, service, self.timeout): service for service in chosen
+                pool.submit(services.check, service, self.timeout, self.parallel): service
+                for service in chosen
             }
             for future, service in futures.items():
                 if self.cancel.is_set():
