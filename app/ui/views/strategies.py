@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QFileDialog,
@@ -23,11 +23,12 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import stability, strategies
+from app.core import stability, strategies, strategycheck
 from app.core.batfile import StrategySpec
 from app.ui.controller import Controller, Status
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, KeyValueRow, view_header
+from app.ui.workers import Task
 
 log = logging.getLogger(__name__)
 
@@ -35,10 +36,20 @@ log = logging.getLogger(__name__)
 class StrategiesView(QWidget):
     """Слева — список стратегий, справа — разбор выбранной."""
 
+    # Проверка запуска закончилась — обзору пора перечитать свой список стратегий.
+    checked = pyqtSignal()
+
+    # Через сколько после старта проверить стратегии, не дожидаясь, пока откроют раздел:
+    # пометка «не запускается» нужна и в списке на обзоре. Не сразу — запуск и так занят.
+    CHECK_AFTER_START_MS = 8000
+
     def __init__(self, controller: Controller, parent: QWidget | None = None):
         super().__init__(parent)
         self.controller = controller
         self._specs: list[StrategySpec] = []
+        # Стратегии, которые winws не может даже разобрать: имя → причина.
+        self._broken: dict[str, str] = strategycheck.known_broken()
+        self._check_task: Task | None = None
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -58,6 +69,7 @@ class StrategiesView(QWidget):
         layout.addLayout(columns, 1)
 
         controller.status_changed.connect(self._apply_status)
+        QTimer.singleShot(self.CHECK_AFTER_START_MS, self._check_after_start)
 
     def _build_list_card(self) -> Card:
         card = Card("Доступные стратегии")
@@ -150,6 +162,14 @@ class StrategiesView(QWidget):
             " не считается, если следующая проверка прошла. Если файл стратегии изменился, счёт"
             " начинается заново. Хранится только на этом компьютере."
         )
+        self._row_launch = KeyValueRow("Запуск")
+        self._row_launch.setToolTip(
+            "winws проверяет стратегию, не перехватывая трафик: разбирает аргументы и сразу"
+            " выходит. Не запускается — значит, ни подбор, ни ручное включение с ней не"
+            " заработают. Справа — причина словами самого winws."
+        )
+        self._row_launch.hide()
+        body.addWidget(self._row_launch)
         body.addWidget(self._row_sections)
         body.addWidget(self._row_args)
         body.addWidget(self._row_stability)
@@ -226,6 +246,32 @@ class StrategiesView(QWidget):
 
         index = next((i for i, spec in enumerate(self._specs) if spec.name == selected), 0)
         self._list.setCurrentRow(index)
+        self._check_strategies()
+
+    def _check_strategies(self) -> None:
+        """В фоне: запускается ли каждая стратегия. Проверяется только изменившееся."""
+        if self._check_task is not None and self._check_task.isRunning():
+            return
+        self._check_task = Task(strategycheck.check_all, list(self._specs))
+        self._check_task.done.connect(self._strategies_checked)
+        self._check_task.failed.connect(
+            lambda message: log.warning("Проверка стратегий не удалась: %s", message)
+        )
+        self._check_task.start()
+
+    def _check_after_start(self) -> None:
+        if not self._specs:
+            self._specs = strategies.load_all()
+        if self._specs:
+            self._check_strategies()
+
+    def _strategies_checked(self, broken: dict[str, str]) -> None:
+        changed = broken != self._broken
+        self._broken = broken
+        self._apply_status(self.controller.status)
+        self._show_details(self._list.currentRow())
+        if changed:
+            self.checked.emit()
 
     def _show_details(self, row: int) -> None:
         if not (0 <= row < len(self._specs)):
@@ -233,6 +279,11 @@ class StrategiesView(QWidget):
 
         spec = self._specs[row]
         self._name.setText(spec.name)
+        reason = self._broken.get(spec.name, "")
+        self._row_launch.setVisible(bool(reason))
+        if reason:
+            self._row_launch.set_value(f"не запускается — {reason}")
+            self._row_launch.set_value_color(COLORS["danger"])
         self._row_sections.set_value(str(len(spec.sections)))
         self._row_args.set_value(str(len(spec.argv)))
         self._row_stability.set_value(stability.describe(spec.name))
@@ -300,6 +351,8 @@ class StrategiesView(QWidget):
             name = item.data(Qt.ItemDataRole.UserRole)
             star = "★ " if name in favorites else ""
             mark = f"   {self._marks[name]}" if name in self._marks else ""
+            if name in self._broken:
+                mark += "   ⚠ не запускается"
 
             if name == status.active_strategy and status.is_active:
                 item.setText(f"{star}{name}{mark}   ● активна")

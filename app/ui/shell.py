@@ -470,6 +470,7 @@ class MainWindow(FramelessWindow):
         self.views["updates"].auto_installed.connect(self._auto_installed)
         self.views["updates"].auto_failed.connect(self._auto_failed)
         self.views["updates"].restart_requested.connect(self._restart_after_update)
+        self.views["strategies"].checked.connect(self.views["dashboard"].reload)
         self.views["settings"].tray_style_changed.connect(self._tray.refresh_style)
         self.controller.status_changed.connect(self.views["telegram"].on_status)
 

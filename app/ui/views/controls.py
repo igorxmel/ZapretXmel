@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import strategies
+from app.core import strategies, strategycheck
 from app.ui import dialogs
 from app.ui.controller import Controller, Status
 from app.ui.theme.tokens import BRAND, COLORS, SPACE
@@ -403,10 +403,14 @@ class QuickPanel(QWidget):
         favorites = self.controller.settings.favorites
         names.sort(key=lambda name: name not in favorites)
 
+        broken = strategycheck.known_broken()
         self._strategy_box.blockSignals(True)
         self._strategy_box.clear()
         for name in names:
-            self._strategy_box.addItem(("★ " if name in favorites else "") + name, name)
+            label = ("★ " if name in favorites else "") + name
+            if name in broken:
+                label += "  ⚠ не запускается"
+            self._strategy_box.addItem(label, name)
 
         self._seen_selected = self.controller.settings.selected_strategy
         index = self._strategy_box.findData(self._seen_selected)
