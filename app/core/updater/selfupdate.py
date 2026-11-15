@@ -9,6 +9,12 @@ ZapretXmel: чтобы человек не скачивал новую сбор�
 старте. Вспомогательный процесс-«подменщик» при таком порядке не нужен — а
 значит, нечему и сломаться на полпути.
 
+Подмена — **только на выходе**, когда программа уже всё погасила. Переносная
+сборка достаёт модули из своего exe по мере надобности и ищет его по имени. Пока
+подмена шла сразу после скачивания, работающая версия при первом же новом импорте
+читала байты из чужого файла и падала с «zlib.error: incorrect header check».
+Скачанное лежит рядом как `.new.exe` и встаёт на место в `install_on_exit`.
+
 Установленный вариант (сборка папкой) так не обновить: файлов в нём две сотни, и
 подменять их по одному на ходу нельзя. Он скачивает установщик новой версии и
 запускает его в тихом режиме. Установщик ждёт, пока программа закроется, ставит
@@ -49,16 +55,15 @@ NEW_SUFFIX = ".new"
 
 Progress = Callable[[str], None]
 
-# Версия, которая уже стоит на месте файла программы и ждёт перезапуска.
-# Работающий экземпляр к этому времени отодвинут в `.old` и занят. Не зная об
-# этом, раздел «Обновления» предлагал ту же версию снова, вторая установка
-# пыталась удалить `.old` — то есть саму себя — и падала с «Отказано в доступе».
+# Версия, которая скачана и встанет на место при выходе. Не зная о ней, раздел
+# «Обновления» предлагал ту же версию снова.
 _staged = ""
 
-# Скачанный установщик новой версии и запущен ли он уже. Установленный вариант
-# ставит обновление только после выхода — при перезапуске или при закрытии.
-_setup: Path | None = None
-_setup_started = False
+# Скачанное — `.new.exe` рядом с программой или установщик, — с какими флагами
+# запустить новую версию после выхода (None — не запускать) и отработала ли подмена.
+_pending: Path | None = None
+_relaunch: list[str] | None = None
+_finished = False
 
 
 class SelfUpdateError(Exception):
@@ -94,10 +99,8 @@ def asset_name(release: github.Release | None = None) -> str:
 
 
 def staged_note(version: str) -> str:
-    """Что будет с поставленной версией — для надписей и уведомлений."""
-    if paths.is_installed():
-        return f"Версия {version} скачана и установится при перезапуске или закрытии программы"
-    return f"Версия {version} установлена и запустится после перезапуска"
+    """Что будет со скачанной версией — для надписей и уведомлений."""
+    return f"Версия {version} скачана и установится при перезапуске или закрытии программы"
 
 
 def staged_version() -> str:
@@ -134,6 +137,17 @@ def cleanup() -> None:
             log.info("Удалён файл прошлой версии: %s", leftover.name)
         except OSError:
             log.debug("Файл прошлой версии пока занят, удалю в следующий раз")
+
+    # Скачанное, но не вставшее на место: программу закрыли, не дав ей выйти как
+    # следует. Ставить его сейчас нельзя — exe уже запущен, — а обновление
+    # скачается заново.
+    stale = executable().with_suffix(NEW_SUFFIX + executable().suffix)
+    if stale.exists():
+        try:
+            stale.unlink()
+            log.info("Удалено недоставленное обновление: %s", stale.name)
+        except OSError:
+            log.debug("Недоставленное обновление занято, удалю в следующий раз")
 
 
 def check(
@@ -244,52 +258,36 @@ def _published_hash(release: github.Release) -> str:
 
 
 def apply(downloaded: Path, progress: Progress | None = None) -> None:
-    """Ставит скачанную версию на место текущей.
+    """Запоминает скачанное. На место оно встанет при выходе (`install_on_exit`)."""
+    global _pending, _finished
+
+    if not is_frozen():
+        raise SelfUpdateError("обновление доступно только в собранной версии")
+
+    _pending = downloaded
+    _finished = False
+    log.info("Скачана новая версия, встанет при выходе: %s", downloaded.name)
+
+
+def _swap(downloaded: Path) -> None:
+    """Ставит скачанный exe на место текущего — только когда программа уже выходит.
 
     Порядок важен: сначала отодвигаем работающий файл, потом ставим новый.
     Если второй шаг не удастся, старый возвращается на место — программа
     останется рабочей.
     """
-    global _setup
-
-    if not is_frozen():
-        raise SelfUpdateError("обновление доступно только в собранной версии")
-
-    if paths.is_installed():
-        # Ставить нечего: установщик сделает это сам, когда программа закроется.
-        _setup = downloaded
-        log.info("Скачан установщик новой версии: %s", downloaded)
-        return
-
     current = executable()
     backup = current.with_suffix(OLD_SUFFIX + current.suffix)
-
-    if progress:
-        progress("Заменяю файл программы…")
-
-    if _staged:
-        # В `.old` лежит работающая программа, её не трогаем. На месте файла —
-        # прошлое обновление, оно не запущено, и его можно просто заменить.
-        try:
-            os.replace(downloaded, current)
-        except OSError as error:
-            raise SelfUpdateError(f"не удалось поставить новую версию: {error}") from error
-        log.info("Программа обновлена поверх ещё не запущенной версии %s", _staged)
-        return
-
     try:
         backup.unlink(missing_ok=True)
     except OSError as error:
-        raise SelfUpdateError(
-            "файл прошлой версии ещё занят. Перезапустите программу и попробуйте снова"
-        ) from error
+        raise SelfUpdateError("файл прошлой версии ещё занят") from error
     os.replace(current, backup)
     try:
         os.replace(downloaded, current)
     except OSError as error:
         os.replace(backup, current)
         raise SelfUpdateError(f"не удалось поставить новую версию: {error}") from error
-
     log.info("Программа обновлена, старый файл отодвинут в %s", backup.name)
 
 
@@ -299,13 +297,20 @@ def restart(extra: list[str] | None = None) -> None:
     Окружение чистим обязательно: без этого новая версия подхватывает
     временную папку старой и не находит ни одного плагина Qt. `extra` —
     флаги для нового экземпляра: остаться в трее, поднять обход и прокси.
-    """
-    if paths.is_installed():
-        if _setup is None:
-            raise SelfUpdateError("установщик новой версии не скачан")
-        _run_setup(relaunch=extra or [])
-        return
 
+    Если скачано обновление, запуск откладывается до выхода: сначала новая версия
+    встаёт на место (`install_on_exit`), потом запускается. Вызывающий после этого
+    закрывает программу как обычно.
+    """
+    global _relaunch
+
+    if _pending is not None:
+        _relaunch = list(extra or [])
+        return
+    _launch(extra)
+
+
+def _launch(extra: list[str] | None) -> None:
     try:
         subprocess.Popen(  # noqa: S603 — собственный файл
             [str(executable()), singleton.RESTART_FLAG, *(extra or [])],
@@ -324,10 +329,8 @@ def _run_setup(relaunch: list[str] | None) -> None:
     не запускать: обновление ставится при закрытии программы, и открывать её
     снова никто не просил.
     """
-    global _setup_started
-
     command = [
-        str(_setup),
+        str(_pending),
         "/VERYSILENT",
         "/SUPPRESSMSGBOXES",
         "/NORESTART",
@@ -347,24 +350,32 @@ def _run_setup(relaunch: list[str] | None) -> None:
         )
     except OSError as error:
         raise SelfUpdateError(f"не удалось запустить установщик: {error}") from error
-    _setup_started = True
     log.info(
         "Запущен установщик обновления%s", "" if relaunch is not None else " (без перезапуска)"
     )
 
 
 def install_on_exit() -> None:
-    """Ставит скачанное обновление, когда программу закрывают.
+    """Ставит скачанное обновление, когда программа уже всё погасила и выходит.
 
-    Иначе у установленного варианта обновление ждало бы перезапуска, о котором
-    человек не знает: закрыл программу, открыл — а версия прежняя.
+    Позже вызывать нечего: после подмены exe переносная версия не может ничего
+    импортировать. Если перед этим просили перезапуск (`restart`), новая версия
+    запускается следом.
     """
-    if not paths.is_installed() or _setup is None or _setup_started:
+    global _finished
+
+    if _pending is None or _finished:
         return
+    _finished = True
     try:
-        _run_setup(relaunch=None)
+        if paths.is_installed():
+            _run_setup(relaunch=_relaunch)
+            return
+        _swap(_pending)
+        if _relaunch is not None:
+            _launch(_relaunch)
     except SelfUpdateError as error:
-        log.warning("Обновление при закрытии не запустилось: %s", error)
+        log.warning("Обновление при выходе не встало: %s", error)
 
 
 def update(

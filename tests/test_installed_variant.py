@@ -30,8 +30,9 @@ class _Release:
 def installed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
     """Программа «установлена» в tmp_path; запуски процессов записываются."""
     monkeypatch.setattr(selfupdate, "_staged", "")
-    monkeypatch.setattr(selfupdate, "_setup", None)
-    monkeypatch.setattr(selfupdate, "_setup_started", False)
+    monkeypatch.setattr(selfupdate, "_pending", None)
+    monkeypatch.setattr(selfupdate, "_finished", False)
+    monkeypatch.setattr(selfupdate, "_relaunch", None)
     monkeypatch.setattr(selfupdate, "is_frozen", lambda: True)
     monkeypatch.setattr(paths, "is_installed", lambda: True)
     monkeypatch.setattr(paths, "data_dir", lambda: tmp_path / "data")
@@ -82,6 +83,9 @@ def test_restart_runs_setup_silently_and_asks_it_to_relaunch(installed) -> None:
     selfupdate.update(_release())
 
     selfupdate.restart([singleton.TRAY_FLAG, singleton.RESUME_PROXY_FLAG])
+    # Установщик ждёт выхода программы — запускается он тоже на выходе.
+    assert installed == []
+    selfupdate.install_on_exit()
 
     command = installed[0]
     assert command[0].endswith(selfupdate.SETUP_NAME)
