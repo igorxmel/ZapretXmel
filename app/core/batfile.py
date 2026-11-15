@@ -155,14 +155,29 @@ def _expand(text: str, variables: dict[str, str], root: Path) -> str:
 
 
 def _tokenize(line: str) -> list[Token]:
-    """Разбивает строку на аргументы с учётом кавычек cmd."""
+    """Разбивает строку на аргументы с учётом кавычек и экранирования cmd.
+
+    Вне кавычек `^` экранирует следующий символ и сам пропадает, как в cmd. Без
+    этого `--dpi-desync-fake-tls=^!` из «general (FAKE TLS AUTO)» уходил в winws
+    как есть, тот не находил файла «^!» и сразу выходил: стратегия не запускалась
+    ни в подборе, ни вручную.
+    """
     tokens: list[Token] = []
     current = ""
     quoted = False
     in_quotes = False
     started = False
+    escaped = False
 
     for char in line:
+        if escaped:
+            current += char
+            started = True
+            escaped = False
+            continue
+        if char == "^" and not in_quotes:
+            escaped = True
+            continue
         if char == '"':
             in_quotes = not in_quotes
             quoted = True

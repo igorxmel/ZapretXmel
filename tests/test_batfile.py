@@ -52,6 +52,29 @@ def test_every_strategy_parses(path: Path) -> None:
 
 
 @pytest.mark.parametrize("path", NEW_STRATEGIES + OLD_STRATEGIES, ids=lambda p: p.stem)
+def test_no_cmd_escapes_leak_into_arguments(path: Path) -> None:
+    """`^` вне кавычек cmd съедает сам: winws его видеть не должен."""
+    spec = parse_bat(path)
+    for arg in spec.argv:
+        assert "^" not in arg, f"экранирование cmd осталось в {arg!r}"
+
+
+def test_caret_bang_becomes_default_fake() -> None:
+    """«^!» в батнике — это «!», стандартная подделка. Дословно winws не запускался."""
+    spec = parse_bat(BUNDLE_NEW / "general (FAKE TLS AUTO).bat")
+
+    fakes = [arg for arg in spec.argv if arg.startswith("--dpi-desync-fake-tls=")]
+    assert "--dpi-desync-fake-tls=!" in fakes
+    assert "--dpi-desync-fake-tls=^!" not in fakes
+
+
+def test_caret_inside_quotes_is_kept() -> None:
+    from app.core.batfile import _tokenize
+
+    assert [token.text for token in _tokenize('--a="x^y" --b=^!')] == ["--a=x^y", "--b=!"]
+
+
+@pytest.mark.parametrize("path", NEW_STRATEGIES + OLD_STRATEGIES, ids=lambda p: p.stem)
 def test_no_unexpanded_variables(path: Path) -> None:
     spec = parse_bat(path)
     for arg in spec.argv:
