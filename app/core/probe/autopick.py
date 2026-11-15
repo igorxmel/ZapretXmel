@@ -129,6 +129,9 @@ class Report:
     scores: list[StrategyScore] = field(default_factory=list)
     baseline: StrategyScore | None = None
     cancelled: bool = False
+    # Остановился на первой стратегии, где работает всё, и сколько собирался проверить.
+    stopped_early: bool = False
+    planned: int = 0
 
     @property
     def strategies(self) -> list[StrategyScore]:
@@ -198,6 +201,11 @@ class Report:
                 )
             else:
                 text += " Все проверенные сервисы работают."
+            if self.stopped_early:
+                text += (
+                    f" Подбор остановился на ней: проверено {len(self.strategies)} "
+                    f"из {self.planned}."
+                )
             return text
 
         if baseline is not None and not baseline.broken_services and baseline.ok > 0:
@@ -291,8 +299,12 @@ class AutoPicker:
         dpi_targets: list[DpiTarget] | None = None,
         on_progress: OnProgress | None = None,
         on_strategy_done: OnStrategyDone | None = None,
+        stop_when: Callable[[StrategyScore], bool] | None = None,
     ) -> Report:
         """Перебирает стратегии и возвращает отчёт.
+
+        `stop_when` останавливает перебор на первой стратегии, для которой он верен, —
+        обычно «работает всё». Замер без обхода под него не попадает.
 
         Чужие запущенные экземпляры winws и режим ipset восстанавливаются в
         исходное состояние, даже если прогон прервали.
@@ -311,6 +323,7 @@ class AutoPicker:
             checked=[t.id for t in dpi_targets[: self.dpi_limit]]
             if is_dpi
             else [service.name for service in chosen],
+            planned=len(specs),
         )
 
         try:
@@ -338,6 +351,9 @@ class AutoPicker:
                 report.scores.append(score)
                 if on_strategy_done:
                     on_strategy_done(score)
+                if stop_when is not None and score.started and stop_when(score):
+                    report.stopped_early = index < len(specs)
+                    break
         finally:
             winws.kill_all()
             if is_dpi and original_ipset != "any":

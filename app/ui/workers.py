@@ -60,9 +60,11 @@ class AutoPickWorker(QThread):
         dpi_targets: list[DpiTarget] | None = None,
         timeout: int = 6,
         parallel: int = 8,
+        stop_when=None,
     ):
         super().__init__()
         self._specs = specs
+        self._stop_when = stop_when
         self._chosen = chosen or []
         self._dpi_targets = dpi_targets or []
         self._picker = AutoPicker(mode=mode, timeout=timeout, parallel=parallel)
@@ -79,6 +81,7 @@ class AutoPickWorker(QThread):
                 dpi_targets=self._dpi_targets,
                 on_progress=self.progress.emit,
                 on_strategy_done=self._emit_score,
+                stop_when=self._stop_when,
             )
             self.done.emit(report)
         except Exception as error:  # noqa: BLE001 — показать причину, а не молча упасть

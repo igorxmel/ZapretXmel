@@ -27,9 +27,18 @@ def shortlist(
     пробовать, остаётся полный перебор.
     """
     available = [name for name in names if name != current]
-    liked = [name for name in stability.rank(favorites, broken) if name in available]
-    others = [name for name in stability.rank(available, broken) if name not in liked]
-    return [*liked, *others][:SHORTLIST_SIZE]
+    return ordered(available, favorites, broken)[:SHORTLIST_SIZE]
+
+
+def ordered(names: list[str], favorites: list[str], broken: list[str] | None = None) -> list[str]:
+    """Все стратегии в порядке надежды: избранные, затем по журналу стабильности.
+
+    Подбор с остановкой на первой рабочей идёт в этом порядке: если вчерашняя лучшая
+    всё ещё работает, она проверится первой, и подбор займёт секунды.
+    """
+    liked = [name for name in stability.rank(favorites, broken) if name in names]
+    others = [name for name in stability.rank(names, broken) if name not in liked]
+    return [*liked, *others]
 
 
 def remaining(names: list[str], tried: list[str]) -> list[str]:

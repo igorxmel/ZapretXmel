@@ -90,6 +90,9 @@ class Settings:
     watch_interval_minutes: int = 15
     watch_autoswitch: bool = False
     probe_timeout: int = 5
+    # Подбор: остановиться на первой стратегии, где работает всё. По умолчанию — полный
+    # прогон: только он показывает таблицу по всем стратегиям.
+    autopick_stop_early: bool = False
     probe_parallel: int = 8
     ai: AiSettings = field(default_factory=AiSettings)
 

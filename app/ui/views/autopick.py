@@ -12,22 +12,25 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal
+from PyQt6.QtCore import QSize, Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QColor, QDesktopServices
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QCheckBox,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from app.core import coverage, merge, strategies
+from app.core import coverage, merge, repair, strategies
 from app.core.batfile import StrategySpec
 from app.core.diagnostics import vpn
 from app.core.probe import dpi, services
@@ -67,6 +70,35 @@ DPI_NOTE = (
 )
 
 
+class _WholeLabel(QLabel):
+    """Надпись с переносом, которая не даёт разметке себя поджать.
+
+    Разметка оценивает переносимый текст не по настоящей ширине, и когда места мало —
+    во время подбора появляются полоса прогресса и длинный вердикт, — поджимала
+    надписи, а не таблицу, которой и положено сжиматься: последняя строка уходила
+    под край. Здесь минимум — ровно столько строк, сколько текст займёт при этой ширине.
+    """
+
+    def _whole(self, hint: QSize) -> QSize:
+        # Своя оценка Qt для переносимого текста берёт не ту ширину и ошибается вдвое
+        # в обе стороны, поэтому высота — ровно по тексту при нынешней ширине.
+        need = self.heightForWidth(self.width()) if self.width() > 0 else -1
+        return QSize(hint.width(), need if need > 0 else hint.height())
+
+    def sizeHint(self) -> QSize:  # noqa: N802 — имя задано Qt
+        return self._whole(super().sizeHint())
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 — имя задано Qt
+        return self._whole(super().minimumSizeHint())
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        super().resizeEvent(event)
+        # Разметка запоминает минимум; при новой ширине его надо пересчитать. Высота
+        # от этого не меняет ширину, так что пересчёт не зацикливается.
+        if event.oldSize().width() != event.size().width():
+            self.updateGeometry()
+
+
 class AutoPickView(QWidget):
     """Перебор стратегий с показом хода работы и применением лучшей."""
 
@@ -88,7 +120,22 @@ class AutoPickView(QWidget):
         self._service_chips: list[Chip] = []
         self._ignore_vpn = False
 
-        layout = QVBoxLayout(self)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        # Как на обзоре: когда окно низкое, а идёт подбор — полоса прогресса, вердикт в
+        # две строки, предупреждение о VPN, — места на всё не хватало, и Qt обрезал
+        # текст в карточках. С прокруткой страница остаётся целой, а в обычном окне
+        # выглядит как раньше: таблица по-прежнему растягивается на свободное место.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        outer.addWidget(scroll)
+
+        content = QWidget()
+        scroll.setWidget(content)
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(SPACE["lg"])
         layout.addWidget(
@@ -149,7 +196,21 @@ class AutoPickView(QWidget):
         row.addStretch(1)
         body.addLayout(row)
 
-        self._note = QLabel()
+        # Полный прогон — по умолчанию: только он даёт таблицу по всем стратегиям. Но
+        # если нужна просто рабочая, быстрее начать с тех, что работали раньше, и
+        # остановиться на первой подошедшей.
+        self._stop_early = QCheckBox("Остановиться на первой, где работает всё")
+        self._stop_early.setToolTip(
+            "Сначала проверяются избранные и те, что у вас работали дольше всего. "
+            "Как только найдётся стратегия, при которой работают все отмеченные "
+            "сервисы, подбор остановится — обычно за несколько секунд. Таблицы по "
+            "всем стратегиям тогда не будет"
+        )
+        self._stop_early.setChecked(self.controller.settings.autopick_stop_early)
+        self._stop_early.toggled.connect(self._toggle_stop_early)
+        body.addWidget(self._stop_early)
+
+        self._note = _WholeLabel()
         self._note.setObjectName("Dim")
         self._note.setWordWrap(True)
         self._note.setTextFormat(Qt.TextFormat.RichText)
@@ -212,7 +273,7 @@ class AutoPickView(QWidget):
         card = Card("Результаты")
         body = card.body()
 
-        self._verdict = QLabel("Подбор ещё не запускался")
+        self._verdict = _WholeLabel("Подбор ещё не запускался")
         self._verdict.setObjectName("ViewSubtitle")
         self._verdict.setWordWrap(True)
         body.addWidget(self._verdict)
@@ -277,6 +338,14 @@ class AutoPickView(QWidget):
         self._chips_row.addWidget(self._dpi_chip)
         self._chips_row.addStretch(1)
 
+    def _toggle_stop_early(self, enabled: bool) -> None:
+        self.controller.settings.autopick_stop_early = enabled
+        self.controller.settings.save()
+
+    def _stops_early(self, mode: Mode) -> bool:
+        """В проверке DPI сервисов нет — и «работает всё» проверять не по чему."""
+        return mode == "services" and self._stop_early.isChecked()
+
     def _current_mode(self) -> Mode:
         return "dpi" if self._dpi_chip.isChecked() else "services"
 
@@ -288,6 +357,7 @@ class AutoPickView(QWidget):
         dpi_mode = self._current_mode() == "dpi"
         for chip in self._service_chips:
             chip.setEnabled(not dpi_mode)
+        self._stop_early.setEnabled(not dpi_mode)
 
         # В режиме DPI сервисы не проверяются, и столбец про них стоял бы
         # пустым у всех строк подряд — прочерк напротив каждой стратегии
@@ -363,14 +433,26 @@ class AutoPickView(QWidget):
             self._suite_task.start()
             return
 
-        self._launch(specs, mode, chosen)
+        if self._stops_early(mode):
+            names = repair.ordered(
+                [spec.name for spec in specs], list(self.controller.settings.favorites)
+            )
+            by_name = {spec.name: spec for spec in specs}
+            specs = [by_name[name] for name in names]
+        self._launch(specs, mode, chosen, stop_early=self._stops_early(mode))
 
     def _suite_loaded(self, targets: list[dpi.DpiTarget]) -> None:
         self._dpi_targets = targets
         self._start_button.setEnabled(True)
         self._launch(strategies.load_all(), "dpi", [])
 
-    def _launch(self, specs: list, mode: Mode, chosen: list[services.Service]) -> None:
+    def _launch(
+        self,
+        specs: list,
+        mode: Mode,
+        chosen: list[services.Service],
+        stop_early: bool = False,
+    ) -> None:
         self._table.setRowCount(0)
         self._report = None
 
@@ -382,7 +464,10 @@ class AutoPickView(QWidget):
         self._verdict.setStyleSheet(f"color: {COLORS['text_dim']};")
         self._verdict.setText(
             f"Проверяю {len(specs)} стратегий по {what}, плюс замер без обхода…"
+            + (" Начинаю с тех, что работали раньше, и остановлюсь на первой рабочей."
+               if stop_early else "")
         )
+        ignored = coverage.uncovered_target_names()
 
         # Шагов на один больше: первым идёт базовый замер.
         self._progress.setRange(0, len(specs) + 1)
@@ -397,6 +482,7 @@ class AutoPickView(QWidget):
             dpi_targets=self._dpi_targets,
             timeout=self.controller.settings.probe_timeout,
             parallel=self.controller.settings.probe_parallel,
+            stop_when=(lambda score: repair.fully_works(score, ignored)) if stop_early else None,
         )
         self._worker.progress.connect(self._status.setText)
         self._worker.strategy_done.connect(self._add_row)
@@ -435,6 +521,7 @@ class AutoPickView(QWidget):
         self._cancel_button.setEnabled(running)
         for chip in [*self._service_chips, self._dpi_chip]:
             chip.setEnabled(not running)
+        self._stop_early.setEnabled(not running and self._current_mode() == "services")
         if running:
             self._apply_button.setEnabled(False)
 
