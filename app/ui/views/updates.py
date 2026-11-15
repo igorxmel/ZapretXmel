@@ -10,7 +10,6 @@ from PyQt6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QLabel,
-    QProgressBar,
     QPushButton,
     QSizePolicy,
     QTextBrowser,
@@ -23,7 +22,7 @@ from app.core.updater import github, install, selfupdate
 from app.ui import dialogs
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, KeyValueRow, set_markdown, view_header
+from app.ui.widgets import Card, KeyValueRow, ShineProgressBar, set_markdown, view_header
 from app.ui.workers import AppUpdateWorker, CoreUpdateWorker, Task, TelegramInstallWorker
 
 # Источники обновлений в общей карточке.
@@ -174,7 +173,7 @@ class UpdatesView(QWidget):
         self._app_status.hide()
         body.addWidget(self._app_status)
 
-        self._app_progress = QProgressBar()
+        self._app_progress = ShineProgressBar()
         self._app_progress.setRange(0, 100)
         self._app_progress.hide()
         body.addWidget(self._app_progress)
@@ -462,7 +461,7 @@ class UpdatesView(QWidget):
         )
         body.addWidget(self._source_ignore)
 
-        self._progress = QProgressBar()
+        self._progress = ShineProgressBar()
         self._progress.hide()
         body.addWidget(self._progress)
 

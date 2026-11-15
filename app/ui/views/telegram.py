@@ -13,7 +13,6 @@ from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
-    QProgressBar,
     QPushButton,
     QVBoxLayout,
     QWidget,
@@ -22,7 +21,7 @@ from PyQt6.QtWidgets import (
 from app.core import telegram
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, KeyValueRow, StatusPill, view_header
+from app.ui.widgets import Card, KeyValueRow, ShineProgressBar, StatusPill, view_header
 from app.ui.workers import Task, TelegramInstallWorker
 
 
@@ -91,7 +90,7 @@ class TelegramView(QWidget):
         self._status.setWordWrap(True)
         body.addWidget(self._status)
 
-        self._progress = QProgressBar()
+        self._progress = ShineProgressBar()
         self._progress.setRange(0, 100)
         self._progress.hide()
         body.addWidget(self._progress)

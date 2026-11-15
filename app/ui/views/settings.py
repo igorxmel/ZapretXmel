@@ -5,19 +5,21 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PyQt6.QtCore import QUrl, pyqtSignal
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
     QScrollArea,
     QSpinBox,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -39,7 +41,7 @@ from app.ui.controller import Controller
 from app.ui.theme import use_theme
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.tray import STYLES as TRAY_ICON_STYLES
-from app.ui.widgets import Card, Divider, KeyValueRow, view_header
+from app.ui.widgets import Card, Divider, KeyValueRow, SectionTitle, TabStrip, view_header
 from app.ui.workers import Task
 
 log = logging.getLogger(__name__)
@@ -126,46 +128,56 @@ class SettingsView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(SPACE["lg"])
         layout.addWidget(
-            view_header(
-                "Настройки",
-                "Игровой фильтр и IP-набор хранятся в файлах самой сборки, "
-                "поэтому консольное меню апстрима видит те же значения.",
-            )
+            view_header("Настройки", "Приложение, проверки и параметры сборки zapret.")
         )
 
-        right = QVBoxLayout()
-        right.setSpacing(SPACE["lg"])
-        right.addWidget(self._build_bundle_card())
-        right.addWidget(self._build_uninstall_card())
-        right.addStretch(1)
+        # Разделы сверху, по одному на экране. В две колонки всё сразу читалось
+        # тяжело: запуск, папка, ярлыки, оформление и перенос настроек жили в одной
+        # карточке, а до удаления приходилось листать.
+        sections = [
+            ("launch", "Запуск", self._build_launch_card),
+            ("look", "Внешний вид", self._build_look_card),
+            ("checks", "Проверки", self._build_checks_card),
+            ("bundle", "Сборка zapret", self._build_bundle_card),
+            ("files", "Файлы", self._build_files_card),
+            ("uninstall", "Удаление", self._build_uninstall_card),
+        ]
+        self._tabs = TabStrip([(key, title) for key, title, _ in sections])
+        layout.addWidget(self._tabs)
 
-        left = QVBoxLayout()
-        left.setSpacing(SPACE["lg"])
-        left.addWidget(self._build_app_card())
-        left.addWidget(self._build_checks_card())
-        left.addStretch(1)
+        self._pages = QStackedWidget()
+        self._page_index: dict[str, int] = {}
+        for key, _, build in sections:
+            self._page_index[key] = self._pages.addWidget(self._page(build()))
+        layout.addWidget(self._pages, 1)
+        self._tabs.changed.connect(lambda key: self._pages.setCurrentIndex(self._page_index[key]))
 
-        columns = QHBoxLayout()
-        columns.setSpacing(SPACE["lg"])
-        columns.addLayout(left, 1)
-        columns.addLayout(right, 1)
+    @staticmethod
+    def _page(card: Card) -> QScrollArea:
+        """Раздел — одна карточка, не во всю ширину: длинные строки читаются плохо.
 
-        # Настроек больше, чем влезает в невысокое окно, и без прокрутки Qt
-        # сжимает карточки ниже их собственной высоты: подписи наползают на
-        # галочки, а нижняя кнопка обрезается рамкой.
-        page = QWidget()
-        page_layout = QVBoxLayout(page)
-        page_layout.setContentsMargins(0, 0, 0, 0)
-        page_layout.addLayout(columns)
-        page_layout.addStretch(1)
+        С прокруткой: настроек в разделе бывает больше, чем влезает в невысокое окно, и
+        без неё Qt сжимает карточку ниже её высоты — подписи наползают на галочки.
+        """
+        card.setMaximumWidth(760)
+        # Название раздела уже на вкладке сверху — повторять его в карточке незачем.
+        for title in card.findChildren(SectionTitle):
+            title.hide()
+        content = QWidget()
+        column = QVBoxLayout(content)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.addWidget(card)
+        column.addStretch(1)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setWidget(page)
-        layout.addWidget(scroll, 1)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        return scroll
 
-    def _build_app_card(self) -> Card:
-        card = Card("Приложение")
+    def _build_launch_card(self) -> Card:
+        card = Card("Запуск")
         body = card.body()
 
         body.addWidget(QLabel("Как запускать обход"))
@@ -208,7 +220,62 @@ class SettingsView(QWidget):
         self._minimize_to_tray.toggled.connect(self._save_flags)
         body.addWidget(self._minimize_to_tray)
 
+        return card
+
+    def _build_look_card(self) -> Card:
+        card = Card("Внешний вид")
+        body = card.body()
+
+        body.addWidget(QLabel("Оформление"))
+        self._theme = QComboBox()
+        for title in THEMES:
+            self._theme.addItem(title)
+        self._theme.currentTextChanged.connect(self._change_theme)
+        body.addWidget(self._theme)
+
+        body.addWidget(QLabel("Значок в трее"))
+        self._tray_style = QComboBox()
+        for title in TRAY_STYLES:
+            self._tray_style.addItem(title)
+        self._tray_style.setToolTip(
+            "«Классика» — логотип с цветными точками состояния, тот же, что "
+            "на панели задач. «Современный» — упрощённый логотип без тонких "
+            "деталей, крупнее и на весь кадр: в трее значок показывается в "
+            "шестнадцать пикселей, и мелочь там сливается."
+        )
+        self._tray_style.currentTextChanged.connect(self._change_tray_style)
+        body.addWidget(self._tray_style)
+
+        body.addWidget(QLabel("Масштаб интерфейса"))
+        self._scale = QComboBox()
+        for title in SCALES:
+            self._scale.addItem(title)
+        self._scale.setToolTip(
+            "Множится на увеличение, выставленное в Windows. Если там 125% "
+            "и окно кажется громоздким — возьмите 80%, получится обычный "
+            "размер."
+        )
+        self._scale.currentTextChanged.connect(lambda title: self._restart_for(
+            "ui_scale", SCALES.get(title, 0.0), title.lower()
+        ))
+        body.addWidget(self._scale)
+
         body.addWidget(Divider())
+        self._animations = QCheckBox("Анимации в интерфейсе")
+        self._animations.setToolTip(
+            "Плавная смена состояния у кнопок, переезд подсветки в меню и блик "
+            "на полосах загрузки. Движение здесь служебное — подсказывает, что "
+            "состояние сменилось или работа идёт. На слабой машине или через "
+            "удалённый рабочий стол его можно убрать."
+        )
+        self._animations.toggled.connect(self._save_flags)
+        body.addWidget(self._animations)
+
+        return card
+
+    def _build_files_card(self) -> Card:
+        card = Card("Файлы")
+        body = card.body()
 
         # Куда всё складывается — вопрос, который возникает у каждого: по
         # умолчанию папка берётся рядом с исполняемым файлом, то есть чаще
@@ -253,54 +320,6 @@ class SettingsView(QWidget):
 
         body.addWidget(Divider())
 
-        body.addWidget(QLabel("Производительность"))
-
-        self._animations = QCheckBox("Анимации в интерфейсе")
-        self._animations.setToolTip(
-            "Плавная смена состояния у кнопок и переезд подсветки в этом "
-            "меню. Движение здесь служебное — подсказывает, что состояние "
-            "сменилось. На слабой машине или через удалённый рабочий стол "
-            "его можно убрать."
-        )
-        self._animations.toggled.connect(self._save_flags)
-        body.addWidget(self._animations)
-
-        body.addWidget(QLabel("Оформление"))
-        self._theme = QComboBox()
-        for title in THEMES:
-            self._theme.addItem(title)
-        self._theme.currentTextChanged.connect(self._change_theme)
-        body.addWidget(self._theme)
-
-        body.addWidget(QLabel("Значок в трее"))
-        self._tray_style = QComboBox()
-        for title in TRAY_STYLES:
-            self._tray_style.addItem(title)
-        self._tray_style.setToolTip(
-            "«Классика» — логотип с цветными точками состояния, тот же, что "
-            "на панели задач. «Современный» — упрощённый логотип без тонких "
-            "деталей, крупнее и на весь кадр: в трее значок показывается в "
-            "шестнадцать пикселей, и мелочь там сливается."
-        )
-        self._tray_style.currentTextChanged.connect(self._change_tray_style)
-        body.addWidget(self._tray_style)
-
-        body.addWidget(QLabel("Масштаб интерфейса"))
-        self._scale = QComboBox()
-        for title in SCALES:
-            self._scale.addItem(title)
-        self._scale.setToolTip(
-            "Множится на увеличение, выставленное в Windows. Если там 125% "
-            "и окно кажется громоздким — возьмите 80%, получится обычный "
-            "размер."
-        )
-        self._scale.currentTextChanged.connect(lambda title: self._restart_for(
-            "ui_scale", SCALES.get(title, 0.0), title.lower()
-        ))
-        body.addWidget(self._scale)
-
-        body.addWidget(Divider())
-
         welcome = QPushButton("Показать окно знакомства")
         welcome.setToolTip("То самое окно с шагами настройки, что открывается при первом запуске")
         welcome.clicked.connect(self._show_welcome)
@@ -322,7 +341,6 @@ class SettingsView(QWidget):
         transfer.addWidget(import_button)
         body.addLayout(transfer)
 
-        body.addStretch(1)
         return card
 
     def _export_settings(self) -> None:
@@ -461,6 +479,14 @@ class SettingsView(QWidget):
         card = Card("Параметры сборки")
         body = card.body()
 
+        where = QLabel(
+            "Игровой фильтр и IP-набор хранятся в файлах самой сборки, поэтому "
+            "консольное меню апстрима видит те же значения."
+        )
+        where.setObjectName("Muted")
+        where.setWordWrap(True)
+        body.addWidget(where)
+
         body.addWidget(QLabel("Игровой фильтр"))
         self._game_mode = QComboBox()
         self._game_mode.addItems(GAME_MODES.keys())
@@ -510,7 +536,6 @@ class SettingsView(QWidget):
         replace_button.clicked.connect(self._replace_fake)
         body.addWidget(replace_button)
 
-        body.addStretch(1)
         return card
 
     # --- загрузка и сохранение ------------------------------------------

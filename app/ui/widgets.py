@@ -17,12 +17,16 @@ from PyQt6.QtCore import (
     QRectF,
     QSize,
     Qt,
+    QVariantAnimation,
     pyqtProperty,
     pyqtSignal,
 )
 from PyQt6.QtGui import (
     QColor,
+    QFont,
+    QFontMetrics,
     QIcon,
+    QLinearGradient,
     QPainter,
     QPaintEvent,
     QPen,
@@ -35,11 +39,13 @@ from PyQt6.QtWidgets import (
     QAbstractScrollArea,
     QAbstractSpinBox,
     QApplication,
+    QButtonGroup,
     QComboBox,
     QDoubleSpinBox,
     QFrame,
     QHBoxLayout,
     QLabel,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QSlider,
@@ -568,8 +574,12 @@ class ClickableLabel(QLabel):
         super().mouseReleaseEvent(event)
 
 
-def view_header(title: str, subtitle: str = "") -> QWidget:
-    """Шапка экрана: заголовок и поясняющая строка под ним."""
+def view_header(title: str, subtitle: str = "", aside: QWidget | None = None) -> QWidget:
+    """Шапка экрана: заголовок и поясняющая строка под ним.
+
+    `aside` встаёт сразу за заголовком — например, значок «как это работает»: он
+    про этот экран, и место ему рядом с его названием, а не среди кнопок.
+    """
     container = QWidget()
     layout = QVBoxLayout(container)
     layout.setContentsMargins(0, 0, 0, 0)
@@ -577,7 +587,16 @@ def view_header(title: str, subtitle: str = "") -> QWidget:
 
     heading = QLabel(title)
     heading.setObjectName("ViewTitle")
-    layout.addWidget(heading)
+    if aside is None:
+        layout.addWidget(heading)
+    else:
+        line = QHBoxLayout()
+        line.setContentsMargins(0, 0, 0, 0)
+        line.setSpacing(SPACE["xs"])
+        line.addWidget(heading)
+        line.addWidget(aside, 0, Qt.AlignmentFlag.AlignVCenter)
+        line.addStretch(1)
+        layout.addLayout(line)
 
     if subtitle:
         caption = QLabel(subtitle)
@@ -669,3 +688,158 @@ def badge(text: str, color: str) -> QLabel:
     )
     return label
 
+
+
+class ShineProgressBar(QProgressBar):
+    """Полоса прогресса с бегущим бликом — как принято у загрузок.
+
+    Блик показывает, что работа идёт, даже когда полоса подолгу стоит на месте: одна
+    стратегия проверяется несколько секунд, а у загрузки бывают паузы. Это служебное
+    движение, поэтому оно подчиняется общей галочке «Анимации в интерфейсе»
+    (`motion.enabled`) и не крутится, пока полосы не видно.
+    """
+
+    SWEEP_MS = 1600
+    BAND = 70
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._phase = 0.0
+        self._sweep = QVariantAnimation(self)
+        self._sweep.setStartValue(0.0)
+        self._sweep.setEndValue(1.0)
+        self._sweep.setDuration(self.SWEEP_MS)
+        self._sweep.setLoopCount(-1)
+        self._sweep.setEasingCurve(QEasingCurve.Type.InOutSine)
+        self._sweep.valueChanged.connect(self._advance)
+
+    def _advance(self, value) -> None:
+        if not motion.enabled():
+            self._sweep.stop()
+        self._phase = float(value)
+        self.update()
+
+    def _filled(self) -> QRectF | None:
+        span = self.maximum() - self.minimum()
+        if span <= 0 or self.value() <= self.minimum():
+            return None
+        inner = QRectF(self.contentsRect()).adjusted(1, 1, -1, -1)
+        share = (self.value() - self.minimum()) / span
+        return QRectF(inner.left(), inner.top(), inner.width() * share, inner.height())
+
+    def showEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        super().showEvent(event)
+        if motion.enabled():
+            self._sweep.start()
+
+    def hideEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        super().hideEvent(event)
+        self._sweep.stop()
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 — имя задано Qt
+        super().paintEvent(event)
+        filled = self._filled()
+        if filled is None or self._sweep.state() != QVariantAnimation.State.Running:
+            return
+
+        # Блик проходит всю заполненную часть и уходит за край, а не обрывается у него.
+        travel = filled.width() + self.BAND
+        left = filled.left() - self.BAND + travel * self._phase
+        shine = QLinearGradient(left, 0, left + self.BAND, 0)
+        glare = QColor(255, 255, 255, 0)
+        shine.setColorAt(0.0, glare)
+        glare.setAlpha(110)
+        shine.setColorAt(0.5, glare)
+        glare.setAlpha(0)
+        shine.setColorAt(1.0, glare)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setClipRect(filled)
+        painter.fillRect(filled, shine)
+        painter.end()
+
+
+class TabStrip(QWidget):
+    """Горизонтальный ряд разделов-таблеток: выбран всегда ровно один."""
+
+    changed = pyqtSignal(str)
+
+    def __init__(self, tabs: list[tuple[str, str]], parent: QWidget | None = None):
+        super().__init__(parent)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(SPACE["sm"])
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(True)
+        self.buttons: dict[str, Chip] = {}
+
+        for key, title in tabs:
+            button = Chip(title, key)
+            # Выбранная таблетка пишется жирным, а ширину Qt считает по обычному
+            # начертанию — без запаса текст обрезался по краям.
+            button.ensurePolished()
+            bold = QFont(button.font())
+            bold.setWeight(QFont.Weight.DemiBold)
+            extra = QFontMetrics(bold).horizontalAdvance(title) - button.fontMetrics(
+            ).horizontalAdvance(title)
+            button.setMinimumWidth(button.sizeHint().width() + max(0, extra))
+            button.clicked.connect(lambda _, chosen=key: self.select(chosen))
+            self._group.addButton(button)
+            self.buttons[key] = button
+            row.addWidget(button)
+        row.addStretch(1)
+
+        if tabs:
+            self.buttons[tabs[0][0]].setChecked(True)
+
+    def current(self) -> str:
+        return next((key for key, button in self.buttons.items() if button.isChecked()), "")
+
+    def select(self, key: str) -> None:
+        if key not in self.buttons:
+            return
+        self.buttons[key].setChecked(True)
+        self.changed.emit(key)
+
+
+class IconButton(QAbstractButton):
+    """Кнопка-значок без рамки: значок из `assets/icons`, цвет — от темы.
+
+    Для мелких служебных действий вроде пояснения к экрану: текстовый «?» в
+    таблетке выглядел заплаткой.
+    """
+
+    SIZE = 30
+    ICON = 20
+
+    def __init__(
+        self, icon: str, tooltip: str, size: int = SIZE, icon_size: int = ICON,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self._icon = icon
+        self.SIZE, self.ICON = size, icon_size
+        self.setToolTip(tooltip)
+        self.setFixedSize(self.SIZE, self.SIZE)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def enterEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 — имя задано Qt
+        from app.ui.frameless import svg_renderer
+
+        colour = COLORS["text"] if self.underMouse() and self.isEnabled() else COLORS["text_dim"]
+        offset = (self.SIZE - self.ICON) / 2
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        svg_renderer(self._icon, colour).render(
+            painter, QRectF(offset, offset, self.ICON, self.ICON)
+        )
+        painter.end()
