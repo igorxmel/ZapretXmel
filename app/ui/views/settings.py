@@ -154,20 +154,24 @@ class SettingsView(QWidget):
 
     @staticmethod
     def _page(card: Card) -> QScrollArea:
-        """Раздел — одна карточка, не во всю ширину: длинные строки читаются плохо.
+        """Раздел — одна карточка на всё окно, как на других экранах.
+
+        Узкая карточка, прижатая к верху, оставляла справа и снизу пустое поле. Содержимое
+        внутри прижато к верху, а лишнее место уходит вниз карточки: иначе галочки и
+        подписи разъезжались бы по высоте.
 
         С прокруткой: настроек в разделе бывает больше, чем влезает в невысокое окно, и
         без неё Qt сжимает карточку ниже её высоты — подписи наползают на галочки.
         """
-        card.setMaximumWidth(760)
         # Название раздела уже на вкладке сверху — повторять его в карточке незачем.
         for title in card.findChildren(SectionTitle):
             title.hide()
+        card.body().addStretch(1)
+
         content = QWidget()
         column = QVBoxLayout(content)
         column.setContentsMargins(0, 0, 0, 0)
-        column.addWidget(card)
-        column.addStretch(1)
+        column.addWidget(card, 1)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
