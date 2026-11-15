@@ -843,3 +843,41 @@ class IconButton(QAbstractButton):
             painter, QRectF(offset, offset, self.ICON, self.ICON)
         )
         painter.end()
+
+
+class IconChip(QPushButton):
+    """Таблетка со значком вместо текста — встаёт в ряд к обычным `Chip`.
+
+    Знак «+» текстом набирался мелким шрифтом таблеток, и его горизонтальная черта
+    почти пропадала. Значок рисуется векторно и толще, цветом темы.
+    """
+
+    ICON = 14
+
+    def __init__(self, icon: str, tooltip: str, parent: QWidget | None = None):
+        super().__init__("", parent)
+        self._icon = icon
+        self.setObjectName("Chip")
+        self.setToolTip(tooltip)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.ensurePolished()
+        height = max(self.sizeHint().height(), 26)
+        self.setFixedSize(height + 6, height)
+
+    def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 — имя задано Qt
+        from app.ui.frameless import svg_renderer
+
+        super().paintEvent(event)
+        if not self.isEnabled():
+            colour = COLORS["text_muted"]
+        elif self.underMouse():
+            colour = COLORS["text"]
+        else:
+            colour = COLORS["text_dim"]
+        left = (self.width() - self.ICON) / 2
+        top = (self.height() - self.ICON) / 2
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        svg_renderer(self._icon, colour).render(painter, QRectF(left, top, self.ICON, self.ICON))
+        painter.end()

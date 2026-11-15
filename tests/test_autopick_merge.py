@@ -134,7 +134,7 @@ def test_explanations_live_behind_the_question_mark(view: AutoPickView, monkeypa
 def test_own_targets_are_a_plus_next_to_the_services(view: AutoPickView) -> None:
     view._rebuild_chips()
 
-    assert view._add_targets.text() == "+"
+    assert view._add_targets._icon == "plus"
     row = [view._chips_row.itemAt(i).widget() for i in range(view._chips_row.count())]
     assert row.index(view._add_targets) == len(view._service_chips)
 

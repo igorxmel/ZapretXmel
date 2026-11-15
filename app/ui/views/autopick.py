@@ -40,7 +40,7 @@ from app.core.probe.http import supported_protocols
 from app.ui import dialogs
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, Chip, IconButton, ShineProgressBar, view_header
+from app.ui.widgets import Card, Chip, IconButton, IconChip, ShineProgressBar, view_header
 from app.ui.workers import AutoPickWorker, Task
 
 
@@ -349,13 +349,11 @@ class AutoPickView(QWidget):
             self._chips_row.addWidget(chip)
 
         # Свои цели — рядом с сервисами, к которым они и добавятся, а не кнопкой внизу.
-        self._add_targets = QPushButton("+")
-        self._add_targets.setObjectName("Chip")
-        self._add_targets.setToolTip(
+        self._add_targets = IconChip(
+            "plus",
             "Добавить свои цели: откроется файл, где можно дописать сайты. "
-            "Заголовок ### задаёт новый сервис — он появится здесь отдельной кнопкой"
+            "Заголовок ### задаёт новый сервис — он появится здесь отдельной кнопкой",
         )
-        self._add_targets.setCursor(Qt.CursorShape.PointingHandCursor)
         self._add_targets.clicked.connect(self._open_user_targets)
         self._chips_row.addWidget(self._add_targets)
 
