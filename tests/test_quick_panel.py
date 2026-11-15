@@ -218,3 +218,34 @@ def test_closed_question_does_nothing(panel: QuickPanel, monkeypatch: pytest.Mon
     panel._check_clicked()
 
     assert panel.ran == []
+
+
+# --- строка «Проверено…» ------------------------------------------------------
+
+
+class WatchCheck(FakeCheck):
+    everything_works = False
+    working = ["Discord", "Google"]
+    broken = ["YouTube"]
+
+
+def test_watchdog_check_is_shown_in_rows(panel: QuickPanel) -> None:
+    """Проверка сторожа: когда — в цвете итога, ниже красным сломанное, зелёным рабочее."""
+    panel.controller.remember_check(WatchCheck(), record=False)
+    panel._say_watch()
+
+    text = panel._watch_line.text()
+    assert "Проверено только что" in text and COLORS["warning"] in text
+    assert "✗ YouTube" in text and COLORS["danger"] in text
+    assert "✓ Discord, Google" in text and COLORS["success"] in text
+
+
+def test_own_answer_is_not_repeated_under_it(panel: QuickPanel) -> None:
+    """Ответ только что нажатой проверки уже стоит строками выше — второй раз не пишем."""
+    check = WatchCheck()
+    panel._quick_done(check)
+    panel._say_watch()
+
+    text = panel._watch_line.text()
+    assert "Проверено только что" in text
+    assert "✗" not in text and "✓" not in text

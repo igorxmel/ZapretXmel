@@ -16,9 +16,9 @@ from app.core import merge, paths, strategies
 from app.core.config import Settings
 from app.core.merge import plan_from_winners
 from app.core.probe.autopick import Report, StrategyScore
+from app.ui import dialogs
 from app.ui.controller import Controller
-from app.ui.theme.tokens import COLORS
-from app.ui.views.autopick import RESULT_LIFETIME_NOTE, AutoPickView
+from app.ui.views.autopick import RESULT_LIFETIME_NOTE, START_TEXT, AutoPickView
 
 FIXTURES = Path(__file__).parent / "fixtures" / "bundle_1_10_3"
 HOSTS = {"Discord": ["discord.com"], "YouTube": ["www.youtube.com"]}
@@ -119,18 +119,68 @@ def test_measured_build_does_not_offer_merging_again(view: AutoPickView) -> None
     assert view._merge_button.isHidden()
 
 
-def test_lifetime_warning_is_yellow_and_visible(view: AutoPickView) -> None:
-    label = next(item for item in view.findChildren(QLabel) if item.text() == RESULT_LIFETIME_NOTE)
+def test_explanations_live_behind_the_question_mark(view: AutoPickView, monkeypatch) -> None:
+    """Абзацы «что делает, как считает» стояли над кнопками и прятали главное."""
+    shown = []
+    monkeypatch.setattr(dialogs, "tell", lambda *args, **_: shown.append(args))
 
-    assert "через час" in label.text()
-    assert COLORS["warning"] in label.styleSheet()
-    assert not label.isHidden()
-    assert label.objectName() == view._status.objectName(), "размер как у надписи про VPN"
+    texts = " ".join(label.text() for label in view.findChildren(QLabel))
+    assert "Как считает" not in texts and RESULT_LIFETIME_NOTE not in texts
+
+    view._show_help()
+    assert shown and RESULT_LIFETIME_NOTE in shown[0][-1] and "Discord" in shown[0][-1]
 
 
-def test_lifetime_warning_is_not_next_to_the_vpn_warning(view: AutoPickView) -> None:
-    """Две жёлтые надписи подряд читались как одна."""
-    label = next(item for item in view.findChildren(QLabel) if item.text() == RESULT_LIFETIME_NOTE)
+def test_own_targets_are_a_plus_next_to_the_services(view: AutoPickView) -> None:
+    view._rebuild_chips()
 
-    assert label.parentWidget() is view._verdict.parentWidget()
-    assert label.parentWidget() is not view._status.parentWidget()
+    assert view._add_targets.text() == "+"
+    row = [view._chips_row.itemAt(i).widget() for i in range(view._chips_row.count())]
+    assert row.index(view._add_targets) == len(view._service_chips)
+
+
+def test_one_button_starts_and_stops(view: AutoPickView) -> None:
+    view._set_running(True)
+    assert view._start_button.text() == "Остановить" and view._start_button.isEnabled()
+
+    view._set_running(False)
+    assert view._start_button.text() == START_TEXT
+
+
+def test_start_goes_all_the_way_to_the_worker(view: AutoPickView, monkeypatch) -> None:
+    """Кнопка проходит запуск целиком, а не только первые шаги.
+
+    Поле `_stops_early` однажды перекрыло одноимённый метод, и любой запуск падал с
+    «'bool' object is not callable» — тесты этого не видели: до работника не доходил ни один.
+    """
+    from app.core import strategies
+    from app.core.diagnostics import vpn
+    from app.ui.views import autopick
+
+    launched = []
+
+    class Worker:
+        def __init__(self, specs, **kwargs):
+            launched.append(([spec.name for spec in specs], kwargs.get("stop_when")))
+            noop = type("Signal", (), {"connect": lambda *_: None})()
+            self.progress = self.strategy_done = self.done = self.failed = noop
+
+        def start(self):
+            pass
+
+    monkeypatch.setattr(autopick, "AutoPickWorker", Worker)
+    monkeypatch.setattr(vpn, "detect_fast", lambda: None)
+    monkeypatch.setattr(
+        strategies, "load_all", lambda *a, **k: [type("S", (), {"name": n})() for n in "ab"]
+    )
+    # Заготовка этих тестов подменяет _launch — здесь нужен настоящий.
+    monkeypatch.setattr(view, "_launch", AutoPickView._launch.__get__(view))
+    view._rebuild_chips()
+
+    for early in (False, True):
+        view._stop_early.setChecked(early)
+        view._start_now()
+        assert view._start_button.text() == "Остановить"
+        view._set_running(False)
+
+    assert [stop is not None for _, stop in launched] == [False, True]

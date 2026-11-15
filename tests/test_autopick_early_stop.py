@@ -107,3 +107,13 @@ def test_order_puts_favorites_then_the_most_reliable_first(monkeypatch) -> None:
     assert repair.ordered(names, ["liked"]) == ["liked", "steady", "unknown", "shaky"]
     # «Починить» берёт то же начало списка.
     assert repair.shortlist(names, ["liked"], current="") == ["liked", "steady", "unknown"]
+
+
+def test_timing_estimates_from_strategies_already_done() -> None:
+    from app.ui.views.autopick import timing
+
+    assert timing(5, 0, 22, False) == "Прошло 0:05"
+    assert timing(10, 5, 22, False) == "Прошло 0:10 · осталось около 0:34"
+    # С остановкой на первой рабочей оценка — потолок: подбор может кончиться раньше.
+    assert timing(10, 5, 22, True) == "Прошло 0:10 · осталось не больше 0:34"
+    assert timing(70, 22, 22, False) == "Прошло 1:10"

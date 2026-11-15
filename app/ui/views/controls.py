@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from html import escape
 
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtWidgets import (
@@ -379,7 +380,11 @@ class QuickPanel(QWidget):
         # Сторож проверяет сам, и об этом стоит знать, не нажимая ничего.
         self._watch_line = QLabel("")
         self._watch_line.setWordWrap(True)
+        self._watch_line.setTextFormat(Qt.TextFormat.RichText)
         body.addWidget(self._watch_line)
+        # Проверка, ответ которой сейчас показан строками выше: повторять его под
+        # «Проверено…» незачем.
+        self._shown_check = None
 
         flow = controller.repair
         flow.running_changed.connect(self._repair_running)
@@ -572,6 +577,7 @@ class QuickPanel(QWidget):
         self._show_line(self._broken_line, "✗  Не работает: ", check.broken, COLORS["danger"])
         self._show_line(self._working_line, "✓  Работает: ", check.working, COLORS["success"])
 
+        self._shown_check = check
         notes = [*check.notes, measured_note(self.controller.status, self._chosen())]
         self._check_result.setStyleSheet(f"color: {COLORS['text_muted']};")
         self._check_result.setText("\n".join(notes))
@@ -586,6 +592,7 @@ class QuickPanel(QWidget):
 
     def _say_check(self, text: str, colour: str) -> None:
         """Одна строка — ход проверки, починки или ошибка. Прошлый ответ убираем."""
+        self._shown_check = None
         self._broken_line.hide()
         self._working_line.hide()
         self._check_result.setStyleSheet(f"color: {colour};")
@@ -594,12 +601,18 @@ class QuickPanel(QWidget):
         self.answer_shown.emit()
 
     def _say_watch(self) -> None:
-        """Строка о последней проверке — своей или сторожевой."""
+        """О последней проверке — своей или сторожевой: когда и что вышло.
+
+        Как и ответ проверки, по строке на смысл: «Проверено 5 мин назад» в цвете
+        итога, ниже красным — что не работало, зелёным — что работало. В одну строку
+        «не работает YouTube» за «Проверено…» читалось хуже.
+        """
         when = self.controller.last_check_at
         check = self.controller.last_check
         if when is None or check is None:
-            self._watch_line.setText("Проверки ещё не было")
-            self._watch_line.setStyleSheet(f"color: {COLORS['text_muted']};")
+            self._watch_line.setText(
+                f'<span style="color:{COLORS["text_muted"]}">Проверки ещё не было</span>'
+            )
             return
 
         minutes = int((datetime.now() - when).total_seconds() // 60)
@@ -611,14 +624,29 @@ class QuickPanel(QWidget):
             ago = f"{minutes // 60} ч назад"
 
         if check.everything_works:
-            self._watch_line.setText(f"Проверено {ago}: всё работало")
-            self._watch_line.setStyleSheet(f"color: {COLORS['success']};")
+            colour = COLORS["success"]
         elif check.working:
-            self._watch_line.setText(f"Проверено {ago}: не работает {', '.join(check.broken)}")
-            self._watch_line.setStyleSheet(f"color: {COLORS['warning']};")
+            colour = COLORS["warning"]
         else:
-            self._watch_line.setText(f"Проверено {ago}: не работало ничего")
-            self._watch_line.setStyleSheet(f"color: {COLORS['danger']};")
+            colour = COLORS["danger"]
+        lines = [f'<span style="color:{colour}">Проверено {ago}</span>']
+
+        # Тот же ответ уже стоит строками выше — второй раз его не пишем.
+        if check is not self._shown_check:
+            parts = []
+            if check.broken:
+                parts.append(
+                    f'<span style="color:{COLORS["danger"]}">'
+                    f"✗ {escape(', '.join(check.broken))}</span>"
+                )
+            if check.working:
+                parts.append(
+                    f'<span style="color:{COLORS["success"]}">'
+                    f"✓ {escape(', '.join(check.working))}</span>"
+                )
+            if parts:
+                lines.append("&nbsp;&nbsp;&nbsp;".join(parts))
+        self._watch_line.setText("<br>".join(lines))
 
     def apply_status(self, _status: Status) -> None:
         self._say_watch()

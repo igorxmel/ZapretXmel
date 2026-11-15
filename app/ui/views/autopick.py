@@ -12,7 +12,9 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QSize, Qt, QUrl, pyqtSignal
+import time
+
+from PyQt6.QtCore import QSize, Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QColor, QDesktopServices
 from PyQt6.QtWidgets import (
     QAbstractItemView,
@@ -21,7 +23,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
-    QProgressBar,
     QPushButton,
     QScrollArea,
     QTableWidget,
@@ -39,34 +40,59 @@ from app.core.probe.http import supported_protocols
 from app.ui import dialogs
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, Chip, view_header
+from app.ui.widgets import Card, Chip, IconButton, ShineProgressBar, view_header
 from app.ui.workers import AutoPickWorker, Task
 
+
 # Блокировки меняются без предупреждения, а результат выглядит окончательным.
+def clock(seconds: float) -> str:
+    """«0:42», «1:05» — время подбора."""
+    seconds = max(0, round(seconds))
+    return f"{seconds // 60}:{seconds % 60:02d}"
+
+
+def timing(elapsed: float, done: int, total: int, stops_early: bool) -> str:
+    """«Прошло 0:12 · осталось около 0:40».
+
+    Оценка — по средней уже проверенных стратегий: после ускорения подбора они идут
+    почти ровно, по паре секунд. С остановкой на первой рабочей это потолок, а не
+    обещание: подбор может закончиться раньше.
+    """
+    text = f"Прошло {clock(elapsed)}"
+    left = total - done
+    if done <= 0 or left <= 0:
+        return text
+    rest = clock(elapsed / done * left)
+    return text + (f" · осталось не больше {rest}" if stops_early else f" · осталось около {rest}")
+
+
 RESULT_LIFETIME_NOTE = (
     "Подбор действует неопределённое время: лучшая стратегия может отвалиться "
     "уже через час использования. Перестало работать — запустите подбор снова."
 )
+
+START_TEXT = "Запустить подбор"
 
 COLUMNS = ("Стратегия", "Сервисы", "Пройдено", "Не прошло", "Блокировка", "Время")
 SERVICES_COLUMN = COLUMNS.index("Сервисы")
 
 DPI_CHIP = "Проверка DPI"
 
-SERVICES_NOTE = (
-    "<b>Что делает:</b> поднимает каждую стратегию и проверяет выбранные сервисы.<br>"
-    "<b>Как считает:</b> сначала сравнивается число сервисов, заработавших целиком, "
-    "и только потом общее число пройденных проверок — иначе стратегия, которая чинит "
-    "ютуб и ломает дискорд, обошла бы ту, что чинит оба.<br>"
-    "<b>Discord</b> проверяется не открытием страницы, а тремя шагами самого клиента: "
-    "запрос к API, рукопожатие с гейтвеем и загрузка картинок."
-)
-
-DPI_NOTE = (
-    "<b>Что делает:</b> шлёт на нейтральные хосты запрос с телом и просит прислать кусок "
-    "данных в ответ, после чего считает, сколько байт реально прошло.<br>"
-    "<b>Зачем:</b> показывает поведение самого канала, когда по сервисам всё чисто, "
-    "а ощущение, что режут, остаётся."
+# Пояснения — за кнопкой «?»: на экране они стояли абзацами над кнопками, и за ними
+# терялось главное — что выбрано и что нажимать.
+HELP_TEXT = (
+    "Каждая стратегия по очереди поднимается и проверяется на выбранных сервисах. "
+    "Первой строкой идёт замер без обхода: стратегия считается выигрышной, только если "
+    "она его превзошла.\n\n"
+    "Сначала сравнивается число сервисов, заработавших целиком, и только потом общее число "
+    "пройденных проверок — иначе стратегия, которая чинит YouTube и ломает Discord, обошла "
+    "бы ту, что чинит оба. Discord проверяется тремя шагами самого клиента: запрос к API, "
+    "рукопожатие с гейтвеем и загрузка картинок.\n\n"
+    "«Проверка DPI» шлёт на нейтральные хосты запрос с телом и считает, сколько байт "
+    "реально прошло: показывает поведение канала, когда по сервисам всё чисто, а ощущение, "
+    "что режут, остаётся.\n\n"
+    "«+» открывает файл своих целей: заголовок ### в нём задаёт новый сервис, и он "
+    "появится здесь отдельной кнопкой.\n\n" + RESULT_LIFETIME_NOTE
 )
 
 
@@ -141,9 +167,8 @@ class AutoPickView(QWidget):
         layout.addWidget(
             view_header(
                 "Подбор стратегии",
-                "Каждая стратегия поднимается по очереди и проверяется на одних и тех же "
-                "сервисах. Первой строкой идёт замер без обхода — стратегия считается "
-                "выигрышной, только если она его превзошла.",
+                "Перебирает стратегии и находит ту, при которой работают выбранные сервисы.",
+                aside=self._help_button(),
             )
         )
 
@@ -161,15 +186,12 @@ class AutoPickView(QWidget):
         row = QHBoxLayout()
         row.setSpacing(SPACE["sm"])
 
-        self._start_button = QPushButton("Запустить подбор")
+        # Одна кнопка: «Запустить подбор», а пока он идёт — «Остановить» на том же месте.
+        # Две рядом, из которых одна всегда серая, только занимали место.
+        self._start_button = QPushButton(START_TEXT)
         self._start_button.setObjectName("Primary")
-        self._start_button.clicked.connect(self._start)
+        self._start_button.clicked.connect(self._run_clicked)
         row.addWidget(self._start_button)
-
-        self._cancel_button = QPushButton("Остановить")
-        self._cancel_button.setEnabled(False)
-        self._cancel_button.clicked.connect(self._cancel)
-        row.addWidget(self._cancel_button)
 
         self._apply_button = QPushButton("Применить лучшую")
         self._apply_button.setEnabled(False)
@@ -186,42 +208,43 @@ class AutoPickView(QWidget):
         self._merge_button.clicked.connect(self._merge_best)
         row.addWidget(self._merge_button)
 
-        own_targets = QPushButton("Добавить свои цели")
-        own_targets.setToolTip(
-            "Открыть файл, где можно дописать свои сайты. Заголовок ### задаёт "
-            "новый сервис — он появится здесь отдельной кнопкой."
-        )
-        own_targets.clicked.connect(self._open_user_targets)
-        row.addWidget(own_targets)
         row.addStretch(1)
         body.addLayout(row)
 
         # Полный прогон — по умолчанию: только он даёт таблицу по всем стратегиям. Но
         # если нужна просто рабочая, быстрее начать с тех, что работали раньше, и
         # остановиться на первой подошедшей.
-        self._stop_early = QCheckBox("Остановиться на первой, где работает всё")
+        self._stop_early = QCheckBox("Остановиться на первой, где работает всё, и включить её")
         self._stop_early.setToolTip(
             "Сначала проверяются избранные и те, что у вас работали дольше всего. "
             "Как только найдётся стратегия, при которой работают все отмеченные "
-            "сервисы, подбор остановится — обычно за несколько секунд. Таблицы по "
-            "всем стратегиям тогда не будет"
+            "сервисы, подбор остановится и сразу её включит — обычно за несколько "
+            "секунд. Таблицы по всем стратегиям тогда не будет"
         )
         self._stop_early.setChecked(self.controller.settings.autopick_stop_early)
         self._stop_early.toggled.connect(self._toggle_stop_early)
         body.addWidget(self._stop_early)
 
-        self._note = _WholeLabel()
-        self._note.setObjectName("Dim")
-        self._note.setWordWrap(True)
-        self._note.setTextFormat(Qt.TextFormat.RichText)
-        body.addWidget(self._note)
-
         body.addWidget(self._build_coverage_box())
 
-        self._progress = QProgressBar()
+        self._progress = ShineProgressBar()
         self._progress.setTextVisible(False)
         self._progress.hide()
         body.addWidget(self._progress)
+
+        # Сколько прошло и сколько примерно осталось. Тикает раз в секунду, а оценка
+        # уточняется с каждой проверенной стратегией.
+        self._timing = QLabel("")
+        self._timing.setObjectName("Muted")
+        self._timing.hide()
+        body.addWidget(self._timing)
+        self._clock = QTimer(self)
+        self._clock.setInterval(1000)
+        self._clock.timeout.connect(self._show_timing)
+        self._started_at = 0.0
+        self._done = 0
+        self._planned = 0
+        self._early_run = False
 
         self._status = QLabel("")
         self._status.setObjectName("Muted")
@@ -278,14 +301,6 @@ class AutoPickView(QWidget):
         self._verdict.setWordWrap(True)
         body.addWidget(self._verdict)
 
-        # Стоит здесь, а не среди настроек подбора: относится к результату, а там
-        # сливалась с такой же жёлтой надписью про VPN.
-        lifetime = QLabel(RESULT_LIFETIME_NOTE)
-        lifetime.setObjectName("Muted")
-        lifetime.setWordWrap(True)
-        lifetime.setStyleSheet(f"color: {COLORS['warning']};")
-        body.addWidget(lifetime)
-
         self._table = QTableWidget(0, len(COLUMNS))
         self._table.setHorizontalHeaderLabels(COLUMNS)
         for column in range(len(COLUMNS)):
@@ -333,6 +348,17 @@ class AutoPickView(QWidget):
             self._service_chips.append(chip)
             self._chips_row.addWidget(chip)
 
+        # Свои цели — рядом с сервисами, к которым они и добавятся, а не кнопкой внизу.
+        self._add_targets = QPushButton("+")
+        self._add_targets.setObjectName("Chip")
+        self._add_targets.setToolTip(
+            "Добавить свои цели: откроется файл, где можно дописать сайты. "
+            "Заголовок ### задаёт новый сервис — он появится здесь отдельной кнопкой"
+        )
+        self._add_targets.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._add_targets.clicked.connect(self._open_user_targets)
+        self._chips_row.addWidget(self._add_targets)
+
         self._dpi_chip = Chip(DPI_CHIP, "dpi")
         self._dpi_chip.clicked.connect(self._mode_changed)
         self._chips_row.addWidget(self._dpi_chip)
@@ -365,12 +391,10 @@ class AutoPickView(QWidget):
         self._table.setColumnHidden(SERVICES_COLUMN, dpi_mode)
 
         if dpi_mode:
-            self._note.setText(DPI_NOTE)
             count = len(self._dpi_targets) or "около 36"
             self._status.setText(f"Хостов в наборе: {count}, проверяется до {DPI_TARGET_LIMIT}.")
             return
 
-        self._note.setText(SERVICES_NOTE)
         chosen = self._selected_services()
         checks = sum(service.size for service in chosen)
         self._status.setText(
@@ -404,23 +428,60 @@ class AutoPickView(QWidget):
 
     # --- прогон ---------------------------------------------------------
 
+    def _help_button(self) -> IconButton:
+        # «i», а не «?»: вопрос в кружке уже стоит в заголовке окна и открывает
+        # справку по всей программе — одинаковые значки путали.
+        button = IconButton("info", "Как устроен подбор", size=24, icon_size=18)
+        button.clicked.connect(self._show_help)
+        return button
+
+    def _show_help(self) -> None:
+        dialogs.tell(self, "Подбор стратегии", "Как устроен подбор", HELP_TEXT)
+
+    def _run_clicked(self) -> None:
+        if self.controller.picking:
+            self._cancel()
+        else:
+            self._start()
+
     def _start(self) -> None:
+        """Отклик — сразу, подготовка — следующим кадром.
+
+        Раньше кнопка 2–3 секунды не отвечала: до запуска окно читало все стратегии и
+        проверяло VPN через PowerShell, и всё это в своём потоке.
+        """
+        self._start_button.setEnabled(False)
+        self._start_button.setText("Готовлю подбор…")
+        QTimer.singleShot(0, self._start_now)
+
+    def _ready(self) -> None:
+        """Кнопка снова «Запустить подбор» — подбор так и не начался."""
+        self._start_button.setText(START_TEXT)
+        self._start_button.setEnabled(True)
+
+    def _start_now(self) -> None:
         if self.controller.repair.running:
             self.controller.error.emit("Идёт починка, дождитесь её конца.")
+            self._ready()
             return
 
         specs = strategies.load_all()
         if not specs:
             self.controller.error.emit("Нет ни одной стратегии — сначала установите ядро.")
+            self._ready()
             return
 
         mode = self._current_mode()
         chosen = self._selected_services()
         if mode == "services" and not chosen:
             self.controller.error.emit("Отметьте хотя бы один сервис для проверки.")
+            self._ready()
             return
 
-        if (tunnel := vpn.detect()) is not None and not self._ignore_vpn:
+        # Быстрая проверка, по адресу выхода. Полная спрашивала PowerShell и держала
+        # кнопку секунд шесть, а при VPN в режиме TUN всё равно приходила к тому же.
+        if (tunnel := vpn.detect_fast()) is not None and not self._ignore_vpn:
+            self._ready()
             self._warn_about_vpn(tunnel)
             return
 
@@ -475,6 +536,14 @@ class AutoPickView(QWidget):
         self._progress.show()
         self._set_running(True)
 
+        self._started_at = time.monotonic()
+        self._done = 0
+        self._planned = len(specs)
+        self._early_run = stop_early
+        self._show_timing()
+        self._timing.show()
+        self._clock.start()
+
         self._worker = AutoPickWorker(
             specs,
             mode=mode,
@@ -485,7 +554,7 @@ class AutoPickView(QWidget):
             stop_when=(lambda score: repair.fully_works(score, ignored)) if stop_early else None,
         )
         self._worker.progress.connect(self._status.setText)
-        self._worker.strategy_done.connect(self._add_row)
+        self._worker.strategy_done.connect(self._strategy_done)
         self._worker.done.connect(self._finish)
         self._worker.failed.connect(self._fail)
         self._worker.start()
@@ -505,21 +574,28 @@ class AutoPickView(QWidget):
 
         if run_anyway:
             self._ignore_vpn = True
-            self._start()
+            self._start_now()
 
     def _cancel(self) -> None:
         if self._worker is not None:
             self._worker.cancel()
-            self._cancel_button.setEnabled(False)
+            self._start_button.setEnabled(False)
+            self._start_button.setText("Останавливаю…")
 
     def _set_running(self, running: bool) -> None:
         # Подбор идёт минутами, и уйти на другую вкладку — нормально.
         # Пусть боковое меню показывает, что здесь ещё работают.
         self.busy_changed.emit(running)
         self.controller.picking = running
-        self._start_button.setEnabled(not running)
-        self._cancel_button.setEnabled(running)
-        for chip in [*self._service_chips, self._dpi_chip]:
+        self._start_button.setEnabled(True)
+        self._start_button.setText("Остановить" if running else START_TEXT)
+        # Пока идёт подбор, главное действие — не запуск, и кнопка не должна кричать.
+        wanted = "" if running else "Primary"
+        if self._start_button.objectName() != wanted:
+            self._start_button.setObjectName(wanted)
+            self._start_button.style().unpolish(self._start_button)
+            self._start_button.style().polish(self._start_button)
+        for chip in [*self._service_chips, self._dpi_chip, self._add_targets]:
             chip.setEnabled(not running)
         self._stop_early.setEnabled(not running and self._current_mode() == "services")
         if running:
@@ -565,11 +641,33 @@ class AutoPickView(QWidget):
             if color:
                 item.setForeground(QColor(color))
 
+    def _strategy_done(self, score: StrategyScore) -> None:
+        self._add_row(score)
+        if not score.is_baseline:
+            self._done += 1
+        self._show_timing()
+
+    def _show_timing(self) -> None:
+        self._timing.setText(
+            timing(
+                time.monotonic() - self._started_at,
+                self._done,
+                self._planned,
+                self._early_run,
+            )
+        )
+
+    def _stop_clock(self) -> None:
+        self._clock.stop()
+        self._timing.hide()
+
     def _finish(self, report: Report) -> None:
         self._report = report
         built, self._built = self._built, None
         self._set_running(False)
         self._progress.hide()
+        took = clock(time.monotonic() - self._started_at)
+        self._stop_clock()
         self._rebuild_table(report)
 
         best = report.best
@@ -591,7 +689,14 @@ class AutoPickView(QWidget):
 
         path = save_report(report)
         self._status.setStyleSheet(f"color: {COLORS['text_muted']};")
-        self._status.setText(f"Отчёт сохранён: {path.name}")
+        self._status.setText(f"Заняло {took}. Отчёт сохранён: {path.name}")
+
+        # С галочкой человек просил не таблицу, а рабочий обход: найденное включаем.
+        if self._early_run and not report.cancelled and best is not None and (
+            repair.fully_works(best, coverage.uncovered_target_names())
+        ):
+            self._apply_best()
+            self._verdict.setText(self._verdict.text() + f" «{best.name}» включена.")
 
     def _rebuild_table(self, report: Report) -> None:
         """Пересобирает таблицу: базовый замер сверху, дальше по убыванию качества."""
@@ -634,6 +739,7 @@ class AutoPickView(QWidget):
         self._set_running(False)
         self._start_button.setEnabled(True)
         self._progress.hide()
+        self._stop_clock()
         self._verdict.setText("Подбор не удался")
         self._status.setStyleSheet(f"color: {COLORS['danger']};")
         self._status.setText(message)
