@@ -118,7 +118,7 @@ class UpdatesView(QWidget):
         row = QHBoxLayout()
         row.setSpacing(SPACE["md"])
 
-        self._row_app = KeyValueRow("Версия программы")
+        self._row_app = KeyValueRow("Версия программы", beside=True)
         row.addWidget(self._row_app, 1)
 
         # Окно после обновления показывается один раз; посмотреть, что
@@ -432,10 +432,11 @@ class UpdatesView(QWidget):
         switch.addStretch(1)
         body.addLayout(switch)
 
-        self._row_installed = KeyValueRow("Установлена версия")
-        self._row_latest = KeyValueRow("Доступна версия")
+        self._row_installed = KeyValueRow("Установлена версия", beside=True)
+        self._row_latest = KeyValueRow("Доступна версия", beside=True)
         body.addWidget(self._row_installed)
         body.addWidget(self._row_latest)
+        KeyValueRow.line_up(self._row_installed, self._row_latest)
 
         buttons = QHBoxLayout()
         buttons.setSpacing(SPACE["sm"])
@@ -605,12 +606,12 @@ class UpdatesView(QWidget):
         card = Card("Списки и hosts")
         body = card.body()
 
-        self._row_ipset = KeyValueRow("Режим IP-набора")
+        self._row_ipset = KeyValueRow("Режим IP-набора", beside=True)
         body.addWidget(self._row_ipset)
 
         # Что это за список и есть ли он вообще — вопрос, который возникал у
         # каждого, кто видел кнопку «Обновить список IP-адресов».
-        self._row_ipset_list = KeyValueRow("Скачанный список")
+        self._row_ipset_list = KeyValueRow("Скачанный список", beside=True)
         body.addWidget(self._row_ipset_list)
 
         ipset_buttons = QHBoxLayout()
@@ -636,8 +637,9 @@ class UpdatesView(QWidget):
         note.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.MinimumExpanding)
         body.addWidget(note)
 
-        self._row_hosts = KeyValueRow("Секция в hosts")
+        self._row_hosts = KeyValueRow("Секция в hosts", beside=True)
         body.addWidget(self._row_hosts)
+        KeyValueRow.line_up(self._row_ipset, self._row_ipset_list, self._row_hosts)
 
         hosts_apply = QPushButton("Записать hosts от Flowseal")
         hosts_apply.clicked.connect(self._apply_hosts)

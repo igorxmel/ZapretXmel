@@ -43,6 +43,9 @@ class _FreshCombo(QComboBox):
 class DashboardView(QWidget):
     """Две кнопки и ответ на вопрос «работает ли сейчас обход»."""
 
+    # Полоса прокрутки у края окна, а не посреди правого поля.
+    scrolls_to_edge = True
+
     navigate = pyqtSignal(str)
     install_core_requested = pyqtSignal()
     install_proxy_requested = pyqtSignal()
@@ -66,7 +69,8 @@ class DashboardView(QWidget):
 
         content = QWidget()
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(0, 0, 0, 0)
+        # Правое поле окна теперь здесь, внутри прокрутки.
+        layout.setContentsMargins(0, 0, SPACE["xl"], 0)
         layout.setSpacing(SPACE["lg"])
         scroll.setWidget(content)
 
@@ -81,8 +85,9 @@ class DashboardView(QWidget):
         details.setSpacing(SPACE["lg"])
         details.addWidget(self._build_status_card(), 1)
         details.addWidget(self._build_actions_card(), 1)
-        layout.addLayout(details)
-        layout.addStretch(1)
+        # Карточки тянутся до низа окна: на большом экране под ними оставалась
+        # пустая полоса в полэкрана.
+        layout.addLayout(details, 1)
 
         controller.status_changed.connect(self.apply_status)
 

@@ -533,7 +533,19 @@ class PowerButton(QAbstractButton):
 class KeyValueRow(QWidget):
     """Строка «подпись — значение» для сводок."""
 
-    def __init__(self, key: str, value: str = "—", parent: QWidget | None = None):
+    def __init__(
+        self,
+        key: str,
+        value: str = "—",
+        parent: QWidget | None = None,
+        *,
+        beside: bool = False,
+    ):
+        """`beside` ставит значение сразу за подписью, а не у правого края.
+
+        В широкой карточке «Установлена версия» и сама версия расходились на
+        полэкрана, и глазу приходилось искать, что к чему относится.
+        """
         super().__init__(parent)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -545,8 +557,21 @@ class KeyValueRow(QWidget):
         self._value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
         layout.addWidget(self._key)
-        layout.addStretch(1)
-        layout.addWidget(self._value)
+        if beside:
+            layout.addWidget(self._value)
+            layout.addStretch(1)
+        else:
+            layout.addStretch(1)
+            layout.addWidget(self._value)
+
+    @staticmethod
+    def line_up(*rows: KeyValueRow) -> None:
+        """Подписи одной ширины — значения соседних строк встают столбиком."""
+        for row in rows:
+            row._key.ensurePolished()
+        width = max(row._key.sizeHint().width() for row in rows)
+        for row in rows:
+            row._key.setMinimumWidth(width)
 
     def set_value(self, value: str) -> None:
         self._value.setText(value)
@@ -738,8 +763,11 @@ class ShineProgressBar(QProgressBar):
 
     def paintEvent(self, event: QPaintEvent) -> None:  # noqa: N802 — имя задано Qt
         super().paintEvent(event)
+        if self._sweep.state() != QVariantAnimation.State.Running:
+            return
         filled = self._filled()
-        if filled is None or self._sweep.state() != QVariantAnimation.State.Running:
+        if filled is None:
+            self._paint_waiting()
             return
 
         # Блик проходит всю заполненную часть и уходит за край, а не обрывается у него.
@@ -757,6 +785,32 @@ class ShineProgressBar(QProgressBar):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         painter.setClipRect(filled)
         painter.fillRect(filled, shine)
+        painter.end()
+
+    def _paint_waiting(self) -> None:
+        """Процента ещё нет — по пустой дорожке бежит оранжевая полоска.
+
+        Сервер не всегда сообщает размер файла, и до первого процента полоса
+        стояла пустой и неподвижной: загрузка выглядела зависшей.
+        """
+        groove = QRectF(self.contentsRect()).adjusted(1, 1, -1, -1)
+        if groove.width() <= 0:
+            return
+        band = max(self.BAND, groove.width() / 4)
+        left = groove.left() - band + (groove.width() + band) * self._phase
+        glow = QLinearGradient(left, 0, left + band, 0)
+        color = QColor(BRAND["orange"])
+        color.setAlpha(0)
+        glow.setColorAt(0.0, color)
+        color.setAlpha(220)
+        glow.setColorAt(0.5, color)
+        color.setAlpha(0)
+        glow.setColorAt(1.0, color)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setClipRect(groove)
+        painter.fillRect(groove, glow)
         painter.end()
 
 

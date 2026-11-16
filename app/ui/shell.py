@@ -187,10 +187,16 @@ class MainWindow(FramelessWindow):
 
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(SPACE["xl"], SPACE["xl"], SPACE["xl"], SPACE["lg"])
+        # Справа поля нет: его даёт обёртка экрана. Экран с прокруткой убирает его у
+        # себя, чтобы полоса прокрутки стояла у края окна, а не посреди отступа.
+        content_layout.setContentsMargins(SPACE["xl"], SPACE["xl"], 0, SPACE["lg"])
         content_layout.setSpacing(SPACE["md"])
 
-        content_layout.addWidget(self._build_update_banner())
+        banner_box = QWidget()
+        banner_layout = QVBoxLayout(banner_box)
+        banner_layout.setContentsMargins(0, 0, SPACE["xl"], 0)
+        banner_layout.addWidget(self._build_update_banner())
+        content_layout.addWidget(banner_box)
 
         self._stack = QStackedWidget()
         self.views = {
@@ -209,7 +215,12 @@ class MainWindow(FramelessWindow):
         for view in self.views.values():
             self._stack.addWidget(view)
 
-        content_layout.addWidget(self._stack, 1)
+        stack_box = QWidget()
+        self._stack_margin = QVBoxLayout(stack_box)
+        self._stack_margin.setContentsMargins(0, 0, SPACE["xl"], 0)
+        self._stack_margin.addWidget(self._stack)
+        content_layout.addWidget(stack_box, 1)
+        self._fit_stack_margin()
 
         self._toast = QLabel("")
         self._toast.setObjectName("Muted")
@@ -491,6 +502,10 @@ class MainWindow(FramelessWindow):
 
     # --- поведение ------------------------------------------------------
 
+    def _fit_stack_margin(self) -> None:
+        edge = getattr(self._stack.currentWidget(), "scrolls_to_edge", False)
+        self._stack_margin.setContentsMargins(0, 0, 0 if edge else SPACE["xl"], 0)
+
     def navigate(self, key: str) -> None:
         view = self.views.get(key)
         if view is None:
@@ -502,6 +517,7 @@ class MainWindow(FramelessWindow):
             self.set_compact(False)
 
         self._stack.setCurrentWidget(view)
+        self._fit_stack_margin()
         self._current_section = key
         if button := self._nav_buttons.get(key):
             button.setChecked(True)
