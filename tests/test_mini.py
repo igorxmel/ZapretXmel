@@ -133,8 +133,29 @@ def test_steps_name_real_buttons(name: str) -> None:
 
 
 def test_help_window_opens(app: QApplication) -> None:
-    assert "С чего начать" in HelpWindow().text.toPlainText()
+    window = HelpWindow()
 
+    assert len(window.steps) == len(guide.STEP_ITEMS)
+    assert [item.button.text() for item in window.faq] == [q for q, _ in guide.faq_items()]
+
+
+def test_questions_unfold_one_by_one(app: QApplication) -> None:
+    """Раньше справка была одним длинным текстом, и вопрос искали прокруткой."""
+    window = HelpWindow()
+    first, second = window.faq[0], window.faq[1]
+
+    assert first.button.isChecked() and not second.button.isChecked()
+    second.button.click()
+    assert second.button.isChecked()
+    assert "не прячет ваш адрес" in second.answer.toPlainText()
+
+
+def test_faq_is_split_into_questions() -> None:
+    items = guide.faq_items()
+
+    assert items[0][0] == "Что такое ZapretXmel?"
+    assert all(question and answer for question, answer in items)
+    assert not any(answer.startswith("## ") for _, answer in items)
 
 ICONS = ["window-help", "window-shrink", "window-expand", "window-sections", "window-chevron"]
 

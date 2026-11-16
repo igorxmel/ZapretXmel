@@ -545,6 +545,57 @@ def build_stylesheet() -> str:
     /* Прозу моноширинным шрифтом читать тяжело. */
     QTextBrowser#HelpText {{ font-family: {FONTS["ui"]}; }}
 
+    /* --- справка --- */
+
+    QLabel#HelpStepTitle {{ font-weight: 600; color: {c["text"]}; }}
+
+    QFrame#HelpTip {{
+        background: {c["surface"]};
+        border: 1px solid {c["border"]};
+        border-left: 3px solid {BRAND["orange"]};
+        border-radius: {r["md"]}px;
+    }}
+
+    QFrame#HelpItem {{
+        background: {c["surface"]};
+        border: 1px solid {c["border"]};
+        border-radius: {r["md"]}px;
+    }}
+    QFrame#HelpItem[open="true"] {{ border-color: {c["border_strong"]}; }}
+
+    /* Подложка ответа скруглена снизу, как сама карточка: иначе углы торчали из рамки. */
+    QWidget#HelpAnswerBox {{
+        background: {c["bg"]};
+        border-bottom-left-radius: {r["md"]}px;
+        border-bottom-right-radius: {r["md"]}px;
+    }}
+
+    QPushButton#HelpQuestion {{
+        background: transparent;
+        border: none;
+        text-align: left;
+        font-weight: 600;
+        padding: {s["md"]}px {s["xxl"] + s["lg"]}px {s["md"]}px {s["lg"]}px;
+        color: {c["text"]};
+    }}
+    QPushButton#HelpQuestion:hover {{ background: {c["surface_hover"]}; }}
+
+    QTextBrowser#HelpAnswer {{
+        background: transparent;
+        border: none;
+        font-family: {FONTS["ui"]};
+        color: {c["text_dim"]};
+    }}
+
+    /* Кнопка, которая выглядит как ссылка: ведёт наружу, а не делает что-то в программе. */
+    QPushButton#Link {{
+        background: transparent;
+        border: none;
+        padding: 0px;
+        color: {BRAND["orange"]};
+    }}
+    QPushButton#Link:hover {{ text-decoration: underline; }}
+
     QTextBrowser#VersionNotes {{
         background: transparent;
         border: none;
