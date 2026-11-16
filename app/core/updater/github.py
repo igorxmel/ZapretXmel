@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -296,39 +297,71 @@ def fetch_text(asset: Asset, timeout: int = 20) -> str:
     return response.text
 
 
+# Сколько раз пробовать и сколько ждать перед повтором. GitHub отдаёт файлы релизов
+# с отдельного хоста, и соединение с ним время от времени рвётся прямо на
+# рукопожатии — со второй попытки обычно проходит.
+ATTEMPTS = 4
+RETRY_PAUSES = (2, 5, 10)
+
+# Обрывы, после которых есть смысл повторить. Ответ сервера с ошибкой (404 и т. п.)
+# сюда не входит: от повтора он не изменится.
+_TRANSIENT = (
+    requests.exceptions.ConnectionError,
+    requests.exceptions.Timeout,
+    requests.exceptions.ChunkedEncodingError,
+)
+
+
+def describe(error: BaseException) -> str:
+    """Причина сбоя сети словами, а не кортежем из urllib3."""
+    if isinstance(error, requests.exceptions.Timeout):
+        return "GitHub слишком долго не отвечал"
+    if isinstance(error, requests.exceptions.ConnectionError | ConnectionError):
+        return "соединение с GitHub оборвалось"
+    if isinstance(error, requests.exceptions.ChunkedEncodingError):
+        return "загрузка с GitHub оборвалась на середине"
+    if isinstance(error, requests.exceptions.HTTPError) and error.response is not None:
+        return f"GitHub ответил ошибкой {error.response.status_code}"
+    return str(error)
+
+
 def download(
     asset: Asset,
     destination: Path,
     progress: Callable[[int, int], None] | None = None,
     timeout: int = 60,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> str:
     """Скачивает файл и возвращает его SHA-256.
 
     Загрузка идёт во временный файл и переименовывается только после успеха,
-    чтобы прерванная закачка не осталась под видом готового архива.
+    чтобы прерванная закачка не осталась под видом готового архива. Оборвалась —
+    пробуем ещё раз и продолжаем с того места, где остановились.
     """
     destination.parent.mkdir(parents=True, exist_ok=True)
     partial = destination.with_suffix(destination.suffix + ".part")
-    digest = hashlib.sha256()
-    downloaded = 0
+    partial.unlink(missing_ok=True)
 
-    with requests.get(
-        asset.url, stream=True, timeout=timeout, headers={"User-Agent": USER_AGENT}
-    ) as response:
-        response.raise_for_status()
-        total = int(response.headers.get("Content-Length", asset.size or 0))
+    for attempt in range(ATTEMPTS):
+        try:
+            _fetch(asset, partial, progress, timeout)
+            break
+        except _TRANSIENT as error:
+            if attempt == ATTEMPTS - 1:
+                partial.unlink(missing_ok=True)
+                raise
+            pause = RETRY_PAUSES[min(attempt, len(RETRY_PAUSES) - 1)]
+            log.warning(
+                "%s: %s, попытка %d из %d, повтор через %d с",
+                asset.name, describe(error), attempt + 1, ATTEMPTS, pause,
+            )
+            sleep(pause)
+        except BaseException:
+            partial.unlink(missing_ok=True)
+            raise
 
-        with partial.open("wb") as handle:
-            for chunk in response.iter_content(chunk_size=256 * 1024):
-                if not chunk:
-                    continue
-                handle.write(chunk)
-                digest.update(chunk)
-                downloaded += len(chunk)
-                if progress:
-                    progress(downloaded, total)
-
-    actual = digest.hexdigest()
+    # Хеш считаем по готовому файлу: после докачки часть байтов пришла в прошлый раз.
+    actual = file_sha256(partial)
 
     # Хеш считает сам GitHub, и сверить скачанное с ним дешевле всего здесь:
     # через эту функцию проходят и ядро, и прокси, и сама программа, а любой
@@ -340,10 +373,41 @@ def download(
             "загрузка оборвалась или файл подменили по дороге"
         )
 
+    size = partial.stat().st_size
     partial.replace(destination)
-    log.info("Скачано %s (%d байт)", destination.name, downloaded)
+    log.info("Скачано %s (%d байт)", destination.name, size)
     return actual
 
+
+def _fetch(
+    asset: Asset,
+    partial: Path,
+    progress: Callable[[int, int], None] | None,
+    timeout: int,
+) -> None:
+    """Одна попытка: качает в `partial`, продолжая уже скачанное, если сервер умеет."""
+    have = partial.stat().st_size if partial.exists() else 0
+    headers = {"User-Agent": USER_AGENT}
+    if have:
+        headers["Range"] = f"bytes={have}-"
+
+    with requests.get(asset.url, stream=True, timeout=timeout, headers=headers) as response:
+        response.raise_for_status()
+        resumed = have and getattr(response, "status_code", 200) == 206
+        if not resumed:
+            have = 0
+        length = int(response.headers.get("Content-Length", 0) or 0)
+        total = have + length if length else asset.size or 0
+        downloaded = have
+
+        with partial.open("ab" if resumed else "wb") as handle:
+            for chunk in response.iter_content(chunk_size=256 * 1024):
+                if not chunk:
+                    continue
+                handle.write(chunk)
+                downloaded += len(chunk)
+                if progress:
+                    progress(downloaded, total)
 
 def file_sha256(path: Path) -> str:
     digest = hashlib.sha256()

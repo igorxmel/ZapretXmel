@@ -195,9 +195,11 @@ def download(
         digest = github.download(asset, target, progress=on_bytes)
     except Exception as error:
         _discard(target)
+        # Совет «включите обход» тут был неверным: GitHub в списках обхода нет, и
+        # включённый обход эту загрузку не трогает.
         raise SelfUpdateError(
-            f"не удалось скачать обновление: {error}. "
-            "Файл берётся с GitHub — если обход сейчас выключен, включите его."
+            f"не удалось скачать обновление: {github.describe(error)}. "
+            "Попробуйте ещё раз через минуту или скачайте версию со страницы релизов."
         ) from error
 
     if target.stat().st_size < 1024:

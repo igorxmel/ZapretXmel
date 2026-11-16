@@ -137,7 +137,7 @@ class TelegramInstallWorker(QThread):
             self.done.emit(version)
         except Exception as error:  # noqa: BLE001 — причину показываем пользователю
             log.exception("Установка прокси для Telegram не удалась")
-            self.failed.emit(str(error))
+            self.failed.emit(github.describe(error))
 
     def _on_download(self, downloaded: int, total: int) -> None:
         if total <= 0:
@@ -219,7 +219,7 @@ class CoreUpdateWorker(QThread):
             self.done.emit(version)
         except Exception as error:  # noqa: BLE001 — обновление не должно ронять приложение
             log.exception("Обновление ядра не удалось")
-            self.failed.emit(str(error))
+            self.failed.emit(github.describe(error))
 
     def _on_download(self, downloaded: int, total: int) -> None:
         if total > 0:

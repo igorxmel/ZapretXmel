@@ -498,3 +498,99 @@ def test_testing_builds_also_survive_the_limit(monkeypatch: pytest.MonkeyPatch) 
     _github(monkeypatch)
 
     assert github.latest_release("o/r", testing=True).version == "2.0"
+
+
+class _Flaky:
+    """Ответ, который рвётся на заданной попытке; поддерживает докачку."""
+
+    def __init__(self, data: bytes, breaks: list):
+        self.data, self.breaks, self.calls = data, breaks, []
+
+    def get(self, url, stream=False, timeout=0, headers=None):
+        from app.core.updater import github
+
+        headers = headers or {}
+        self.calls.append(headers.get("Range", ""))
+        fault = self.breaks.pop(0) if self.breaks else None
+        if fault == "handshake":
+            raise github.requests.exceptions.ConnectionError("10054")
+        start = int(headers["Range"][6:-1]) if "Range" in headers else 0
+        body = self.data[start:]
+
+        class Response:
+            status_code = 206 if start else 200
+            headers = {"Content-Length": str(len(body))}
+
+            def raise_for_status(self):
+                return None
+
+            def iter_content(self, chunk_size):
+                yield body[:3]
+                if fault == "middle":
+                    raise github.requests.exceptions.ChunkedEncodingError("обрыв")
+                yield body[3:]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        return Response()
+
+
+def test_reset_on_handshake_is_retried(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """GitHub разорвал соединение на рукопожатии — обновление 0.4.8 → 0.4.9 сдалось сразу."""
+    import hashlib
+
+    from app.core.updater import github
+
+    data = b"0123456789"
+    fake = _Flaky(data, ["handshake", "handshake"])
+    monkeypatch.setattr(github.requests, "get", fake.get)
+    asset = github.Asset(
+        name="x.exe", url="https://example.invalid/x", size=10,
+        digest=hashlib.sha256(data).hexdigest(),
+    )
+
+    github.download(asset, tmp_path / "x.exe", sleep=lambda _: None)
+
+    assert (tmp_path / "x.exe").read_bytes() == data
+    assert len(fake.calls) == 3
+
+
+def test_broken_download_resumes_where_it_stopped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+
+    from app.core.updater import github
+
+    data = b"0123456789"
+    fake = _Flaky(data, ["middle"])
+    monkeypatch.setattr(github.requests, "get", fake.get)
+    asset = github.Asset(
+        name="x.exe", url="https://example.invalid/x", size=10,
+        digest=hashlib.sha256(data).hexdigest(),
+    )
+
+    github.download(asset, tmp_path / "x.exe", sleep=lambda _: None)
+
+    assert (tmp_path / "x.exe").read_bytes() == data
+    assert fake.calls == ["", "bytes=3-"]
+
+
+def test_gives_up_after_all_attempts_with_a_plain_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.core.updater import github
+
+    fake = _Flaky(b"data", ["handshake"] * github.ATTEMPTS)
+    monkeypatch.setattr(github.requests, "get", fake.get)
+    asset = github.Asset(name="x.exe", url="https://example.invalid/x", size=4)
+
+    with pytest.raises(github.requests.exceptions.ConnectionError) as caught:
+        github.download(asset, tmp_path / "x.exe", sleep=lambda _: None)
+
+    assert github.describe(caught.value) == "соединение с GitHub оборвалось"
+    assert not list(tmp_path.glob("*.part"))
