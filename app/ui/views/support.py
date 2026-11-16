@@ -6,7 +6,8 @@ import time
 from html import escape
 
 from PyQt6.QtCore import Qt, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QDesktopServices, QPainter, QPixmap
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (
     QApplication,
     QHBoxLayout,
@@ -17,7 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import donate, report
+from app.core import donate, paths, report
 from app.core.updater import github
 from app.ui import dialogs
 from app.ui.controller import Controller
@@ -42,6 +43,26 @@ REPORT_WIDTH = 760
 TESTERS = ("Dencraz", "Drendr", "DynamitNS")
 
 
+COIN_ICON = 22
+
+
+def coin_pixmap(coin: str, size: int, ratio: float = 1.0) -> QPixmap:
+    """Значок монеты из `assets/icons/coin-<код>.svg`; нет файла — пустая картинка."""
+    path = paths.assets_dir() / "icons" / f"coin-{coin.lower()}.svg"
+    renderer = QSvgRenderer(str(path))
+    if not renderer.isValid():
+        return QPixmap()
+    side = round(size * max(ratio, 1.0))
+    pixmap = QPixmap(side, side)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    renderer.render(painter)
+    painter.end()
+    pixmap.setDevicePixelRatio(max(ratio, 1.0))
+    return pixmap
+
+
 class WalletRow(QWidget):
     """Адрес кошелька с кнопкой копирования: перепечатывать его руками опасно."""
 
@@ -52,7 +73,18 @@ class WalletRow(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(SPACE["xs"])
-        layout.addWidget(QLabel(wallet.title))
+
+        # Значок монеты рядом с названием: по нему кошелёк находят быстрее, чем по
+        # тексту, и меньше шанс скопировать адрес не той сети.
+        heading = QHBoxLayout()
+        heading.setSpacing(SPACE["sm"])
+        self.icon = QLabel()
+        self.icon.setFixedSize(COIN_ICON, COIN_ICON)
+        self.icon.setPixmap(coin_pixmap(wallet.coin, COIN_ICON, self.devicePixelRatioF()))
+        heading.addWidget(self.icon)
+        heading.addWidget(QLabel(wallet.title))
+        heading.addStretch(1)
+        layout.addLayout(heading)
 
         row = QHBoxLayout()
         row.setSpacing(SPACE["sm"])

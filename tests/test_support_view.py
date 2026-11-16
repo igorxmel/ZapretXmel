@@ -231,3 +231,10 @@ def test_stars_are_not_asked_on_every_opening(
     view.reload()
 
     assert asked == [True]
+
+@pytest.mark.parametrize("wallet", donate.WALLETS, ids=lambda wallet: wallet.coin)
+def test_every_coin_has_its_icon(app: QApplication, wallet) -> None:
+    """Значок по коду монеты: добавили кошелёк без файла — пустое место рядом с названием."""
+    from app.ui.views.support import coin_pixmap
+
+    assert not coin_pixmap(wallet.coin, 22).isNull()
