@@ -19,6 +19,7 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
+import re
 import secrets
 import socket
 from dataclasses import dataclass
@@ -116,24 +117,188 @@ def write_config(values: dict) -> None:
     )
 
 
-def ensure_config(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> dict:
-    """Готовит конфигурацию прокси, сохраняя уже выбранный секрет.
+def configured_port() -> int:
+    """Порт из настроек прокси — его можно сменить в разделе Telegram."""
+    try:
+        return int(read_config().get("port", DEFAULT_PORT))
+    except (TypeError, ValueError):
+        return DEFAULT_PORT
+
+
+def ensure_config(port: int | None = None) -> dict:
+    """Готовит конфигурацию прокси, сохраняя уже выбранный секрет и порт.
 
     Секрет прописан в настройках Telegram у пользователя, поэтому перегенерировать
-    его при каждом запуске нельзя — иначе связь отвалится после перезапуска.
+    его при каждом запуске нельзя — иначе связь отвалится после перезапуска. Порт —
+    тот, что выбран в настройках; раньше здесь каждый раз ставился 1443, и смена
+    порта молча откатывалась.
     """
     config = read_config()
     config.setdefault("secret", generate_secret())
-    config["host"] = host
-    config["port"] = port
+    # Только этот компьютер: прокси без пароля, открытый в сеть, — чужой выход в Telegram.
+    config["host"] = DEFAULT_HOST
+    config["port"] = port or int(config.get("port") or DEFAULT_PORT)
     # Обновлениями занимаемся мы, второй проверяющий тут лишний.
     config["check_updates"] = False
+    # Окно прокси программа не показывает и автозапуском управляет сама.
+    config["autostart"] = False
     write_config(config)
     return config
 
 
-def port_is_free(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> bool:
+# --- настройки, которые показываем в разделе Telegram ---------------------------
+
+# Ключ — как в config.json tg-ws-proxy, значение — что подставить, если ключа нет.
+# Язык, тема и автозапуск окна прокси сюда не входят: окна мы не показываем, а
+# автозапуском и обновлениями управляет программа.
+SETTINGS: dict[str, object] = {
+    "cfproxy": True,
+    "h2": True,
+    "no_secure": False,
+    "cfproxy_user_domain_enabled": False,
+    "cfproxy_user_domain": [],
+    "cfproxy_worker_enabled": False,
+    "cfproxy_worker_domain": [],
+    "dc_ip": ["2:149.154.167.220", "4:149.154.167.220"],
+    "verbose": False,
+    "buf_kb": 256,
+    "pool_size": 4,
+    "log_max_mb": 5,
+}
+
+LIMITS = {"port": (1024, 65535), "buf_kb": (4, 4096), "pool_size": (0, 64), "log_max_mb": (1, 100)}
+
+_DC_RULE = re.compile(r"^\d{1,3}:(\d{1,3}\.){3}\d{1,3}$")
+_DOMAIN = re.compile(r"^(?=.{1,253}$)([a-z0-9-]{1,63}\.)+[a-z]{2,63}$", re.IGNORECASE)
+
+
+def settings() -> dict:
+    """Текущие настройки прокси с подставленными значениями по умолчанию."""
+    config = read_config()
+    found = {key: config.get(key, default) for key, default in SETTINGS.items()}
+    found["port"] = configured_port()
+    return found
+
+
+def parse_dc_rules(text: str) -> list[str]:
+    """«номер:IP» по одному на строку. Ошибка — ValueError с той строкой, что не так."""
+    rules = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        octets = line.split(":", 1)[-1].split(".")
+        if not _DC_RULE.match(line) or any(int(part) > 255 for part in octets):
+            raise ValueError(f"не похоже на «номер:IP»: {line}")
+        rules.append(line)
+    return rules
+
+
+def parse_domains(text: str) -> list[str]:
+    """Домены через запятую или пробел. Ошибка — ValueError с тем доменом, что не так."""
+    domains = [item.strip().lower() for item in re.split(r"[,\s]+", text) if item.strip()]
+    for domain in domains:
+        if not _DOMAIN.match(domain):
+            raise ValueError(f"не похоже на домен: {domain}")
+    return domains
+
+
+def save_settings(values: dict) -> dict:
+    """Пишет настройки в config.json прокси. Секрет и адрес не трогает.
+
+    Числа проверяются по `LIMITS`: прокси с нулевым буфером или портом 80 просто не
+    поднимется, и человек увидел бы это только по молчащему Telegram.
+    """
+    config = read_config()
+    for key, value in values.items():
+        if key != "port" and key not in SETTINGS:
+            raise ValueError(f"неизвестная настройка: {key}")
+        if key in LIMITS:
+            low, high = LIMITS[key]
+            value = int(value)
+            if not low <= value <= high:
+                raise ValueError(f"{key}: нужно от {low} до {high}")
+        config[key] = value
+    write_config(config)
+    return config
+
+
+def new_secret() -> str:
+    """Новый ключ. Telegram со старым ключом к прокси больше не подключится."""
+    config = read_config()
+    config["secret"] = generate_secret()
+    write_config(config)
+    return config["secret"]
+
+
+# --- почему прокси не работает -----------------------------------------------
+
+STARTED_MARK = "starting"
+_STATS = re.compile(r"stats: (.+)$")
+# Хвоста хватает: строка статистики пишется раз в несколько минут, а читается это на
+# каждом опросе состояния.
+_TAIL_BYTES = 64 * 1024
+
+
+def log_file() -> Path:
+    return data_dir() / "proxy.log"
+
+
+def last_stats() -> dict[str, str]:
+    """Последняя строка статистики прокси с этого запуска: «total=172 ws=0 cf=0 …».
+
+    Прокси пишет её в свой журнал раз в несколько минут. Берём только строки после
+    последнего запуска: старая статистика говорила бы о прошлом разе.
+    """
+    try:
+        with log_file().open("rb") as handle:
+            handle.seek(0, 2)
+            size = handle.tell()
+            handle.seek(max(0, size - _TAIL_BYTES))
+            tail = handle.read().decode("utf-8", errors="replace").splitlines()
+    except OSError:
+        return {}
+
+    found: dict[str, str] = {}
+    for line in tail:
+        if STARTED_MARK in line and "TG WS Proxy" in line:
+            found = {}
+        elif match := _STATS.search(line):
+            found = dict(
+                pair.split("=", 1) for pair in match.group(1).split() if "=" in pair
+            )
+    return found
+
+
+def _number(stats: dict[str, str], key: str) -> int:
+    try:
+        return int(stats.get(key, "0"))
+    except ValueError:
+        return 0
+
+
+def is_stuck(stats: dict[str, str]) -> bool:
+    """Telegram стучится, а до серверов не доходит ничего — ни напрямую, ни через Cloudflare.
+
+    Так выглядел журнал, с которого всё началось: total=172, ws=0, cf=0, err=436,
+    up=0.0B down=0.0B. Человек видит только «Telegram не грузится».
+    """
+    nothing_passed = stats.get("up", "") in ("0B", "0.0B") and stats.get("down", "") in (
+        "0B",
+        "0.0B",
+    )
+    return (
+        _number(stats, "total") > 0
+        and _number(stats, "err") > 0
+        and _number(stats, "ws") == 0
+        and _number(stats, "cf") == 0
+        and nothing_passed
+    )
+
+
+def port_is_free(host: str = DEFAULT_HOST, port: int | None = None) -> bool:
     """Проверяет, не занят ли порт — чаще всего это уже запущенный экземпляр."""
+    port = port or configured_port()
     probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         probe.settimeout(0.3)
@@ -159,7 +324,7 @@ def installed_version() -> str:
         return ""
 
 
-def has_clients(port: int = DEFAULT_PORT) -> bool:
+def has_clients(port: int | None = None) -> bool:
     """Подключился ли к прокси хоть кто-нибудь.
 
     Прямо спросить Telegram, прописан ли у него прокси, нельзя: настройки он
@@ -168,6 +333,7 @@ def has_clients(port: int = DEFAULT_PORT) -> bool:
     прокси нашёл и пользуется им; если нет — человек, скорее всего, не нажал
     «Открыть в Telegram».
     """
+    port = port or configured_port()
     try:
         connections = psutil.net_connections(kind="tcp")
     except (psutil.AccessDenied, OSError):
@@ -303,24 +469,29 @@ class TelegramProxy:
     def is_running(self) -> bool:
         return self._process.is_alive()
 
-    def start(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> ProxyState:
+    def start(self) -> ProxyState:
         if not is_installed():
             raise TelegramError("прокси не установлен")
         if self.is_running():
             return self.state()
 
-        config = ensure_config(host, port)
+        config = ensure_config()
         # Флаг портативного режима передаём явно: папку рядом с exe прокси
         # создаёт сам, но полагаться на её наличие до первого запуска нельзя.
         self._process.start([str(executable()), "--portable"], cwd=home())
-        log.info("tg-ws-proxy запущен на %s:%s", host, port)
+        log.info("tg-ws-proxy запущен на %s:%s", config["host"], config["port"])
         return ProxyState(
             installed=True,
             running=True,
-            host=config.get("host", host),
-            port=int(config.get("port", port)),
+            host=config["host"],
+            port=int(config["port"]),
             secret=config.get("secret", ""),
         )
+
+    def restart(self) -> ProxyState:
+        """Перезапуск, чтобы прокси перечитал настройки: он читает их только при старте."""
+        self.stop()
+        return self.start()
 
     def stop(self) -> None:
         """Гасит прокси, давая ему убрать за собой значок в трее."""

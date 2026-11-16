@@ -7,21 +7,37 @@ Telegram Desktop не ходит по TLS с SNI, поэтому обычные 
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QUrl, pyqtSignal
+from PyQt6.QtCore import Qt, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
+    QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
+    QPlainTextEdit,
     QPushButton,
+    QScrollArea,
+    QSpinBox,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from app.core import telegram
+from app.ui import dialogs
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, KeyValueRow, ShineProgressBar, StatusPill, view_header
+from app.ui.widgets import (
+    Card,
+    Divider,
+    KeyValueRow,
+    ShineProgressBar,
+    StatusPill,
+    TabStrip,
+    view_header,
+)
 from app.ui.workers import Task, TelegramInstallWorker
 
 
@@ -52,12 +68,23 @@ class TelegramView(QWidget):
             )
         )
 
-        columns = QHBoxLayout()
+        # Вкладки, как в настройках программы: настроек у прокси много, а на главной
+        # вкладке нужно одно — работает ли он и подключён ли Telegram.
+        self._tabs = TabStrip([("proxy", "Прокси"), ("settings", "Настройки")])
+        layout.addWidget(self._tabs)
+
+        main = QWidget()
+        columns = QHBoxLayout(main)
+        columns.setContentsMargins(0, 0, 0, 0)
         columns.setSpacing(SPACE["lg"])
         columns.addWidget(self._build_proxy_card(), 1)
         columns.addWidget(self._build_connect_card(), 1)
-        layout.addLayout(columns)
-        layout.addStretch(1)
+
+        self._pages = QStackedWidget()
+        self._pages.addWidget(main)
+        self._pages.addWidget(self._build_settings_page())
+        layout.addWidget(self._pages, 1)
+        self._tabs.changed.connect(self._switch_tab)
 
     def _build_proxy_card(self) -> Card:
         card = Card("Прокси")
@@ -100,6 +127,20 @@ class TelegramView(QWidget):
         self._connection.setWordWrap(True)
         self._connection.setVisible(False)
         body.addWidget(self._connection)
+
+        # Прокси запущен, Telegram стучится, а до серверов не доходит ничего. Так было
+        # у человека, которому помогла галочка «Без TLS»: провайдер резал защищённые
+        # соединения к Cloudflare, а сам он видел только «Telegram не грузится».
+        self._stuck = QLabel("")
+        self._stuck.setWordWrap(True)
+        self._stuck.setStyleSheet(f"color: {COLORS['warning']};")
+        self._stuck.hide()
+        body.addWidget(self._stuck)
+
+        self._insecure_button = QPushButton("Включить «Без TLS» и перезапустить")
+        self._insecure_button.clicked.connect(self._enable_insecure)
+        self._insecure_button.hide()
+        body.addWidget(self._insecure_button)
 
         body.addStretch(1)
         return card
@@ -146,6 +187,225 @@ class TelegramView(QWidget):
         body.addStretch(1)
         return card
 
+    # --- настройки прокси ----------------------------------------------
+
+    def _build_settings_page(self) -> QScrollArea:
+        """Настройки tg-ws-proxy — те, что имеют смысл, когда прокси ведёт программа.
+
+        Язык, тема и автозапуск окна прокси не показываем: окна мы не открываем, а
+        автозапуском и обновлениями управляет программа.
+        """
+        card = Card()
+        body = card.body()
+
+        def section(title: str) -> None:
+            label = QLabel(title)
+            label.setObjectName("ViewTitle")
+            label.setStyleSheet("font-size: 14px;")
+            body.addWidget(label)
+
+        def hint(text: str) -> None:
+            label = QLabel(text)
+            label.setObjectName("Muted")
+            label.setWordWrap(True)
+            body.addWidget(label)
+
+        def number(title: str, key: str) -> QSpinBox:
+            row = QHBoxLayout()
+            row.setSpacing(SPACE["sm"])
+            row.addWidget(QLabel(title))
+            spin = QSpinBox()
+            spin.setRange(*telegram.LIMITS[key])
+            row.addWidget(spin)
+            row.addStretch(1)
+            body.addLayout(row)
+            return spin
+
+        section("Подключение")
+        self._port = number("Порт", "port")
+        key_row = QHBoxLayout()
+        key_row.setSpacing(SPACE["sm"])
+        new_key = QPushButton("Новый ключ")
+        new_key.setToolTip(
+            "Ключ — пароль к прокси. Сменить стоит, если ссылка на прокси попала к кому-то ещё"
+        )
+        new_key.clicked.connect(self._new_key)
+        key_row.addWidget(new_key)
+        key_row.addStretch(1)
+        body.addLayout(key_row)
+        hint("После смены порта или ключа нажмите «Открыть в Telegram» ещё раз.")
+
+        body.addWidget(Divider())
+        section("Cloudflare")
+        self._cfproxy = QCheckBox("Запасной путь через Cloudflare")
+        self._cfproxy.setToolTip(
+            "Если серверы Telegram напрямую недоступны, трафик идёт через Cloudflare"
+        )
+        body.addWidget(self._cfproxy)
+        self._h2 = QCheckBox("Медиа через HTTP/2")
+        self._h2.setToolTip("Фото и видео идут через одно соединение — быстрее, если его не режут")
+        body.addWidget(self._h2)
+        self._no_secure = QCheckBox("Без TLS — к Cloudflare по порту 80")
+        body.addWidget(self._no_secure)
+        hint(
+            "Помогает, если провайдер режет защищённые соединения к Cloudflare: Telegram "
+            "стучится в прокси, а дальше не идёт ничего."
+        )
+
+        self._own_domain = QCheckBox("Свой домен Cloudflare")
+        self._own_domains = QLineEdit()
+        self._own_domains.setPlaceholderText("example.com")
+        self._worker = QCheckBox("Cloudflare Worker")
+        self._worker_domains = QLineEdit()
+        self._worker_domains.setPlaceholderText("домены через запятую")
+        pairs = ((self._own_domain, self._own_domains), (self._worker, self._worker_domains))
+        for box, line in pairs:
+            row = QHBoxLayout()
+            row.setSpacing(SPACE["sm"])
+            row.addWidget(box)
+            row.addWidget(line, 1)
+            body.addLayout(row)
+            box.toggled.connect(line.setEnabled)
+
+        body.addWidget(Divider())
+        section("Датацентры Telegram")
+        hint("По одному правилу на строку: номер:IP.")
+        self._dc = QPlainTextEdit()
+        self._dc.setFixedHeight(80)
+        body.addWidget(self._dc)
+
+        body.addWidget(Divider())
+        section("Журнал и производительность")
+        self._verbose = QCheckBox("Подробный журнал")
+        body.addWidget(self._verbose)
+        self._buf = number("Буфер, КБ", "buf_kb")
+        self._pool = number("Пул соединений", "pool_size")
+        self._log_size = number("Размер журнала, МБ", "log_max_mb")
+
+        body.addWidget(Divider())
+        buttons = QHBoxLayout()
+        buttons.setSpacing(SPACE["sm"])
+        save = QPushButton("Сохранить")
+        save.setObjectName("Primary")
+        save.clicked.connect(self._save_settings)
+        buttons.addWidget(save)
+        defaults = QPushButton("Как по умолчанию")
+        defaults.setToolTip(
+            "Вернёт значения tg-ws-proxy по умолчанию. Сохранится — после «Сохранить»"
+        )
+        defaults.clicked.connect(lambda: self._fill_settings(dict(telegram.SETTINGS)))
+        buttons.addWidget(defaults)
+        buttons.addStretch(1)
+        body.addLayout(buttons)
+
+        self._settings_status = QLabel("")
+        self._settings_status.setObjectName("Muted")
+        self._settings_status.setWordWrap(True)
+        body.addWidget(self._settings_status)
+        body.addStretch(1)
+
+        content = QWidget()
+        column = QVBoxLayout(content)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.addWidget(card, 1)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(content)
+        return scroll
+
+    def _switch_tab(self, key: str) -> None:
+        self._pages.setCurrentIndex(0 if key == "proxy" else 1)
+        if key == "settings":
+            self._fill_settings(telegram.settings())
+
+    def _fill_settings(self, values: dict) -> None:
+        self._port.setValue(int(values.get("port", self._port.value())))
+        self._cfproxy.setChecked(bool(values["cfproxy"]))
+        self._h2.setChecked(bool(values["h2"]))
+        self._no_secure.setChecked(bool(values["no_secure"]))
+        self._own_domain.setChecked(bool(values["cfproxy_user_domain_enabled"]))
+        self._own_domains.setText(", ".join(values["cfproxy_user_domain"]))
+        self._own_domains.setEnabled(self._own_domain.isChecked())
+        self._worker.setChecked(bool(values["cfproxy_worker_enabled"]))
+        self._worker_domains.setText(", ".join(values["cfproxy_worker_domain"]))
+        self._worker_domains.setEnabled(self._worker.isChecked())
+        self._dc.setPlainText("\n".join(values["dc_ip"]))
+        self._verbose.setChecked(bool(values["verbose"]))
+        self._buf.setValue(int(values["buf_kb"]))
+        self._pool.setValue(int(values["pool_size"]))
+        self._log_size.setValue(int(values["log_max_mb"]))
+        self._settings_status.setText("")
+
+    def _say_settings(self, text: str, colour: str) -> None:
+        self._settings_status.setStyleSheet(f"color: {colour};")
+        self._settings_status.setText(text)
+
+    def _save_settings(self) -> None:
+        try:
+            values = {
+                "port": self._port.value(),
+                "cfproxy": self._cfproxy.isChecked(),
+                "h2": self._h2.isChecked(),
+                "no_secure": self._no_secure.isChecked(),
+                "cfproxy_user_domain_enabled": self._own_domain.isChecked(),
+                "cfproxy_user_domain": telegram.parse_domains(self._own_domains.text()),
+                "cfproxy_worker_enabled": self._worker.isChecked(),
+                "cfproxy_worker_domain": telegram.parse_domains(self._worker_domains.text()),
+                "dc_ip": telegram.parse_dc_rules(self._dc.toPlainText()),
+                "verbose": self._verbose.isChecked(),
+                "buf_kb": self._buf.value(),
+                "pool_size": self._pool.value(),
+                "log_max_mb": self._log_size.value(),
+            }
+            if values["cfproxy_user_domain_enabled"] and not values["cfproxy_user_domain"]:
+                raise ValueError("включён свой домен, а самого домена нет")
+            if values["cfproxy_worker_enabled"] and not values["cfproxy_worker_domain"]:
+                raise ValueError("включён Worker, а доменов для него нет")
+            telegram.save_settings(values)
+        except ValueError as error:
+            self._say_settings(f"Не сохранено: {error}", COLORS["danger"])
+            return
+
+        self._apply_to_running("Сохранено")
+
+    def _apply_to_running(self, done: str) -> None:
+        """Прокси читает настройки только при старте — работающий перезапускаем."""
+        proxy = self.controller.telegram
+        if proxy.is_running():
+            try:
+                proxy.restart()
+            except telegram.TelegramError as error:
+                self._say_settings(
+                    f"{done}, но прокси не перезапустился: {error}", COLORS["danger"]
+                )
+                return
+            self._say_settings(f"{done}, прокси перезапущен", COLORS["success"])
+        else:
+            self._say_settings(f"{done}. Подействует, когда прокси запустится", COLORS["success"])
+        self.controller.refresh()
+        self.reload()
+
+    def _new_key(self) -> None:
+        if not dialogs.confirm(
+            self,
+            "Новый ключ",
+            "Сменить ключ прокси?",
+            "Telegram со старым ключом к прокси больше не подключится — после смены нажмите "
+            "«Открыть в Telegram», чтобы прописать новый.",
+            action="Сменить ключ",
+        ):
+            return
+        telegram.new_secret()
+        self._apply_to_running("Ключ сменён")
+
+    def _enable_insecure(self) -> None:
+        telegram.save_settings({"no_secure": True})
+        self._insecure_button.hide()
+        self._stuck.setText("Включено «Без TLS», прокси перезапущен. Проверьте Telegram.")
+        self._apply_to_running("Включено «Без TLS»")
+
     # --- состояние ------------------------------------------------------
 
     def reload(self) -> None:
@@ -185,6 +445,29 @@ class TelegramView(QWidget):
         каждые несколько секунд и уже знает ответ.
         """
         self._show_connection(status.telegram_running, status.telegram_connected)
+        self._show_stuck(status.telegram_running and status.telegram_stuck)
+
+    def _show_stuck(self, stuck: bool) -> None:
+        """Telegram стучится, а дальше не идёт ничего — говорим, что попробовать."""
+        self._stuck.setVisible(stuck)
+        if not stuck:
+            self._insecure_button.hide()
+            return
+        # Раз Telegram стучится в прокси, «ещё не подключился» рядом было бы неправдой.
+        self._connection.hide()
+
+        current = telegram.settings()
+        offer = current["cfproxy"] and not current["no_secure"]
+        self._stuck.setText(
+            "Telegram подключается к прокси, но до серверов не доходит ничего — ни напрямую, "
+            "ни через Cloudflare. "
+            + (
+                "Похоже, провайдер режет защищённые соединения к Cloudflare."
+                if offer
+                else "Попробуйте свой домен Cloudflare или Worker во вкладке «Настройки»."
+            )
+        )
+        self._insecure_button.setVisible(offer)
 
     def _show_connection(self, running: bool, connected: bool) -> None:
         """Говорит, дошло ли дело до самого Telegram.

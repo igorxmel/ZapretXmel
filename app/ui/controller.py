@@ -71,6 +71,9 @@ class Status:
     # Подключился ли к прокси клиент. Поднять его мало — прокси ещё нужно
     # прописать в самом Telegram, и об этом забывают.
     telegram_connected: bool = False
+    # Telegram стучится в прокси, а до серверов не доходит ничего: ни напрямую, ни
+    # через Cloudflare. Считается по строке статистики в журнале прокси.
+    telegram_stuck: bool = False
     network_label: str = ""
     log_tail: list[str] = field(default_factory=list)
 
@@ -390,6 +393,7 @@ class Controller(QObject):
             telegram_installed=telegram.is_installed(),
             telegram_version=telegram.installed_version(),
             telegram_connected=telegram.has_clients() if proxy_running else False,
+            telegram_stuck=telegram.is_stuck(telegram.last_stats()) if proxy_running else False,
             network_label=netspeed.label(),
             telegram_running=proxy_running,
             active_profiles=self._alive_profiles(),
