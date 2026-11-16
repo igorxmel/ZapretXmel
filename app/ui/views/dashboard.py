@@ -231,6 +231,10 @@ class DashboardView(QWidget):
             body.addWidget(row)
 
         self._build_vpn_block(body)
+        KeyValueRow.line_up(
+            self._row_core, self._row_mode, self._row_strategies, self._row_proxy,
+            self._row_network, self._row_vpn,
+        )
 
         body.addStretch(1)
         return card

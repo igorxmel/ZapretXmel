@@ -49,6 +49,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSlider,
+    QSpacerItem,
     QSpinBox,
     QStyle,
     QStyleOption,
@@ -531,7 +532,17 @@ class PowerButton(QAbstractButton):
 
 
 class KeyValueRow(QWidget):
-    """Строка «подпись — значение» для сводок."""
+    """Строка «подпись — значение» для сводок.
+
+    Пока строка узкая, значение стоит у правого края — так столбик значений ровный
+    и ничего не прыгает. В широкой карточке это уже полэкрана между «Версия ядра»
+    и самой версией, и глазу приходится искать, что к чему относится: тогда
+    значение переезжает к подписи. Решает ширина самой строки, а не окна —
+    карточки бывают в две колонки.
+    """
+
+    # Шире этого значение встаёт рядом с подписью.
+    WIDE = 520
 
     def __init__(
         self,
@@ -539,14 +550,11 @@ class KeyValueRow(QWidget):
         value: str = "—",
         parent: QWidget | None = None,
         *,
-        beside: bool = False,
+        beside: bool | None = None,
     ):
-        """`beside` ставит значение сразу за подписью, а не у правого края.
-
-        В широкой карточке «Установлена версия» и сама версия расходились на
-        полэкрана, и глазу приходилось искать, что к чему относится.
-        """
+        """`beside`: True — всегда у подписи, False — всегда у края, None — по ширине."""
         super().__init__(parent)
+        self._beside = beside
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(SPACE["md"])
@@ -556,13 +564,34 @@ class KeyValueRow(QWidget):
         self._value = QLabel(value)
         self._value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
 
+        self._gap = QSpacerItem(0, 0, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self._tail = QSpacerItem(0, 0, QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
         layout.addWidget(self._key)
-        if beside:
-            layout.addWidget(self._value)
-            layout.addStretch(1)
-        else:
-            layout.addStretch(1)
-            layout.addWidget(self._value)
+        layout.addItem(self._gap)
+        layout.addWidget(self._value)
+        layout.addItem(self._tail)
+        self._near: bool | None = None
+        self._place(bool(beside))
+
+    def is_beside(self) -> bool:
+        return bool(self._near)
+
+    def _place(self, near: bool) -> None:
+        if near == self._near:
+            return
+        self._near = near
+        grow, keep = QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        self._gap.changeSize(0, 0, keep if near else grow, QSizePolicy.Policy.Minimum)
+        self._tail.changeSize(0, 0, grow if near else keep, QSizePolicy.Policy.Minimum)
+        self.layout().invalidate()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        super().resizeEvent(event)
+        if self._beside is None:
+            before = self._near
+            self._place(self.width() >= self.WIDE)
+            if self._near != before:
+                self.layout().activate()
 
     @staticmethod
     def line_up(*rows: KeyValueRow) -> None:

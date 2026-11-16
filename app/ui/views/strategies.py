@@ -185,6 +185,10 @@ class StrategiesView(QWidget):
             " вечером. Стратегия при этом может быть лучшей из доступных."
         )
         body.addWidget(self._row_hours)
+        KeyValueRow.line_up(
+            self._row_launch, self._row_sections, self._row_args, self._row_stability,
+            self._row_services, self._row_hours,
+        )
         # Отметки «98%» в списке. Считаются при перечитывании, а не на каждом опросе состояния:
         # опрос идёт раз в несколько секунд и читал бы журнал по кругу.
         self._marks: dict[str, str] = {}

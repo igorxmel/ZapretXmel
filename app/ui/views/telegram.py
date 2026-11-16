@@ -97,6 +97,7 @@ class TelegramView(QWidget):
         self._row_port = KeyValueRow("Адрес")
         body.addWidget(self._row_state)
         body.addWidget(self._row_port)
+        KeyValueRow.line_up(self._row_state, self._row_port)
 
         buttons = QHBoxLayout()
         buttons.setSpacing(SPACE["sm"])
