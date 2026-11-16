@@ -118,3 +118,20 @@ def test_undelivered_update_is_dropped_at_start(program) -> None:
 
     assert not stale.exists()
     assert program.read_text(encoding="utf-8") == "0.3.0"
+
+
+def test_failed_newer_download_forgets_the_erased_one(program, monkeypatch) -> None:
+    """0.4.8 ждала перезапуска, загрузка 0.4.9 оборвалась и стёрла её файл."""
+    selfupdate.update(_Release("0.3.1"))
+
+    def broken(release, progress=None, on_bytes=None):
+        program.with_suffix(".new.exe").unlink()
+        raise selfupdate.SelfUpdateError("обрыв")
+
+    monkeypatch.setattr(selfupdate, "download", broken)
+    with pytest.raises(selfupdate.SelfUpdateError):
+        selfupdate.update(_Release("0.3.2"))
+
+    assert selfupdate.staged_version() == ""
+    selfupdate.install_on_exit()
+    assert program.read_text(encoding="utf-8") == "0.3.0"

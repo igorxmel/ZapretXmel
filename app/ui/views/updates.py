@@ -367,6 +367,9 @@ class UpdatesView(QWidget):
         if self._auto == updates.APP:
             self.busy_changed.emit(False)
             self._new_app = None
+            # Пока ждём перезапуска, может выйти версия ещё новее — проверить её
+            # должно быть можно, иначе обновляться пришлось бы дважды.
+            self._app_check.setEnabled(True)
             self._offer_restart()
             self._auto_finished(str(version))
             return

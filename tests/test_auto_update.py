@@ -160,6 +160,22 @@ def test_auto_install_reports_back(view: UpdatesView, monkeypatch: pytest.Monkey
     assert view._auto == ""
 
 
+def test_check_stays_available_while_waiting_for_restart(
+    view: UpdatesView, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """0.4.7 сама скачала 0.4.8 и ждала перезапуска, а «Проверить» осталась серой.
+
+    Вышла 0.4.9 — и узнать о ней можно было, только обновившись дважды.
+    """
+    monkeypatch.setattr(selfupdate, "staged_version", lambda: "0.4.8")
+    view._auto = updates.APP
+    view._app_check.setEnabled(False)
+
+    view._app_updated("0.4.8")
+
+    assert view._app_check.isEnabled()
+    assert view._app_install.text() == "Перезапустить"
+
 def test_manual_install_is_not_reported_as_auto(
     view: UpdatesView, monkeypatch: pytest.MonkeyPatch
 ) -> None:

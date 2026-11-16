@@ -384,6 +384,14 @@ def update(
     on_bytes: Callable[[int, int], None] | None = None,
 ) -> None:
     """Скачивает и ставит новую версию. Перезапуск вызывается отдельно."""
-    global _staged
-    apply(download(release, progress, on_bytes), progress)
+    global _staged, _pending
+    try:
+        downloaded = download(release, progress, on_bytes)
+    except Exception:
+        # Новая версия качается в тот же файл, что и уже скачанная, и неудачная
+        # загрузка его стирает. Помнить о стёртом нельзя: при выходе ставить нечего.
+        if _pending is not None and not _pending.exists():
+            _pending, _staged = None, ""
+        raise
+    apply(downloaded, progress)
     _staged = release.version
