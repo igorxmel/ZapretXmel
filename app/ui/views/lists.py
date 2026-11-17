@@ -93,6 +93,21 @@ class ListsView(QWidget):
         reload_button.clicked.connect(self.reload)
         footer.addWidget(reload_button)
 
+        # Обмен списками файлами: так ими делятся в чатах. Импорт добавляет к своим, а
+        # не заменяет их, и попадает сначала в редактор — сохраняет человек сам.
+        load_button = QPushButton("Добавить из файла…")
+        load_button.setToolTip(
+            "Записи из файла .txt добавятся к уже имеющимся. Ссылки сводятся к доменам, "
+            "комментарии и повторы пропускаются. Посмотрите и нажмите «Сохранить»"
+        )
+        load_button.clicked.connect(self._load_file)
+        footer.addWidget(load_button)
+
+        export_button = QPushButton("Сохранить в файл…")
+        export_button.setToolTip("Записывает текущий список в файл .txt, например чтобы поделиться")
+        export_button.clicked.connect(self._export_file)
+        footer.addWidget(export_button)
+
         self._status = QLabel("")
         self._status.setObjectName("Muted")
         footer.addWidget(self._status, 1)
@@ -142,6 +157,56 @@ class ListsView(QWidget):
         self.controller.message.emit(
             "Списки сохранены. Чтобы изменения вступили в силу, перезапустите обход."
         )
+
+    def _editor_entries(self) -> list[str]:
+        raw = [line.strip() for line in self._editor.toPlainText().splitlines()]
+        return [line for line in raw if line and not line.startswith("#")]
+
+    def _load_file(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Добавить записи из файла", "", "Текстовые файлы (*.txt);;Все файлы (*)"
+        )
+        if not path:
+            return
+        try:
+            text = Path(path).read_text(encoding="utf-8-sig", errors="replace")
+        except OSError as error:
+            self.controller.error.emit(f"Файл не прочитан: {error}")
+            return
+
+        good, bad = lists.parse_import(text, self._current.kind)
+        current = self._editor_entries()
+        known = {entry.lower() for entry in current}
+        fresh = [entry for entry in good if entry.lower() not in known]
+        if fresh:
+            self._editor.setPlainText("\n".join([*current, *fresh]))
+
+        tone = COLORS["warning"] if bad or not fresh else COLORS["success"]
+        self._status.setStyleSheet(f"color: {tone};")
+        text = (
+            f"Добавлено записей: {len(fresh)} — проверьте и нажмите «Сохранить»."
+            if fresh else "Новых записей в файле нет."
+        )
+        if bad:
+            text += f" Не подошло: {', '.join(bad[:3])}" + (" и другие" if len(bad) > 3 else "")
+        self._status.setText(text)
+
+    def _export_file(self) -> None:
+        suggested = self._current.filename
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить список в файл", suggested, "Текстовые файлы (*.txt)"
+        )
+        if not path:
+            return
+        entries = [e for e in self._editor_entries() if lists.validate(e, self._current.kind)]
+        text = lists.export_text(entries, self._current.kind)
+        try:
+            Path(path).write_text(text, encoding="utf-8")
+        except OSError as error:
+            self.controller.error.emit(f"Файл не записан: {error}")
+            return
+        self._status.setStyleSheet(f"color: {COLORS['success']};")
+        self._status.setText(f"Записей в файле: {len(text.split())}")
 
     def _import(self) -> None:
         directory = QFileDialog.getExistingDirectory(

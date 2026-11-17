@@ -206,3 +206,38 @@ def import_from(source_root: Path) -> dict[str, int]:
         log.info("Из %s перенесено записей: %d", source, imported[user_list.filename])
 
     return imported
+
+
+def parse_import(text: str, kind: Kind) -> tuple[list[str], list[str]]:
+    """Записи из чужого файла: годные и отброшенные.
+
+    Списки ходят по чатам в каком попало виде: со ссылками вместо доменов, с
+    комментариями и пустыми строками. Ссылку сводим к домену, комментарии и заглушки
+    пропускаем, остальное проверяем как обычно.
+    """
+    good: list[str] = []
+    bad: list[str] = []
+    seen: set[str] = set()
+    placeholder = PLACEHOLDER_DOMAIN if kind == "domain" else PLACEHOLDER_IP
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if kind == "domain":
+            line = re.sub(r"^[a-z][a-z0-9+.-]*://", "", line, flags=re.IGNORECASE)
+            line = line.split("/", 1)[0].split(":", 1)[0].removeprefix("*.").strip(".")
+        if line == placeholder or line.lower() in seen:
+            continue
+        if validate(line, kind):
+            seen.add(line.lower())
+            good.append(line)
+        else:
+            bad.append(raw.strip())
+    return good, bad
+
+
+def export_text(entries: list[str], kind: Kind) -> str:
+    """Список для файла: по записи на строку, без заглушки."""
+    placeholder = PLACEHOLDER_DOMAIN if kind == "domain" else PLACEHOLDER_IP
+    kept = [entry for entry in entries if entry and entry != placeholder]
+    return "\n".join(kept) + ("\n" if kept else "")
