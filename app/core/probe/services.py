@@ -60,6 +60,8 @@ class CheckResult:
     target: str = ""
     # Что ответил curl: без этого по журналу не понять, какая цель и почему не прошла.
     reason: str = ""
+    # Сколько заняла проба, по часам curl. 0 — не мерили (пинг, шаги Discord).
+    elapsed_ms: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -216,6 +218,7 @@ def check(service: Service, timeout: int = 6, parallel: int = 1) -> ServiceResul
                     detail=str(probe.outcome),
                     target=target.name,
                     reason=probe.detail,
+                    elapsed_ms=probe.elapsed_ms,
                 )
             )
 

@@ -25,7 +25,7 @@ import statistics
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -34,7 +34,7 @@ from app.core import ipset, paths, winws
 from app.core.batfile import StrategySpec
 from app.core.probe import dpi, services
 from app.core.probe.dpi import DpiResult, DpiStatus, DpiTarget
-from app.core.probe.services import Service, ServiceResult
+from app.core.probe.services import CheckResult, Service, ServiceResult
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +53,15 @@ HISTORY_LIMIT = 30
 # Сколько хостов из набора DPI проверять. Набор большой, а стратегий два
 # десятка: брать его целиком — это часы прогона без выигрыша в точности.
 DPI_TARGET_LIMIT = 10
+
+# Сколько лидеров перепроверять. Один прогон — один замер, и место между близкими
+# стратегиями решал случай: соседний сайт ответил на полсекунды позже, и только.
+LEADERS_TO_RECHECK = 3
+
+# Незаконченный подбор: файл переживает закрытие программы, и в следующий раз подбор
+# продолжается с того места, где его прервали. Старше суток — сеть могла измениться.
+PROGRESS_NAME = "autopick-unfinished.json"
+PROGRESS_MAX_AGE_HOURS = 24
 
 MODE_LABELS: dict[Mode, str] = {
     "services": "по сервисам",
@@ -132,6 +141,9 @@ class Report:
     # Остановился на первой стратегии, где работает всё, и сколько собирался проверить.
     stopped_early: bool = False
     planned: int = 0
+    # Кого перепроверили вторым замером и сколько стратегий взято из прерванного подбора.
+    rechecked: list[str] = field(default_factory=list)
+    resumed: int = 0
 
     @property
     def strategies(self) -> list[StrategyScore]:
@@ -201,6 +213,11 @@ class Report:
                 )
             else:
                 text += " Все проверенные сервисы работают."
+            if len(self.rechecked) > 1:
+                text += (
+                    f" Лидеров ({len(self.rechecked)}) проверил второй раз: проверка "
+                    "засчитана, только если прошла оба раза."
+                )
             if self.stopped_early:
                 text += (
                     f" Подбор остановился на ней: проверено {len(self.strategies)} "
@@ -245,8 +262,52 @@ def build_services_score(
     for result in results:
         score.ok += result.ok_count
         score.error += result.total - result.ok_count
+    if not durations:
+        # Время прошедших проб: у непрошедшей это таймаут, о скорости он ничего не говорит.
+        durations = [
+            check.elapsed_ms
+            for result in results
+            if result.measures_bypass
+            for check in result.checks
+            if check.ok and check.elapsed_ms > 0
+        ]
     score.median_ms = round(statistics.median(durations), 1) if durations else 0.0
     return score
+
+
+def combine(first: StrategyScore, second: StrategyScore) -> StrategyScore:
+    """Два замера одной стратегии в один: проверка засчитана, только если прошла оба раза.
+
+    Так случайная удача одного замера не выводит стратегию в лидеры, а время —
+    медиана по обоим.
+    """
+    later = {result.service: result for result in second.services}
+    merged: list[ServiceResult] = []
+    for result in first.services:
+        again = {check.name: check for check in later.get(result.service, result).checks}
+        checks = []
+        for check in result.checks:
+            twin = again.get(check.name, check)
+            times = [t for t in (check.elapsed_ms, twin.elapsed_ms) if t > 0 and check.ok]
+            checks.append(
+                replace(
+                    check,
+                    ok=check.ok and twin.ok,
+                    elapsed_ms=round(statistics.median(times), 1) if times else 0.0,
+                )
+            )
+        merged.append(replace(result, checks=checks))
+    return build_services_score(first.name, merged, [], is_baseline=first.is_baseline)
+
+
+def leaders(report: Report, limit: int = LEADERS_TO_RECHECK) -> list[StrategyScore]:
+    """Стратегии, между которыми выбор не очевиден: столько же целых сервисов, как у первой."""
+    ranked = [score for score in report.ranked if score.started and score.ok > 0]
+    if len(ranked) < 2:
+        return []
+    top = len(ranked[0].working_services)
+    close = [score for score in ranked if len(score.working_services) == top]
+    return close[:limit] if len(close) > 1 else []
 
 
 def build_dpi_score(
@@ -300,11 +361,17 @@ class AutoPicker:
         on_progress: OnProgress | None = None,
         on_strategy_done: OnStrategyDone | None = None,
         stop_when: Callable[[StrategyScore], bool] | None = None,
+        done: list[StrategyScore] | None = None,
+        on_checkpoint: Callable[[Report], None] | None = None,
     ) -> Report:
         """Перебирает стратегии и возвращает отчёт.
 
         `stop_when` останавливает перебор на первой стратегии, для которой он верен, —
         обычно «работает всё». Замер без обхода под него не попадает.
+
+        `done` — стратегии, уже проверенные прерванным подбором: их не гоняем заново, а
+        берём как есть. Замер без обхода всё равно делается свежий. `on_checkpoint`
+        получает отчёт после каждой стратегии — чтобы сохранить ход подбора.
 
         Чужие запущенные экземпляры winws и режим ipset восстанавливаются в
         исходное состояние, даже если прогон прервали.
@@ -341,19 +408,30 @@ class AutoPicker:
             if on_strategy_done:
                 on_strategy_done(baseline)
 
+            earlier = {score.name: score for score in done or [] if not score.is_baseline}
             for index, spec in enumerate(specs, start=1):
                 if self.cancel.is_set():
                     report.cancelled = True
                     break
 
-                self._say(on_progress, f"[{index}/{len(specs)}] {spec.name}")
-                score = self._run_one(spec, chosen, dpi_targets, on_progress)
+                if (score := earlier.get(spec.name)) is not None:
+                    report.resumed += 1
+                else:
+                    self._say(on_progress, f"[{index}/{len(specs)}] {spec.name}")
+                    score = self._run_one(spec, chosen, dpi_targets, on_progress)
                 report.scores.append(score)
                 if on_strategy_done:
                     on_strategy_done(score)
+                if on_checkpoint:
+                    on_checkpoint(report)
                 if stop_when is not None and score.started and stop_when(score):
                     report.stopped_early = index < len(specs)
                     break
+
+            # Перепроверка — только в полном прогоне: с галочкой «до первой рабочей»
+            # человек просил скорость, а не точное место в таблице.
+            if stop_when is None and not (is_dpi or report.cancelled):
+                self._recheck_leaders(report, specs, chosen, dpi_targets, on_progress)
         finally:
             winws.kill_all()
             if is_dpi and original_ipset != "any":
@@ -367,6 +445,28 @@ class AutoPicker:
 
         report.finished_at = datetime.now().isoformat(timespec="seconds")
         return report
+
+    def _recheck_leaders(
+        self,
+        report: Report,
+        specs: list[StrategySpec],
+        chosen: list[Service],
+        dpi_targets: list[DpiTarget],
+        on_progress: OnProgress | None,
+    ) -> None:
+        """Второй замер близких лидеров: место между ними не должно решать везение."""
+        by_name = {spec.name: spec for spec in specs}
+        close = [score for score in leaders(report) if score.name in by_name]
+        for number, first in enumerate(close, start=1):
+            if self.cancel.is_set():
+                return
+            self._say(on_progress, f"Перепроверяю лидеров [{number}/{len(close)}]: {first.name}")
+            second = self._run_one(by_name[first.name], chosen, dpi_targets, on_progress)
+            if not second.started:
+                continue
+            position = report.scores.index(first)
+            report.scores[position] = combine(first, second)
+            report.rechecked.append(first.name)
 
     def _measure(
         self,
@@ -542,3 +642,103 @@ def load_history(limit: int = 20) -> list[dict]:
         except (OSError, json.JSONDecodeError):
             continue
     return entries
+
+
+# --- незаконченный подбор ------------------------------------------------------
+
+
+def progress_file() -> Path:
+    return paths.data_dir() / PROGRESS_NAME
+
+
+def save_progress(report: Report, strategies: list[str]) -> None:
+    """Ход подбора по сервисам: сколько стратегий проверено и с какими итогами.
+
+    Пишется после каждой стратегии. Подбор идёт минутами, и закрытие программы, сон
+    ноутбука или «Остановить» на середине раньше обнуляли всё сделанное.
+    """
+    if report.mode != "services":
+        return
+    payload = {
+        "saved_at": datetime.now().isoformat(timespec="seconds"),
+        "started_at": report.started_at,
+        "checked": report.checked,
+        "strategies": strategies,
+        "scores": [asdict(score) for score in report.strategies],
+    }
+    try:
+        progress_file().parent.mkdir(parents=True, exist_ok=True)
+        progress_file().write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except OSError as error:
+        log.warning("Ход подбора не сохранён: %s", error)
+
+
+def clear_progress() -> None:
+    try:
+        progress_file().unlink(missing_ok=True)
+    except OSError:
+        log.debug("Файл хода подбора занят")
+
+
+@dataclass
+class Unfinished:
+    """Прерванный подбор, который можно продолжить."""
+
+    checked: list[str]
+    strategies: list[str]
+    scores: list[StrategyScore]
+
+    @property
+    def done(self) -> int:
+        return len(self.scores)
+
+    @property
+    def total(self) -> int:
+        return len(self.strategies)
+
+
+def _score_from(data: dict) -> StrategyScore:
+    results = [
+        ServiceResult(
+            service=item["service"],
+            checks=[CheckResult(**check) for check in item.get("checks", [])],
+            measures_bypass=item.get("measures_bypass", True),
+        )
+        for item in data.get("services", [])
+    ]
+    fields = {key: data[key] for key in ("name", "ok", "error", "blocked", "median_ms", "started")
+              if key in data}
+    return StrategyScore(**fields, services=results)
+
+
+def load_progress(strategies: list[str], now: datetime | None = None) -> Unfinished | None:
+    """Прерванный подбор, если его ещё можно продолжить.
+
+    Нельзя, если набор стратегий с тех пор поменялся (обновилось ядро, добавили свою)
+    или прошло больше суток: результаты тогда описывают уже другую картину.
+    """
+    path = progress_file()
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        saved = datetime.fromisoformat(data["saved_at"])
+        unfinished = Unfinished(
+            checked=list(data["checked"]),
+            strategies=list(data["strategies"]),
+            scores=[_score_from(item) for item in data["scores"]],
+        )
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        log.info("Ход подбора не прочитан, начнём заново: %s", error)
+        clear_progress()
+        return None
+
+    age = (now or datetime.now()) - saved
+    if age.total_seconds() > PROGRESS_MAX_AGE_HOURS * 3600 or sorted(
+        unfinished.strategies
+    ) != sorted(strategies):
+        clear_progress()
+        return None
+    if not unfinished.scores or unfinished.done >= unfinished.total:
+        return None
+    return unfinished

@@ -61,10 +61,14 @@ class AutoPickWorker(QThread):
         timeout: int = 6,
         parallel: int = 8,
         stop_when=None,
+        done: list[StrategyScore] | None = None,
+        on_checkpoint=None,
     ):
         super().__init__()
         self._specs = specs
         self._stop_when = stop_when
+        self._done = done or []
+        self._on_checkpoint = on_checkpoint
         self._chosen = chosen or []
         self._dpi_targets = dpi_targets or []
         self._picker = AutoPicker(mode=mode, timeout=timeout, parallel=parallel)
@@ -82,6 +86,8 @@ class AutoPickWorker(QThread):
                 on_progress=self.progress.emit,
                 on_strategy_done=self._emit_score,
                 stop_when=self._stop_when,
+                done=self._done,
+                on_checkpoint=self._on_checkpoint,
             )
             self.done.emit(report)
         except Exception as error:  # noqa: BLE001 — показать причину, а не молча упасть

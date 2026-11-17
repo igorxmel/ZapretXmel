@@ -192,7 +192,9 @@ def probe(target: Target, protocol: str, args: tuple[str, ...], timeout: int = 5
         "-o",
         "NUL",
         "-w",
-        "%{http_code}",
+        # Время — по часам самого curl: без запуска процесса, который при параллельных
+        # пробах занимал больше, чем само соединение.
+        "%{http_code} %{time_total}",
         "-m",
         str(timeout),
         "--connect-timeout",
@@ -221,14 +223,25 @@ def probe(target: Target, protocol: str, args: tuple[str, ...], timeout: int = 5
         returncode, stdout, stderr = 1, "", str(error)
 
     elapsed = (time.monotonic() - started) * 1000
+    code, measured = _parse_write_out(stdout)
     return ProbeResult(
         target=target.name,
         protocol=protocol,
         outcome=_classify(returncode, stderr),
-        http_code=stdout.strip(),
-        elapsed_ms=round(elapsed, 1),
+        http_code=code,
+        elapsed_ms=round(measured if measured is not None else elapsed, 1),
         detail=stderr.strip()[:200],
     )
+
+
+def _parse_write_out(stdout: str) -> tuple[str, float | None]:
+    """«200 0.123456» → код ответа и время в миллисекундах."""
+    parts = stdout.split()
+    code = parts[0] if parts else ""
+    try:
+        return code, float(parts[1]) * 1000 if len(parts) > 1 else None
+    except ValueError:
+        return code, None
 
 
 def check_target(target: Target, timeout: int = 5, ping_timeout_ms: int = 1000) -> TargetResult:

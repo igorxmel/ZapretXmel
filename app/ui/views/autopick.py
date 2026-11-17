@@ -34,7 +34,7 @@ from PyQt6.QtWidgets import (
 from app.core import coverage, merge, repair, strategies
 from app.core.batfile import StrategySpec
 from app.core.diagnostics import vpn
-from app.core.probe import dpi, services
+from app.core.probe import autopick, dpi, services
 from app.core.probe.autopick import DPI_TARGET_LIMIT, Mode, Report, StrategyScore, save_report
 from app.core.probe.http import supported_protocols
 from app.ui import dialogs
@@ -88,6 +88,10 @@ HELP_TEXT = (
     "пройденных проверок — иначе стратегия, которая чинит YouTube и ломает Discord, обошла "
     "бы ту, что чинит оба. Discord проверяется тремя шагами самого клиента: запрос к API, "
     "рукопожатие с гейтвеем и загрузка картинок.\n\n"
+    "При равенстве выше та, что быстрее: «Время» — медиана по прошедшим проверкам. Если "
+    "несколько стратегий идут вровень, в конце они проверяются второй раз, и засчитывается "
+    "только то, что прошло оба раза. Остановленный или оборванный подбор можно продолжить "
+    "в течение суток.\n\n"
     "«Проверка DPI» шлёт на нейтральные хосты запрос с телом и считает, сколько байт "
     "реально прошло: показывает поведение канала, когда по сервисам всё чисто, а ощущение, "
     "что режут, остаётся.\n\n"
@@ -192,6 +196,18 @@ class AutoPickView(QWidget):
         self._start_button.setObjectName("Primary")
         self._start_button.clicked.connect(self._run_clicked)
         row.addWidget(self._start_button)
+
+        # Прерванный подбор продолжается с того места, где его остановили: закрыть
+        # программу или уснуть ноутбуком посреди двадцати стратегий — обычное дело.
+        self._resume_button = QPushButton("")
+        self._resume_button.setToolTip(
+            "Уже проверенные стратегии не гоняются заново, замер без обхода делается свежий. "
+            "Продолжить можно в течение суток, пока набор стратегий не изменился"
+        )
+        self._resume_button.clicked.connect(self._resume)
+        self._resume_button.hide()
+        row.addWidget(self._resume_button)
+        self._unfinished: autopick.Unfinished | None = None
 
         self._apply_button = QPushButton("Применить лучшую")
         self._apply_button.setEnabled(False)
@@ -331,6 +347,7 @@ class AutoPickView(QWidget):
         self._show_coverage()
         self._mode_changed()
         self._warn_if_tunnel()
+        self._show_unfinished()
 
     def _rebuild_chips(self) -> None:
         while self._chips_row.count():
@@ -442,6 +459,39 @@ class AutoPickView(QWidget):
         else:
             self._start()
 
+    def _show_unfinished(self) -> None:
+        """Кнопка «Продолжить», если прошлый подбор оборвался на середине."""
+        if self.controller.picking:
+            return
+        self._unfinished = autopick.load_progress([spec.name for spec in strategies.load_all()])
+        if self._unfinished is None:
+            self._resume_button.hide()
+            return
+        self._resume_button.setText(
+            f"Продолжить подбор · {self._unfinished.done} из {self._unfinished.total}"
+        )
+        self._resume_button.show()
+
+    def _resume(self) -> None:
+        unfinished = self._unfinished
+        if unfinished is None or self.controller.picking:
+            return
+        known = {service.name: service for service in self._services}
+        chosen = [known[name] for name in unfinished.checked if name in known]
+        if not chosen:
+            autopick.clear_progress()
+            self._show_unfinished()
+            self.controller.error.emit("Сервисов из прошлого подбора больше нет, начните заново.")
+            return
+        for chip in self._service_chips:
+            chip.setChecked(chip.value in unfinished.checked)
+        self._dpi_chip.setChecked(False)
+        self._mode_changed()
+        by_name = {spec.name: spec for spec in strategies.load_all()}
+        specs = [by_name[name] for name in unfinished.strategies if name in by_name]
+        self._resume_button.hide()
+        self._launch(specs, "services", chosen, done=unfinished.scores)
+
     def _start(self) -> None:
         """Отклик — сразу, подготовка — следующим кадром.
 
@@ -511,9 +561,19 @@ class AutoPickView(QWidget):
         mode: Mode,
         chosen: list[services.Service],
         stop_early: bool = False,
+        done: list[StrategyScore] | None = None,
     ) -> None:
         self._table.setRowCount(0)
         self._report = None
+        self._resume_button.hide()
+        # Новый подбор начинается с чистого листа: прошлый незаконченный больше не нужен.
+        if not done:
+            autopick.clear_progress()
+        names = [spec.name for spec in specs]
+        # Подбор до первой рабочей короткий, его продолжать незачем.
+        checkpoint = None if stop_early or mode != "services" else (
+            lambda report: autopick.save_progress(report, names)
+        )
 
         what = (
             f"{len(self._dpi_targets[:DPI_TARGET_LIMIT])} хостам"
@@ -525,6 +585,7 @@ class AutoPickView(QWidget):
             f"Проверяю {len(specs)} стратегий по {what}, плюс замер без обхода…"
             + (" Начинаю с тех, что работали раньше, и остановлюсь на первой рабочей."
                if stop_early else "")
+            + (f" {len(done)} уже проверены в прошлый раз." if done else "")
         )
         ignored = coverage.uncovered_target_names()
 
@@ -550,6 +611,8 @@ class AutoPickView(QWidget):
             timeout=self.controller.settings.probe_timeout,
             parallel=self.controller.settings.probe_parallel,
             stop_when=(lambda score: repair.fully_works(score, ignored)) if stop_early else None,
+            done=done,
+            on_checkpoint=checkpoint,
         )
         self._worker.progress.connect(self._status.setText)
         self._worker.strategy_done.connect(self._strategy_done)
@@ -661,6 +724,10 @@ class AutoPickView(QWidget):
 
     def _finish(self, report: Report) -> None:
         self._report = report
+        # Дошёл до конца — продолжать нечего. Остановили — ход сохранён, кнопка появится.
+        if not report.cancelled:
+            autopick.clear_progress()
+        self._show_unfinished()
         built, self._built = self._built, None
         self._set_running(False)
         self._progress.hide()

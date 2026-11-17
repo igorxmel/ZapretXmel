@@ -72,7 +72,9 @@ def test_without_the_tick_every_strategy_is_tried(picker) -> None:
 
     report = picker.run(_specs("a", "b"))
 
-    assert picker.tried == ["a", "b"]
+    # Обе прошли всё — шли вровень, и полный прогон перепроверяет таких лидеров.
+    assert picker.tried[:2] == ["a", "b"]
+    assert report.rechecked == ["a", "b"]
     assert not report.stopped_early
 
 
