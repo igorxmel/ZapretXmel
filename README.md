@@ -257,6 +257,22 @@ Pull request'ы открыты, и мелкие тоже — опечатка в
 по описанию. Про дыру в безопасности — не публично, а по
 [SECURITY.md](SECURITY.md).
 
+> [!TIP]
+>
+> ### Поддержать проект
+>
+> Программа бесплатная и останется такой, поддержка добровольная. Переводите только в
+> указанной сети: перевод в другой сети может пропасть, а отменить его нельзя. Те же
+> адреса — на экране «Поддержка» в программе.
+>
+> <img src="assets/icons/coin-usdt.svg" width="16" align="top"> **USDT · сеть Tron (TRC-20)**<br />
+> `TCzGTzjcLjGa4xckJGktiJBpZ9hoMJ9Q3J`
+>
+> <img src="assets/icons/coin-btc.svg" width="16" align="top"> **BTC · сеть Bitcoin**<br />
+> `bc1q9a3wtdkmkwu93chk6tltzz5h0ysnlhns8p8cds`
+>
+> <img src="assets/icons/coin-sol.svg" width="16" align="top"> **SOL · сеть Solana**<br />
+> `DBoHF7TMggDNHBX7sbYx8qtcvxZ4fRskDSGqoABA3TJK`
 ## <img src="assets/icons/heart.png" width="22" align="top"> Благодарности
 
 - [bol-van/zapret](https://github.com/bol-van/zapret) — ядро

@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -54,3 +55,35 @@ def test_readme_pictures_exist() -> None:
     assert pictures
     for name in pictures:
         assert (ROOT / "media" / name).is_file(), name
+
+def _readme_wallet_block() -> str:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    start = readme.index("### Поддержать проект")
+    end = readme.index("\n## ", start)
+    return readme[start:end]
+
+
+def test_readme_wallets_match_the_program() -> None:
+    """Адреса в README и в программе — один и тот же набор, буква в букву.
+
+    Кошельки в двух местах — решение автора. Опасность в том, что одно место поправят,
+    а другое нет, или подменят адрес только в README: тогда деньги уйдут чужому, и никто
+    не заметит. Поэтому сверяем каждое изменение.
+    """
+    from app.core import donate
+
+    block = _readme_wallet_block()
+    shown = re.findall(r"`([^`]+)`", block)
+
+    assert shown == [wallet.address for wallet in donate.WALLETS]
+    for wallet in donate.WALLETS:
+        assert wallet.network in block, f"{wallet.coin}: в README не названа сеть"
+
+
+def test_readme_coin_icons_exist() -> None:
+    block = _readme_wallet_block()
+    icons = re.findall(r'src="(assets/icons/coin-[a-z]+\.svg)"', block)
+
+    assert icons
+    for icon in icons:
+        assert (ROOT / icon).is_file(), icon
