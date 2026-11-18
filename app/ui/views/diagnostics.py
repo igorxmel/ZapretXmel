@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import QSize, Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QHBoxLayout,
@@ -29,7 +29,7 @@ from app.ui import dialogs
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SEVERITY_COLORS, SPACE
 from app.ui.views.aiwindow import AiWindow
-from app.ui.widgets import Card, Divider, SectionTitle, view_header
+from app.ui.widgets import Card, Divider, SectionTitle, icon_pixmap, view_header
 from app.ui.workers import Task
 
 SEVERITY_MARKS: dict[Severity, str] = {
@@ -394,6 +394,9 @@ class DiagnosticsView(QWidget):
             self._passed_toggle.setObjectName("PassedToggle")
             self._passed_toggle.setCheckable(True)
             self._passed_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+            # Значок, а не только цвет: зелёный текст сам по себе не читается как «всё хорошо».
+            self._passed_toggle.setIcon(icon_pixmap("check-circle", COLORS["success"], 18))
+            self._passed_toggle.setIconSize(QSize(18, 18))
             box = QWidget()
             column = QVBoxLayout(box)
             column.setContentsMargins(0, 0, 0, 0)
@@ -406,7 +409,7 @@ class DiagnosticsView(QWidget):
             def toggle(opened: bool) -> None:
                 box.setVisible(opened)
                 self._passed_toggle.setText(
-                    f"{'▾' if opened else '▸'}  Всё в порядке · {len(passed)}"
+                    f"Всё в порядке · {len(passed)}  {'▾' if opened else '▸'}"
                 )
 
             self._passed_toggle.toggled.connect(toggle)

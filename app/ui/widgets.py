@@ -744,6 +744,21 @@ def badge(text: str, color: str) -> QLabel:
 
 
 
+def icon_pixmap(name: str, colour: str, size: int) -> QIcon:
+    """Значок из assets/icons нужного цвета — для кнопок и строк списков."""
+    from app.ui.frameless import svg_renderer
+
+    ratio = 2
+    pixmap = QPixmap(size * ratio, size * ratio)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    svg_renderer(name, colour).render(painter, QRectF(0, 0, size * ratio, size * ratio))
+    painter.end()
+    pixmap.setDevicePixelRatio(ratio)
+    return QIcon(pixmap)
+
+
 class ShineProgressBar(QProgressBar):
     """Полоса прогресса с бегущим бликом — как принято у загрузок.
 
