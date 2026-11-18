@@ -91,3 +91,32 @@ def test_export_writes_what_is_in_the_editor(view, tmp_path, monkeypatch) -> Non
     view._export_file()
 
     assert target.read_text(encoding="utf-8") == "b.example\na.example\n"
+
+
+def test_tags_show_each_entry_and_hide_the_placeholder(view) -> None:
+    """Заглушку подставляет программа, человеку она ни к чему — выглядела как чужая запись."""
+    from app.ui.views.lists import TagChip
+
+    lists.write(view._current, ["a.example", "b.example"])
+    view.reload()
+
+    chips = view._tags_box.findChildren(TagChip)
+    assert len(chips) == 2
+    assert lists.PLACEHOLDER_DOMAIN not in view._editor.toPlainText()
+
+    lists.write(view._current, [])
+    view.reload()
+    assert view._editor_entries() == []
+
+
+def test_cross_removes_only_from_the_editor(view) -> None:
+    from PyQt6.QtWidgets import QToolButton
+
+    from app.ui.views.lists import TagChip
+
+    lists.write(view._current, ["a.example", "b.example"])
+    view.reload()
+    view._tags_box.findChildren(TagChip)[0].findChild(QToolButton).click()
+
+    assert view._editor_entries() == ["b.example"]
+    assert lists.read(view._current).entries == ["a.example", "b.example"]

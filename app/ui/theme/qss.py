@@ -563,6 +563,39 @@ def build_stylesheet() -> str:
     }}
     QPushButton#PassedToggle:hover {{ color: {c["text"]}; }}
 
+    /* --- списки --- */
+
+    QPushButton#ListButton {{
+        background: {c["surface"]};
+        border: 1px solid {c["border"]};
+        border-radius: {r["lg"]}px;
+        text-align: left;
+        padding: 0px;
+    }}
+    QPushButton#ListButton:hover {{ background: {c["surface_hover"]}; }}
+    QPushButton#ListButton:checked {{
+        background: {c["elevated"]};
+        border: 1px solid {c["border_strong"]};
+    }}
+    QLabel#ListButtonTitle, QLabel#ListTitle {{ font-weight: 600; background: transparent; }}
+    QLabel#ListTitle {{ font-size: {FONT_SIZE["subtitle"]}px; }}
+    QLabel#CountBadge {{
+        background: {c["surface_hover"]};
+        border: 1px solid {c["border"]};
+        border-radius: {r["sm"]}px;
+        padding: 0px {s["sm"]}px;
+        color: {c["text_dim"]};
+        font-size: {FONT_SIZE["caption"]}px;
+    }}
+    QToolButton#TagClose {{
+        background: transparent;
+        border: none;
+        color: {c["text_dim"]};
+        padding: 0px 3px;
+        font-size: {FONT_SIZE["body"]}px;
+    }}
+    QToolButton#TagClose:hover {{ color: {c["danger"]}; }}
+
     /* --- стратегии --- */
 
     QListWidget#StrategyList {{ font-family: {FONTS["ui"]}; font-size: {FONT_SIZE["body"]}px; }}
