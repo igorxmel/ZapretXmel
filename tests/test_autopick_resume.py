@@ -155,3 +155,26 @@ def test_resume_skips_what_was_already_checked(monkeypatch: pytest.MonkeyPatch) 
     assert [s.name for s in report.strategies] == ["a", "b", "c"]
     assert saved == [1, 2, 3], "ход сохраняется после каждой стратегии"
     assert report.best is not None and report.best.name == "c"
+
+
+def test_best_result_gets_its_own_banner() -> None:
+    """Итог — плашкой со счётом и кнопкой «Применить», а не только строкой таблицы."""
+    from PyQt6.QtWidgets import QApplication
+
+    from app.core.config import Settings
+    from app.ui.controller import Controller
+    from app.ui.views.autopick import AutoPickView
+
+    app = QApplication.instance() or QApplication([])  # noqa: F841 — без ссылки Qt падает
+    view = AutoPickView(Controller(Settings()))
+    report = autopick.Report("services", "", "", ["s0", "s1"])
+    report.baseline = _score(autopick.BASELINE_NAME, (False, 0.0), (False, 0.0))
+    report.baseline.is_baseline = True
+    report.scores = [report.baseline, _score("winner", (True, 90.0), (True, 110.0))]
+
+    view._show_best(report)
+
+    assert not view._banner.isHidden()
+    assert view._best_score.text() == "2/2"
+    assert "winner" in view._best_name.text() and "100 мс" in view._best_name.text()
+    assert view._apply_button.parent() is view._banner

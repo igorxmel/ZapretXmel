@@ -209,10 +209,11 @@ class AutoPickView(QWidget):
         row.addWidget(self._resume_button)
         self._unfinished: autopick.Unfinished | None = None
 
+        # «Применить лучшую» живёт в баннере результата: рядом с тем, что применяется.
         self._apply_button = QPushButton("Применить лучшую")
+        self._apply_button.setObjectName("Primary")
         self._apply_button.setEnabled(False)
         self._apply_button.clicked.connect(self._apply_best)
-        row.addWidget(self._apply_button)
 
         self._merge_button = QPushButton("Собрать из лучших частей")
         self._merge_button.setToolTip(
@@ -317,6 +318,8 @@ class AutoPickView(QWidget):
         self._verdict.setWordWrap(True)
         body.addWidget(self._verdict)
 
+        body.addWidget(self._build_best_banner())
+
         self._table = QTableWidget(0, len(COLUMNS))
         self._table.setHorizontalHeaderLabels(COLUMNS)
         for column in range(len(COLUMNS)):
@@ -336,6 +339,61 @@ class AutoPickView(QWidget):
         body.addWidget(self._table, 1)
 
         return card
+
+    def _build_best_banner(self) -> QFrame:
+        """Итог подбора отдельной плашкой: счёт, имя стратегии и кнопка «Применить».
+
+        Лучшая стратегия раньше была только подсвеченной строкой таблицы, а кнопка
+        применить её стояла наверху, далеко от неё. Идея — от одного из пользователей.
+        """
+        self._banner = QFrame()
+        self._banner.setObjectName("BestBanner")
+        row = QHBoxLayout(self._banner)
+        row.setContentsMargins(SPACE["lg"], SPACE["md"], SPACE["md"], SPACE["md"])
+        row.setSpacing(SPACE["lg"])
+
+        self._best_score = QLabel("")
+        self._best_score.setObjectName("BestScore")
+        row.addWidget(self._best_score)
+
+        words = QVBoxLayout()
+        words.setSpacing(0)
+        caption = QLabel("Лучший результат")
+        caption.setObjectName("Muted")
+        words.addWidget(caption)
+        self._best_name = QLabel("")
+        self._best_name.setObjectName("BestName")
+        self._best_name.setWordWrap(True)
+        words.addWidget(self._best_name)
+        row.addLayout(words, 1)
+
+        row.addWidget(self._apply_button, 0, Qt.AlignmentFlag.AlignVCenter)
+        self._banner.hide()
+        return self._banner
+
+    def _show_best(self, report: Report) -> None:
+        best = report.best
+        if best is None:
+            self._banner.hide()
+            return
+        total = best.ok + best.error
+        self._best_score.setText(f"{best.ok}/{total}" if total else str(best.ok))
+        judged = best.judged_services
+        if judged:
+            detail = f"{len(best.working_services)} из {len(judged)} сервисов"
+        else:
+            detail = best.summary
+        if best.median_ms:
+            detail += f" · {best.median_ms:.0f} мс"
+        self._best_name.setText(f"{best.name} · {detail}")
+        tone = "warn" if best.broken_services else "ok"
+        self._banner.setProperty("tone", tone)
+        self._banner.style().unpolish(self._banner)
+        self._banner.style().polish(self._banner)
+        self._best_score.setStyleSheet(
+            f"color: {COLORS['warning'] if tone == 'warn' else COLORS['success']};"
+        )
+        self._banner.show()
 
     # --- выбор того, что проверять ---------------------------------------
 
@@ -566,6 +624,7 @@ class AutoPickView(QWidget):
         self._table.setRowCount(0)
         self._report = None
         self._resume_button.hide()
+        self._banner.hide()
         # Новый подбор начинается с чистого листа: прошлый незаконченный больше не нужен.
         if not done:
             autopick.clear_progress()
@@ -739,6 +798,7 @@ class AutoPickView(QWidget):
         suffix = " Прогон прерван." if report.cancelled else ""
         self._verdict.setText(report.verdict + suffix)
         self._apply_button.setEnabled(best is not None)
+        self._show_best(report)
 
         # Жёлтым помечается и отсутствие победителя, и победитель с
         # недочинёнными сервисами: и то, и другое требует внимания.

@@ -552,6 +552,21 @@ def build_stylesheet() -> str:
     /* Прозу моноширинным шрифтом читать тяжело. */
     QTextBrowser#HelpText {{ font-family: {FONTS["ui"]}; }}
 
+    /* --- итог подбора --- */
+
+    QFrame#BestBanner {{
+        background: {c["surface_hover"]};
+        border: 1px solid {c["success"]};
+        border-radius: {r["lg"]}px;
+    }}
+    QFrame#BestBanner[tone="warn"] {{ border-color: {c["warning"]}; }}
+    QLabel#BestScore {{
+        font-family: {FONTS["mono"]};
+        font-size: {FONT_SIZE["display"]}px;
+        font-weight: 700;
+    }}
+    QLabel#BestName {{ font-size: {FONT_SIZE["subtitle"]}px; font-weight: 600; }}
+
     /* --- справка --- */
 
     QLabel#HelpStepTitle {{ font-weight: 600; color: {c["text"]}; }}
