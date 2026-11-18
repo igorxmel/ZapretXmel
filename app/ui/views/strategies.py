@@ -34,15 +34,12 @@ from app.ui.strategy_parts import (
     NAME_ROLE,
     PERCENT_ROLE,
     STATE_ROLE,
-    FlowLayout,
     SectionRow,
     StrategyDelegate,
-    Tile,
-    pill,
     rate_colour,
 )
 from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, view_header
+from app.ui.widgets import Card, KeyValueRow, view_header
 from app.ui.workers import Task
 
 log = logging.getLogger(__name__)
@@ -175,43 +172,39 @@ class StrategiesView(QWidget):
         self._name.setObjectName("ViewTitle")
         body.addWidget(self._name)
 
-        self._launch = QLabel("")
-        self._launch.setWordWrap(True)
-        self._launch.setToolTip(
+        # Сводка строками «подпись — значение». Плитки с крупными цифрами пробовали в
+        # 0.5.0: «05–08» без подписи рядом не читалось, а цвет спорил с секциями ниже.
+        self._row_launch = KeyValueRow("Запуск")
+        self._row_launch.setToolTip(
             "winws проверяет стратегию, не перехватывая трафик: разбирает аргументы и сразу"
             " выходит. Не запускается — значит, ни подбор, ни ручное включение с ней не"
-            " заработают. Причина — словами самого winws."
+            " заработают. Справа — причина словами самого winws."
         )
-        self._launch.hide()
-        body.addWidget(self._launch)
-
-        # Сводка плитками вместо пяти строк «подпись — значение».
-        tiles = QHBoxLayout()
-        tiles.setSpacing(SPACE["sm"])
-        self._tile_stability = Tile("пока не проверялась")
-        self._tile_stability.setToolTip(
+        self._row_launch.hide()
+        self._row_stability = KeyValueRow("Стабильность")
+        self._row_stability.setToolTip(
             "Проверки сторожа за последние две недели, пока эта стратегия работала. Одиночный"
             " сбой не считается, если следующая проверка прошла. Если файл стратегии изменился,"
             " счёт начинается заново. Хранится только на этом компьютере."
         )
-        self._tile_sections = Tile("секций")
-        self._tile_hours = Tile("часы, когда чаще сбоит")
-        self._tile_hours.setToolTip(
-            "Когда сбои собираются в одни и те же часы, дело обычно в провайдере: многие строже"
-            " вечером. Стратегия при этом может быть лучшей из доступных."
-        )
-        for tile in (self._tile_stability, self._tile_sections, self._tile_hours):
-            tiles.addWidget(tile, 1)
-        body.addLayout(tiles)
-
-        services_box = QWidget()
-        services_box.setObjectName("Flow")
-        services_box.setToolTip(
+        self._row_services = KeyValueRow("По сервисам")
+        self._row_services.setToolTip(
             "Как часто каждый сервис работал с этой стратегией за последние две недели. Помогает"
             " понять, что именно у неё отваливается."
         )
-        self._services_flow = FlowLayout(services_box)
-        body.addWidget(services_box)
+        self._row_hours = KeyValueRow("Сбои")
+        self._row_hours.setToolTip(
+            "Когда сбои собираются в одни и те же часы, дело обычно в провайдере: многие строже"
+            " вечером. Стратегия при этом может быть лучшей из доступных."
+        )
+        self._row_sections = KeyValueRow("Секций обхода")
+        rows = (
+            self._row_launch, self._row_stability, self._row_services, self._row_hours,
+            self._row_sections,
+        )
+        for row in rows:
+            body.addWidget(row)
+        KeyValueRow.line_up(*rows)
 
         # Отметки «98%» в списке. Считаются при перечитывании, а не на каждом опросе состояния:
         # опрос идёт раз в несколько секунд и читал бы журнал по кругу.
@@ -318,45 +311,42 @@ class StrategiesView(QWidget):
         spec = self._specs[row]
         self._name.setText(spec.name)
         reason = self._broken.get(spec.name, "")
-        self._launch.setVisible(bool(reason))
+        self._row_launch.setVisible(bool(reason))
         if reason:
-            self._launch.setText(f"Не запускается: {reason}")
-            self._launch.setStyleSheet(f"color: {COLORS['danger']};")
+            self._row_launch.set_value(f"не запускается — {reason}")
+            self._row_launch.set_value_color(COLORS["danger"])
 
         mark = self._marks.get(spec.name, "")
         described = stability.describe(spec.name)
         if mark:
-            percent = int(mark.rstrip("%"))
-            self._tile_stability.show_value(
-                mark, described.removeprefix("прошла "), rate_colour(percent)
+            colour = rate_colour(int(mark.rstrip("%")))
+            self._row_stability.set_value(
+                f'<span style="color:{colour}; font-weight:600">{mark}</span>'
+                f"&nbsp;&nbsp;{described.removeprefix('прошла ')}"
             )
         else:
-            self._tile_stability.show_value("—", described)
-        self._tile_sections.show_value(
-            str(len(spec.sections)), f"секций · {len(spec.argv)} аргументов winws"
-        )
-        hours = stability.failure_window(spec.name)
-        self._tile_hours.setVisible(hours is not None)
-        if hours is not None:
-            self._tile_hours.show_value(f"{hours[0]:02d}–{hours[1]:02d}", colour=COLORS["warning"])
+            self._row_stability.set_value(described)
 
-        self._fill_services(spec.name)
+        rates = stability.service_rates(spec.name)
+        self._row_services.set_value(
+            "&nbsp;&nbsp;·&nbsp;&nbsp;".join(
+                f'{service} <span style="color:{rate_colour(percent)}; font-weight:600">'
+                f"{percent}%</span>"
+                for service, percent in rates
+            )
+            if rates else "пока мало проверок"
+        )
+        hours = stability.describe_hours(spec.name)
+        self._row_hours.set_value(hours)
+        self._row_hours.setVisible(bool(hours))
+        self._row_sections.set_value(
+            f"{len(spec.sections)}&nbsp;&nbsp;"
+            f'<span style="color:{COLORS["text_muted"]}">'
+            f"аргументов winws: {len(spec.argv)}</span>"
+        )
+
         self._sync_favorite_button()
         self._fill_sections(spec.sections)
-
-    def _fill_services(self, name: str) -> None:
-        while self._services_flow.count():
-            item = self._services_flow.takeAt(0)
-            if item is not None and item.widget() is not None:
-                item.widget().deleteLater()
-        rates = stability.service_rates(name)
-        if not rates:
-            hint = QLabel("По сервисам пока мало проверок")
-            hint.setObjectName("Muted")
-            self._services_flow.addWidget(hint)
-            return
-        for service, percent in rates:
-            self._services_flow.addWidget(pill(f"{service}  {percent}%", rate_colour(percent)))
 
     def _fill_sections(self, sections: list) -> None:
         layout = self._sections_layout

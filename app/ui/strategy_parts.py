@@ -1,12 +1,14 @@
-"""Детали экрана стратегий: строки списка, плитки сводки и разбор секций.
+"""Детали экрана стратегий: строки списка и разбор секций.
 
 Экран был стеной моноширинного текста: двадцать два почти одинаковых имени и сырые строки
 аргументов. Здесь цвет несёт смысл, а не украшает: процент стабильности — зелёный, жёлтый
-или красный, TCP и UDP различаются с одного взгляда, способы обхода и списки — таблетками.
+или красный, TCP и UDP различаются с одного взгляда. Остальное — обычным текстом: когда
+цветной была каждая таблетка, секция читалась радугой и смысл цвета терялся.
 """
 
 from __future__ import annotations
 
+import html
 import re
 
 from PyQt6.QtCore import QModelIndex, QPoint, QRect, QRectF, QSize, Qt
@@ -21,13 +23,12 @@ from PyQt6.QtWidgets import (
     QStyle,
     QStyledItemDelegate,
     QStyleOptionViewItem,
-    QVBoxLayout,
     QWidget,
     QWidgetItem,
 )
 
 from app.core.batfile import Section
-from app.ui.theme.tokens import BRAND, COLORS, FONT_SIZE, RADIUS, SPACE, is_light
+from app.ui.theme.tokens import BRAND, COLORS, RADIUS, SPACE
 
 NAME_ROLE = Qt.ItemDataRole.UserRole
 PERCENT_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -63,9 +64,11 @@ def tinted(colour: str, alpha: int) -> str:
 
 
 class StrategyDelegate(QStyledItemDelegate):
-    """Строка списка: общее «general» приглушено, отличие — ярко, справа процент.
+    """Строка списка: общее «general» приглушено, отличие — ярко, за ним процент.
 
     Двадцать две строки «general (ALTn)» читались как одна: глазу не за что зацепиться.
+    Процент стоит сразу за именем, а не у правого края: в широком окне между ними
+    оставалось полэкрана, и было не понять, к какой строке он относится.
     """
 
     HEIGHT = 34
@@ -115,9 +118,12 @@ class StrategyDelegate(QStyledItemDelegate):
                              Qt.AlignmentFlag.AlignVCenter, star)
             x += QFontMetrics(font).horizontalAdvance(star) + SPACE["xs"]
 
-        # Справа — сначала отметки, чтобы имя знало, сколько места осталось.
-        right = rect.right() - SPACE["sm"]
-        right = self._paint_marks(painter, index, font, right, rect)
+        # Сначала меряем отметку: имени достаётся то, что останется рядом с ней.
+        small = QFont(font)
+        small.setPointSizeF(max(7.0, font.pointSizeF() - 1))
+        mark = self._mark(index, QFontMetrics(small))
+        limit = rect.right() - SPACE["sm"]
+        room = limit - x - (mark[1] + SPACE["sm"] if mark else 0)
 
         base, tail = split_name(name)
         metrics = QFontMetrics(font)
@@ -125,42 +131,50 @@ class StrategyDelegate(QStyledItemDelegate):
             painter.setFont(font)
             painter.setPen(QColor(COLORS["text_muted"]))
             text = base + " "
-            painter.drawText(QRectF(x, rect.top(), right - x, rect.height()),
+            painter.drawText(QRectF(x, rect.top(), max(0.0, room), rect.height()),
                              Qt.AlignmentFlag.AlignVCenter, text)
-            x += metrics.horizontalAdvance(text)
+            advance = metrics.horizontalAdvance(text)
+            x += advance
+            room -= advance
         strong = QFont(font)
         strong.setWeight(QFont.Weight.DemiBold)
         painter.setFont(strong)
         broken = bool(index.data(BROKEN_ROLE))
         painter.setPen(QColor(COLORS["danger"] if broken else COLORS["text"]))
-        shown = QFontMetrics(strong).elidedText(tail, Qt.TextElideMode.ElideRight, int(right - x))
-        painter.drawText(QRectF(x, rect.top(), right - x, rect.height()),
+        strong_metrics = QFontMetrics(strong)
+        shown = strong_metrics.elidedText(tail, Qt.TextElideMode.ElideRight, int(max(0, room)))
+        painter.drawText(QRectF(x, rect.top(), max(0.0, room), rect.height()),
                          Qt.AlignmentFlag.AlignVCenter, shown)
+        x += strong_metrics.horizontalAdvance(shown)
+
+        if mark:
+            painter.setFont(small)
+            self._paint_mark(painter, mark, x + SPACE["sm"], rect)
         painter.restore()
 
     @staticmethod
-    def _paint_marks(painter, index, font, right: float, rect: QRectF) -> float:
-        small = QFont(font)
-        small.setPointSizeF(max(7.0, font.pointSizeF() - 1))
-        metrics = QFontMetrics(small)
-        painter.setFont(small)
-
+    def _mark(index, metrics: QFontMetrics) -> tuple[str, float, str, bool] | None:
+        """Текст отметки, её ширина, цвет и таблетка ли это."""
         if index.data(BROKEN_ROLE):
             text = "не запускается"
-            width = metrics.horizontalAdvance(text)
-            painter.setPen(QColor(COLORS["danger"]))
-            painter.drawText(QRectF(right - width, rect.top(), width, rect.height()),
-                             Qt.AlignmentFlag.AlignVCenter, text)
-            return right - width - SPACE["md"]
-
+            return text, metrics.horizontalAdvance(text), COLORS["danger"], False
         percent = index.data(PERCENT_ROLE)
         if percent is None:
-            return right
+            return None
         text = f"{percent}%"
         width = metrics.horizontalAdvance(text) + SPACE["md"]
-        height = metrics.height() + 4
-        pill = QRectF(right - width, rect.center().y() - height / 2, width, height)
-        colour = rate_colour(int(percent))
+        return text, width, rate_colour(int(percent)), True
+
+    @staticmethod
+    def _paint_mark(painter, mark, left: float, rect: QRectF) -> None:
+        text, width, colour, boxed = mark
+        if not boxed:
+            painter.setPen(QColor(colour))
+            painter.drawText(QRectF(left, rect.top(), width, rect.height()),
+                             Qt.AlignmentFlag.AlignVCenter, text)
+            return
+        height = painter.fontMetrics().height() + 4
+        pill = QRectF(left, rect.center().y() - height / 2, width, height)
         path = QPainterPath()
         path.addRoundedRect(pill, height / 2, height / 2)
         fill = QColor(colour)
@@ -168,7 +182,6 @@ class StrategyDelegate(QStyledItemDelegate):
         painter.fillPath(path, fill)
         painter.setPen(QColor(colour))
         painter.drawText(pill, Qt.AlignmentFlag.AlignCenter, text)
-        return pill.left() - SPACE["md"]
 
 
 # --- раскладка «в поток» ---------------------------------------------------------
@@ -239,80 +252,57 @@ class FlowLayout(QLayout):
         return y + line - rect.y()
 
 
-def pill(text: str, colour: str, *, mono: bool = False, strong: bool = False) -> QLabel:
-    """Таблетка с текстом цвета `colour` на его же полупрозрачном фоне."""
-    label = QLabel(text)
-    family = "font-family: 'Cascadia Mono', Consolas, monospace;" if mono else ""
-    weight = "font-weight: 600;" if strong else ""
-    label.setStyleSheet(
-        f"color: {colour}; background: {tinted(colour, 34)};"
-        f"border-radius: {RADIUS['sm']}px; padding: 1px {SPACE['sm']}px;"
-        f"font-size: {FONT_SIZE['caption']}px; {family} {weight}"
-    )
-    label.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
-    return label
-
-
-# --- сводка ----------------------------------------------------------------------
-
-
-class Tile(QFrame):
-    """Плитка сводки: крупное значение и подпись под ним."""
-
-    def __init__(self, caption: str, parent: QWidget | None = None):
-        super().__init__(parent)
-        self.setObjectName("StatTile")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(SPACE["md"], SPACE["sm"], SPACE["md"], SPACE["sm"])
-        layout.setSpacing(0)
-        self.value = QLabel("—")
-        self.value.setObjectName("StatValue")
-        layout.addWidget(self.value)
-        self.caption = QLabel(caption)
-        self.caption.setObjectName("Muted")
-        self.caption.setWordWrap(True)
-        layout.addWidget(self.caption)
-
-    def show_value(self, value: str, caption: str = "", colour: str = "") -> None:
-        self.value.setText(value)
-        self.value.setStyleSheet(f"color: {colour};" if colour else "")
-        if caption:
-            self.caption.setText(caption)
-
-
 # --- секции ----------------------------------------------------------------------
 
 
+def section_html(section: Section) -> str:
+    """«TCP 80,443 · обход fake, multisplit · списки list-general».
+
+    Цвет — только у протокола: его и ищут глазами. Подписи «обход» и «списки»
+    приглушены, чтобы значения читались первыми.
+    """
+    muted = COLORS["text_muted"]
+    dim = COLORS["text_dim"]
+
+    def label(text: str) -> str:
+        return f'<span style="color:{muted}">{text}</span> '
+
+    protocols = []
+    for protocol, ports in section.protocols:
+        colour = COLORS["tcp"] if protocol == "TCP" else COLORS["udp"]
+        head = f'<span style="color:{colour}; font-weight:600">{protocol}</span>'
+        protocols.append(f"{head} {html.escape(ports)}" if ports else head)
+    parts = [", ".join(protocols) or label("весь трафик").strip()]
+    if section.methods:
+        parts.append(label("обход") + html.escape(", ".join(section.methods)))
+    if section.list_names:
+        # Неразрывный дефис: перенос резал «list-general-user» на две строки.
+        names = html.escape(", ".join(section.list_names)).replace("-", "\u2011")
+        parts.append(label("списки") + f'<span style="color:{dim}">{names}</span>')
+    gap = f'<span style="color:{muted}">&nbsp;&nbsp;·&nbsp;&nbsp;</span>'
+    return gap.join(parts)
+
+
 class SectionRow(QFrame):
-    """Одна секция: номер, протоколы с портами, способы обхода, списки."""
+    """Одна секция строкой: номер и разбор, оба по центру строки."""
 
     def __init__(self, number: int, section: Section, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("SectionRow")
         row = QHBoxLayout(self)
-        row.setContentsMargins(SPACE["sm"], SPACE["sm"], SPACE["sm"], SPACE["sm"])
+        row.setContentsMargins(SPACE["sm"], SPACE["xs"] + 2, SPACE["md"], SPACE["xs"] + 2)
         row.setSpacing(SPACE["md"])
 
         badge = QLabel(str(number))
         badge.setObjectName("SectionNumber")
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         badge.setFixedSize(22, 22)
-        row.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
+        row.addWidget(badge, 0, Qt.AlignmentFlag.AlignVCenter)
 
-        flow_box = QWidget()
-        flow_box.setObjectName("Flow")
-        flow = FlowLayout(flow_box)
-        for protocol, ports in section.protocols or [("ВСЁ", "")]:
-            colour = COLORS["tcp"] if protocol == "TCP" else COLORS["udp"]
-            flow.addWidget(pill(protocol, colour, strong=True))
-            if ports:
-                flow.addWidget(pill(ports, COLORS["text_dim"]))
-        # Фирменный оранжевый на светлом фоне не читается — там он темнее.
-        method_colour = "#a35400" if is_light() else BRAND["orange"]
-        for method in section.methods:
-            flow.addWidget(pill(method, method_colour))
-        for name in section.list_names:
-            flow.addWidget(pill(f"▤ {name}", COLORS["success"]))
-        flow_box.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        row.addWidget(flow_box, 1)
+        self.text = QLabel(section_html(section))
+        self.text.setObjectName("SectionText")
+        self.text.setTextFormat(Qt.TextFormat.RichText)
+        self.text.setWordWrap(True)
+        self.text.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        row.addWidget(self.text, 1, Qt.AlignmentFlag.AlignVCenter)
         self.setToolTip(section.describe())
