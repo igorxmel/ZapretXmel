@@ -395,8 +395,9 @@ class DiagnosticsView(QWidget):
             self._passed_toggle.setCheckable(True)
             self._passed_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
             # Значок, а не только цвет: зелёный текст сам по себе не читается как «всё хорошо».
-            self._passed_toggle.setIcon(icon_pixmap("check-circle", COLORS["success"], 18))
-            self._passed_toggle.setIconSize(QSize(18, 18))
+            # Простая галочка без обводки — как «!» и «i» у остальных групп.
+            self._passed_toggle.setIcon(icon_pixmap("check", COLORS["success"], 16))
+            self._passed_toggle.setIconSize(QSize(16, 16))
             box = QWidget()
             column = QVBoxLayout(box)
             column.setContentsMargins(0, 0, 0, 0)
