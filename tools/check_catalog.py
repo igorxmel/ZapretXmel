@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import re
 import sys
@@ -15,18 +14,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DOMAIN = re.compile(r"^(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$")
 ID = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+# domain — сайты для обхода, exclude — сайты, которые обход трогать не должен.
+KINDS = ("domain", "exclude")
 FIELDS = ("id", "title", "description", "author", "kind", "file")
 MAX_ENTRIES = 5000
 
 
-def valid(value: str, kind: str) -> bool:
-    if kind == "domain":
-        return len(value) <= 253 and bool(DOMAIN.match(value))
-    try:
-        ipaddress.ip_network(value, strict=False)
-    except ValueError:
-        return False
-    return True
+def valid(value: str) -> bool:
+    return len(value) <= 253 and bool(DOMAIN.match(value))
 
 
 def check() -> list[str]:
@@ -44,8 +39,8 @@ def check() -> list[str]:
         if item["id"] in seen:
             errors.append(f"{where}: id {item['id']} уже есть")
         seen.add(item["id"])
-        if item["kind"] not in ("domain", "ip"):
-            errors.append(f"{where}: kind — domain или ip")
+        if item["kind"] not in KINDS:
+            errors.append(f"{where}: kind — domain или exclude")
             continue
         if item["file"] != f"lists/{item['id']}.txt":
             errors.append(f"{where}: файл должен называться lists/{item['id']}.txt")
@@ -59,7 +54,7 @@ def check() -> list[str]:
             for line in path.read_text(encoding="utf-8").splitlines()
         ]
         entries = [line for line in entries if line]
-        bad = [line for line in entries if not valid(line, item["kind"])]
+        bad = [line for line in entries if not valid(line)]
         if bad:
             errors.append(f"{item['file']}: не подходит: {', '.join(bad[:5])}")
         if not entries:
