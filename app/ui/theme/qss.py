@@ -393,6 +393,9 @@ def build_stylesheet() -> str:
     }}
 
     QListWidget {{ font-family: {FONTS["mono"]}; font-size: {FONT_SIZE["caption"]}px; }}
+    /* Каталог — названия для людей, а не строки файла: обычный шрифт и воздух. */
+    QListWidget#CatalogList {{ font-family: {FONTS["ui"]}; font-size: {FONT_SIZE["body"]}px; }}
+    QListWidget#CatalogList::item {{ padding: {s["sm"]}px {s["md"]}px; }}
 
     QListWidget::item, QTreeWidget::item {{
         padding: {s["xs"]}px {s["sm"]}px;
