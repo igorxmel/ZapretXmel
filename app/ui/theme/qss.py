@@ -573,12 +573,68 @@ def build_stylesheet() -> str:
         padding: 0px;
     }}
     QPushButton#ListButton:hover {{ background: {c["surface_hover"]}; }}
-    QPushButton#ListButton:checked {{
+    QLabel#ListButtonTitle, QLabel#ListTitle {{ font-weight: 600; background: transparent; }}
+    QLabel#ListButtonTitle {{ font-size: {FONT_SIZE["subtitle"]}px; }}
+    QLabel#ListTitle {{ font-size: {FONT_SIZE["subtitle"] + 1}px; }}
+    QLabel#ListHint {{
+        background: transparent;
+        color: {c["text_dim"]};
+        font-size: {FONT_SIZE["caption"] + 1}px;
+    }}
+    QLabel#ListCount {{
+        border-radius: {r["sm"]}px;
+        padding: 1px {s["sm"]}px;
+        font-family: {FONTS["mono"]};
+        font-size: {FONT_SIZE["caption"]}px;
+        font-weight: 600;
+        min-width: 14px;
+    }}
+    QLabel#ListTotal {{
+        color: {c["text_muted"]};
+        font-family: {FONTS["mono"]};
+        font-size: {FONT_SIZE["caption"]}px;
+    }}
+    QFrame#Segmented {{
+        background: {c["bg"]};
+        border: 1px solid {c["border"]};
+        border-radius: {r["md"]}px;
+    }}
+    QPushButton#Segment {{
+        background: transparent;
+        border: none;
+        border-radius: {r["sm"]}px;
+        color: {c["text_dim"]};
+        padding: 4px 14px;
+        min-height: 0px;
+        font-weight: 600;
+    }}
+    QPushButton#Segment:hover {{ color: {c["text"]}; }}
+    QPushButton#Segment:checked {{
+        background: {c["surface"] if is_light() else c["border_strong"]};
+        color: {c["text"]};
+    }}
+    QFrame#TagsWell {{
+        background: {c["bg"]};
+        border: 1px solid {c["border"]};
+        border-radius: {r["lg"]}px;
+    }}
+    QPlainTextEdit#ListEditor {{
+        background: {c["bg"]};
+        border-radius: {r["lg"]}px;
+        padding: {s["sm"]}px;
+    }}
+    QLineEdit#ListEntry {{ min-height: 30px; padding: 4px {s["md"]}px; }}
+    QFrame#TagChip {{
         background: {c["elevated"]};
         border: 1px solid {c["border_strong"]};
+        border-radius: 13px;
     }}
-    QLabel#ListButtonTitle, QLabel#ListTitle {{ font-weight: 600; background: transparent; }}
-    QLabel#ListTitle {{ font-size: {FONT_SIZE["subtitle"]}px; }}
+    QFrame#TagChip[invalid="true"] {{ border-color: {c["danger"]}; }}
+    QLabel#TagText {{
+        background: transparent;
+        font-family: {FONTS["mono"]};
+        font-size: {FONT_SIZE["caption"] + 1}px;
+    }}
     QLabel#CountBadge {{
         background: {c["surface_hover"]};
         border: 1px solid {c["border"]};
@@ -600,17 +656,12 @@ def build_stylesheet() -> str:
 
     QListWidget#StrategyList {{ font-family: {FONTS["ui"]}; font-size: {FONT_SIZE["body"]}px; }}
     QListWidget#StrategyList::item {{ background: transparent; border: none; }}
-    QFrame#StatTile {{
-        background: {c["surface_hover"]};
-        border: 1px solid {c["border"]};
-        border-radius: {r["md"]}px;
-    }}
-    QLabel#StatValue {{ font-size: {FONT_SIZE["display"] - 4}px; font-weight: 700; }}
     QFrame#SectionRow {{
         background: {c["surface_hover"]};
         border: 1px solid {c["border"]};
         border-radius: {r["md"]}px;
     }}
+    QLabel#SectionText {{ background: transparent; color: {c["text"]}; }}
     QLabel#SectionNumber {{
         background: {c["elevated"]};
         border: 1px solid {c["border_strong"]};

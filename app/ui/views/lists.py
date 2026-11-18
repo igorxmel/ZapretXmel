@@ -31,7 +31,7 @@ from app.ui import dialogs
 from app.ui.controller import Controller
 from app.ui.strategy_parts import FlowLayout, tinted
 from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, TabStrip, view_header
+from app.ui.widgets import Card, view_header
 from app.ui.workers import Task
 
 ADD_FROM_CATALOG = "Добавить к моим"
@@ -45,7 +45,13 @@ LIST_COLOURS = {
 
 
 class ListButton(QPushButton):
-    """Карточка списка слева: точка цвета, название, счётчик и короткое пояснение."""
+    """Карточка списка слева: точка цвета, название, счётчик и короткое пояснение.
+
+    Выбранная — в цвет своего списка: рамка и лёгкая заливка. Серая подсветка на сером
+    фоне в 0.5.0 почти не отличалась от соседних карточек.
+    """
+
+    WIDTH = 290
 
     def __init__(self, user_list: UserList, colour: str, parent: QWidget | None = None):
         super().__init__(parent)
@@ -53,27 +59,36 @@ class ListButton(QPushButton):
         self.setObjectName("ListButton")
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedWidth(250)
+        self.setFixedWidth(self.WIDTH)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Minimum)
+        self.setStyleSheet(
+            f"QPushButton#ListButton:checked {{ background: {tinted(colour, 26)};"
+            f" border: 1px solid {colour}; }}"
+        )
 
         column = QVBoxLayout(self)
-        column.setContentsMargins(SPACE["md"], SPACE["sm"], SPACE["md"], SPACE["sm"])
-        column.setSpacing(2)
+        column.setContentsMargins(SPACE["lg"], SPACE["md"] + 2, SPACE["lg"], SPACE["md"] + 2)
+        column.setSpacing(SPACE["xs"] + 1)
         head = QHBoxLayout()
-        head.setSpacing(SPACE["sm"])
+        head.setSpacing(SPACE["sm"] + 2)
         dot = QLabel("●")
-        dot.setStyleSheet(f"color: {colour}; background: transparent;")
+        dot.setStyleSheet(f"color: {colour}; background: transparent; font-size: 12px;")
         head.addWidget(dot)
         title = QLabel(user_list.title)
         title.setObjectName("ListButtonTitle")
         head.addWidget(title)
         head.addStretch(1)
         self._count = QLabel("0")
-        self._count.setObjectName("CountBadge")
+        self._count.setObjectName("ListCount")
+        self._count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._count.setStyleSheet(
+            f"color: {colour}; background: {tinted(colour, 30)};"
+            f" border: 1px solid {tinted(colour, 120)};"
+        )
         head.addWidget(self._count)
         column.addLayout(head)
         hint = QLabel(user_list.hint)
-        hint.setObjectName("Muted")
+        hint.setObjectName("ListHint")
         hint.setWordWrap(True)
         column.addWidget(hint)
         for label in (dot, title, self._count, hint):
@@ -87,22 +102,19 @@ class ListButton(QPushButton):
 
 
 class TagChip(QFrame):
-    """Запись списка таблеткой с крестиком."""
+    """Запись списка таблеткой с крестиком. Неподходящая — красной."""
 
     removed = pyqtSignal(str)
 
-    def __init__(self, text: str, colour: str, parent: QWidget | None = None):
+    def __init__(self, text: str, invalid: bool = False, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("TagChip")
-        self.setStyleSheet(
-            f"QFrame#TagChip {{ background: {tinted(colour, 30)};"
-            f" border: 1px solid {tinted(colour, 90)}; border-radius: 6px; }}"
-        )
+        self.setProperty("invalid", invalid)
         row = QHBoxLayout(self)
-        row.setContentsMargins(SPACE["sm"], 2, 2, 2)
-        row.setSpacing(2)
+        row.setContentsMargins(SPACE["md"] + 2, SPACE["xs"] + 1, SPACE["sm"], SPACE["xs"] + 1)
+        row.setSpacing(SPACE["xs"])
         label = QLabel(text)
-        label.setStyleSheet("background: transparent;")
+        label.setObjectName("TagText")
         row.addWidget(label)
         close = QToolButton()
         close.setText("×")
@@ -112,6 +124,46 @@ class TagChip(QFrame):
         close.clicked.connect(lambda: self.removed.emit(text))
         row.addWidget(close)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+
+class Segmented(QFrame):
+    """Переключатель из двух-трёх положений в общей подложке, как в macOS и iOS.
+
+    Две таблетки-«Chip» рядом читались как два отдельных фильтра, а выбранная почти не
+    отличалась от соседней.
+    """
+
+    changed = pyqtSignal(str)
+
+    def __init__(self, options: list[tuple[str, str]], parent: QWidget | None = None):
+        super().__init__(parent)
+        self.setObjectName("Segmented")
+        row = QHBoxLayout(self)
+        row.setContentsMargins(3, 3, 3, 3)
+        row.setSpacing(2)
+        group = QButtonGroup(self)
+        group.setExclusive(True)
+        self.buttons: dict[str, QPushButton] = {}
+        for key, title in options:
+            button = QPushButton(title)
+            button.setObjectName("Segment")
+            button.setCheckable(True)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.clicked.connect(lambda _, chosen=key: self.select(chosen))
+            group.addButton(button)
+            row.addWidget(button)
+            self.buttons[key] = button
+        if options:
+            self.buttons[options[0][0]].setChecked(True)
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
+    def current(self) -> str:
+        return next((key for key, button in self.buttons.items() if button.isChecked()), "")
+
+    def select(self, key: str) -> None:
+        if key in self.buttons:
+            self.buttons[key].setChecked(True)
+            self.changed.emit(key)
 
 
 class ListsView(QWidget):
@@ -129,27 +181,62 @@ class ListsView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(SPACE["lg"])
-        layout.addWidget(
+        top = QHBoxLayout()
+        top.setSpacing(SPACE["md"])
+        top.addWidget(
             view_header(
                 "Списки",
-                "Свои домены вдобавок к тем, что уже знает сборка. Нужны, "
-                "когда обход работает, но какой-то один сайт всё равно не "
-                "открывается — впишите его здесь. Эти файлы переживают "
-                "обновление ядра, в отличие от штатных списков сборки.",
-            )
+                "Свои домены и исключения вдобавок к спискам сборки — когда обход "
+                "работает, а отдельный сайт всё равно не открывается. Переживают "
+                "обновление ядра.",
+            ),
+            1,
         )
+        top.addLayout(self._build_top_actions(), 0)
+        layout.addLayout(top)
 
         columns = QHBoxLayout()
-        columns.setSpacing(SPACE["lg"])
+        columns.setSpacing(SPACE["xl"])
         columns.addLayout(self._build_list_column(), 0)
         columns.addWidget(self._build_editor_card(), 1)
         layout.addLayout(columns, 1)
 
     # --- левая колонка: какие списки есть ------------------------------------
 
+    def _build_top_actions(self) -> QHBoxLayout:
+        """Каталог и файлы — справа в шапке: нужны реже, чем «Сохранить»."""
+        row = QHBoxLayout()
+        row.setSpacing(SPACE["sm"])
+        # Готовые списки от других — из ветки community-lists этого репозитория.
+        self._community_button = QPushButton("Каталог сообщества…")
+        self._community_button.setToolTip(
+            "Готовые списки доменов, которые прислали другие пользователи и проверил автор. "
+            "Выбранный добавится к вашим записям в редакторе — сохраняете вы сами"
+        )
+        self._community_button.clicked.connect(self._open_catalog)
+        row.addWidget(self._community_button, 0, Qt.AlignmentFlag.AlignTop)
+
+        files = QPushButton("Файл")
+        menu = QMenu(files)
+        load = menu.addAction("Добавить из файла…")
+        load.setToolTip(
+            "Записи из файла .txt добавятся к уже имеющимся. Ссылки сводятся к доменам, "
+            "комментарии и повторы пропускаются"
+        )
+        load.triggered.connect(self._load_file)
+        menu.addAction("Сохранить в файл…").triggered.connect(self._export_file)
+        menu.addSeparator()
+        # Для тех, кто переезжает с консольной сборки: ищет такие же *-user.txt в чужой
+        # папке. Если там ничего не дописывали — переносить нечего, это не поломка.
+        menu.addAction("Импорт из другой папки zapret…").triggered.connect(self._import)
+        menu.setToolTipsVisible(True)
+        files.setMenu(menu)
+        row.addWidget(files, 0, Qt.AlignmentFlag.AlignTop)
+        return row
+
     def _build_list_column(self) -> QVBoxLayout:
         column = QVBoxLayout()
-        column.setSpacing(SPACE["sm"])
+        column.setSpacing(SPACE["md"])
         self._list_buttons: list[ListButton] = []
         group = QButtonGroup(self)
         group.setExclusive(True)
@@ -168,6 +255,8 @@ class ListsView(QWidget):
     def _build_editor_card(self) -> Card:
         card = Card()
         body = card.body()
+        body.setContentsMargins(SPACE["xl"], SPACE["xl"], SPACE["xl"], SPACE["xl"])
+        body.setSpacing(SPACE["lg"])
 
         head = QHBoxLayout()
         head.setSpacing(SPACE["sm"])
@@ -180,19 +269,15 @@ class ListsView(QWidget):
         head.addStretch(1)
         # Теги — чтобы видеть каждую запись отдельно и убрать лишнюю крестиком;
         # текст — чтобы вставить сразу пачку из чата.
-        self._mode = TabStrip([("tags", "Теги"), ("text", "Текст")])
+        self._mode = Segmented([("tags", "Теги"), ("text", "Текст")])
         self._mode.changed.connect(self._switch_mode)
         head.addWidget(self._mode)
         body.addLayout(head)
 
-        self._hint = QLabel(self._current.hint)
-        self._hint.setObjectName("Muted")
-        self._hint.setWordWrap(True)
-        body.addWidget(self._hint)
-
         self._pages = QStackedWidget()
         self._pages.addWidget(self._build_tags_page())
         self._editor = QPlainTextEdit()
+        self._editor.setObjectName("ListEditor")
         self._editor.setPlaceholderText("По одной записи на строку")
         self._editor.textChanged.connect(self._editor_changed)
         self._pages.addWidget(self._editor)
@@ -208,35 +293,10 @@ class ListsView(QWidget):
         reload_button = QPushButton("Отменить правки")
         reload_button.clicked.connect(self.reload)
         footer.addWidget(reload_button)
-
-        # Готовые списки от других — из ветки community-lists этого репозитория.
-        self._community_button = QPushButton("Каталог сообщества…")
-        self._community_button.setToolTip(
-            "Готовые списки доменов, которые прислали другие пользователи и проверил автор. "
-            "Выбранный добавится к вашим записям в редакторе — сохраняете вы сами"
-        )
-        self._community_button.clicked.connect(self._open_catalog)
-        footer.addWidget(self._community_button)
-
-        # Файлы и перенос — реже, поэтому в меню: пять кнопок в ряд не помещались.
-        files = QPushButton("Файл")
-        menu = QMenu(files)
-        load = menu.addAction("Добавить из файла…")
-        load.setToolTip(
-            "Записи из файла .txt добавятся к уже имеющимся. Ссылки сводятся к доменам, "
-            "комментарии и повторы пропускаются"
-        )
-        load.triggered.connect(self._load_file)
-        menu.addAction("Сохранить в файл…").triggered.connect(self._export_file)
-        menu.addSeparator()
-        # Для тех, кто переезжает с консольной сборки: ищет такие же *-user.txt в чужой
-        # папке. Если там ничего не дописывали — переносить нечего, это не поломка.
-        menu.addAction("Импорт из другой папки zapret…").triggered.connect(self._import)
-        menu.setToolTipsVisible(True)
-        files.setMenu(menu)
-        footer.addWidget(files)
-
         footer.addStretch(1)
+        self._total = QLabel("")
+        self._total.setObjectName("ListTotal")
+        footer.addWidget(self._total)
         body.addLayout(footer)
 
         # Отдельной строкой: в ряду с кнопками длинное сообщение сжималось в три строки.
@@ -252,14 +312,31 @@ class ListsView(QWidget):
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(SPACE["sm"])
 
+        column.setSpacing(SPACE["md"])
+
+        entry_row = QHBoxLayout()
+        entry_row.setSpacing(SPACE["sm"])
         self._new_entry = QLineEdit()
-        self._new_entry.setPlaceholderText("Добавить запись — Enter")
+        self._new_entry.setObjectName("ListEntry")
         self._new_entry.returnPressed.connect(self._add_typed)
-        column.addWidget(self._new_entry)
+        entry_row.addWidget(self._new_entry, 1)
+        add_button = QPushButton("Добавить")
+        add_button.setObjectName("Primary")
+        add_button.clicked.connect(self._add_typed)
+        entry_row.addWidget(add_button)
+        column.addLayout(entry_row)
+
+        # Теги лежат в утопленной области с отступами: вплотную к краю карточки они
+        # выглядели вываленными на стол, а не собранными в список.
+        well = QFrame()
+        well.setObjectName("TagsWell")
+        well_layout = QVBoxLayout(well)
+        well_layout.setContentsMargins(SPACE["md"], SPACE["md"], SPACE["xs"], SPACE["md"])
+        well_layout.setSpacing(0)
 
         self._tags_box = QWidget()
         self._tags_box.setObjectName("Flow")
-        self._tags = FlowLayout(self._tags_box, spacing=SPACE["sm"])
+        self._tags = FlowLayout(self._tags_box, spacing=SPACE["sm"] + 2)
         scroll = QScrollArea()
         scroll.setObjectName("SectionsScroll")
         scroll.setWidgetResizable(True)
@@ -268,16 +345,16 @@ class ListsView(QWidget):
         holder = QWidget()
         holder.setObjectName("Flow")
         holder_layout = QVBoxLayout(holder)
-        holder_layout.setContentsMargins(0, 0, 0, 0)
+        holder_layout.setContentsMargins(0, 0, SPACE["sm"], 0)
         holder_layout.addWidget(self._tags_box)
-        holder_layout.addStretch(1)
-        scroll.setWidget(holder)
-        column.addWidget(scroll, 1)
-
         self._tags_empty = QLabel("Записей пока нет. Впишите домен выше и нажмите Enter.")
         self._tags_empty.setObjectName("Muted")
         self._tags_empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        column.addWidget(self._tags_empty)
+        holder_layout.addWidget(self._tags_empty)
+        holder_layout.addStretch(1)
+        scroll.setWidget(holder)
+        well_layout.addWidget(scroll, 1)
+        column.addWidget(well, 1)
         return page
 
     # --- теги ---------------------------------------------------------------
@@ -290,6 +367,7 @@ class ListsView(QWidget):
     def _editor_changed(self) -> None:
         entries = self._editor_entries()
         self._count.setText(str(len(entries)))
+        self._total.setText(f"Записей: {len(entries)}")
         if self._pages.currentIndex() == 0:
             self._rebuild_tags()
 
@@ -299,10 +377,9 @@ class ListsView(QWidget):
             if item is not None and item.widget() is not None:
                 item.widget().deleteLater()
         entries = self._editor_entries()
-        colour = LIST_COLOURS[self._current.filename]
         for entry in entries:
             valid = lists.validate(entry, self._current.kind)
-            tag = TagChip(entry, colour if valid else COLORS["danger"])
+            tag = TagChip(entry, invalid=not valid)
             if not valid:
                 tag.setToolTip("Не похоже на запись этого списка — при сохранении отбросится")
             tag.removed.connect(self._remove_entry)
@@ -332,8 +409,11 @@ class ListsView(QWidget):
         entries = [e for e in content.entries if e != self._current.placeholder]
 
         self._title.setText(self._current.title)
+        self._new_entry.setPlaceholderText(
+            "Добавить адрес или подсеть (CIDR) — Enter" if self._current.kind == "ip"
+            else "Добавить домен или ссылку — Enter"
+        )
         self._editor.setPlainText("\n".join(entries))
-        self._hint.setText(self._current.hint)
         self._status.setStyleSheet(f"color: {COLORS['text_muted']};")
         self._refresh_counts()
 
