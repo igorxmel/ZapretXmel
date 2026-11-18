@@ -22,9 +22,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import nettools
+from app.core import discordcache, nettools
 from app.core.diagnostics import collectors, rules
 from app.core.diagnostics.rules import Finding, Severity
+from app.ui import dialogs
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SEVERITY_COLORS, SPACE
 from app.ui.views.aiwindow import AiWindow
@@ -254,6 +255,17 @@ class DiagnosticsView(QWidget):
             self._net_buttons.append(button)
         self._refresh_tips()
 
+        # Не про сеть, но про ту же жалобу: «стратегию поменял, а Discord не грузится».
+        self._discord_button = QPushButton("Очистить кеш Discord")
+        self._discord_button.setToolTip(
+            "Discord после смены стратегии может держать в кеше ответы, полученные, пока "
+            "соединение резалось, и не подключаться. Программа закроет Discord и удалит "
+            "папки Cache, Code Cache и GPUCache. Вход и настройки остаются на месте"
+        )
+        self._discord_button.clicked.connect(self._clear_discord)
+        body.addWidget(self._discord_button)
+        self._net_buttons.append(self._discord_button)
+
         self._net_result = QPlainTextEdit()
         self._net_result.setReadOnly(True)
         self._net_result.setPlaceholderText("Здесь появится результат")
@@ -273,7 +285,7 @@ class DiagnosticsView(QWidget):
         """
         site = self._site_host() or "<сайт>"
         for button, (_title, tip, command, _worker, _needs) in zip(
-            self._net_buttons, self._net_actions, strict=True
+            self._net_buttons[: len(self._net_actions)], self._net_actions, strict=True
         ):
             button.setToolTip(f"{tip}\n\nВ консоли: {command(site)}")
 
@@ -281,11 +293,23 @@ class DiagnosticsView(QWidget):
         """Enter в поле — «Где рвётся»: из трёх проверок с адресом она главная."""
         self._net_buttons[2].click()
 
-    def _run_net(self, worker) -> None:
+    def _clear_discord(self) -> None:
+        if discordcache.running() and not dialogs.confirm(
+            self,
+            "Очистить кеш Discord",
+            "Discord сейчас запущен.",
+            "Программа закроет его и удалит кеш. Вход и настройки останутся, "
+            "запустить Discord нужно будет заново.",
+            action="Закрыть и очистить",
+        ):
+            return
+        self._run_net(lambda _host: discordcache.clear(), needs_site=False)
+
+    def _run_net(self, worker, needs_site: bool = True) -> None:
         """Запускает проверку в потоке: ping и tracert идут десятки секунд."""
         raw = self._site.text().strip()
         host = self._site_host()
-        if raw and not host:
+        if needs_site and raw and not host:
             self._net_result.setPlainText(
                 f"«{raw}» не похоже на адрес сайта. Нужно имя вроде instagram.com — "
                 "без пробелов и без лишних знаков."
