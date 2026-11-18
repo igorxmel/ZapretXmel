@@ -1,15 +1,17 @@
-"""«Объёмное оформление» — слой поверх обычного вида, который выключается одной галочкой.
+"""Оформление поверх обычного вида — по частям, каждая включается отдельно.
 
 Что в нём:
-- карточки с объёмом: светлая кромка сверху в тёмной теме, тень снизу в светлой;
-- раздел при переходе проявляется, а не подменяется в тот же кадр;
-- окна справки и диалоги появляются плавно;
+- вид карточек: плоские, с контуром, приподнятые или с градиентом;
+- раздел при переходе проявляется, а не подменяется в тот же кадр, окна справки
+  и диалоги появляются плавно;
 - уведомления всплывают поверх окна, а не строкой внизу: строка то появлялась, то
   исчезала и каждый раз сдвигала всю страницу на свою высоту.
 
+Раньше всё это включалось одной галочкой, и кому не нравился градиент, тот терял
+заодно и уведомления с плавностью. Теперь это вкус по пунктам.
+
 Всё это — отдельно от `motion`: тот отвечает за служебное движение и выключается
-на слабых машинах, а здесь вкус. Выключили «Анимации» — объём остаётся, только без
-плавности. Выключили это — программа выглядит так, как до 0.4.11.
+на слабых машинах. Выключили «Анимации» — плавность пропадает и здесь.
 """
 
 from __future__ import annotations
@@ -34,7 +36,19 @@ from PyQt6.QtWidgets import (
 from app.ui import motion
 from app.ui.theme.tokens import BRAND, COLORS, RADIUS, SPACE, is_light
 
-_enabled = True
+# Вид карточек. Градиент красив, но серые подписи у его светлого верха сливались с
+# фоном — поэтому по умолчанию «приподнятые»: заливка ровная, объём даёт кромка.
+CARD_STYLES = {
+    "flat": "Плоские",
+    "outline": "С контуром",
+    "raised": "Приподнятые",
+    "gradient": "С градиентом",
+}
+DEFAULT_CARDS = "raised"
+
+_cards = DEFAULT_CARDS
+_fades = True
+_toasts = True
 
 PAGE_MS = 180
 WINDOW_MS = 160
@@ -42,17 +56,33 @@ TOAST_IN_MS = 180
 TOAST_OUT_MS = 260
 
 
-def set_enabled(value: bool) -> None:
-    global _enabled
-    _enabled = bool(value)
+def configure(
+    cards: str | None = None, fades: bool | None = None, toasts: bool | None = None
+) -> None:
+    """Меняет то, что передано; остальное как было."""
+    global _cards, _fades, _toasts
+    if cards is not None:
+        _cards = cards if cards in CARD_STYLES else DEFAULT_CARDS
+    if fades is not None:
+        _fades = bool(fades)
+    if toasts is not None:
+        _toasts = bool(toasts)
 
 
-def enabled() -> bool:
-    return _enabled
+def card_style() -> str:
+    return _cards
+
+
+def toasts_enabled() -> bool:
+    return _toasts
+
+
+def fades_enabled() -> bool:
+    return _fades
 
 
 def _animated() -> bool:
-    return _enabled and motion.enabled()
+    return _fades and motion.enabled()
 
 
 def fade_in(widget: QWidget, ms: int = PAGE_MS) -> None:
@@ -86,34 +116,56 @@ def fade_window(window: QWidget, ms: int = WINDOW_MS) -> None:
 
 
 def card_rules() -> str:
-    """Добавка к таблице стилей: кромка, которая отделяет карточку от фона.
+    """Добавка к таблице стилей: как карточка отделяется от фона.
 
     Настоящие тени через QGraphicsDropShadowEffect здесь не годятся: виджет с таким
     эффектом рисуется картинкой, текст теряет чёткость ClearType, а прокрутка длинных
-    экранов начинает подтормаживать. Кромка даёт тот же объём бесплатно.
+    экранов начинает подтормаживать. Кромка и заливка дают объём бесплатно.
     """
-    if not _enabled:
-        return ""
     c = COLORS
-    # Объём даёт свет, а не толщина рамки: верх карточки чуть светлее, низ темнее, как
-    # у поверхности под лампой. Кромка сверху — блик на ребре.
-    if is_light():
-        top, bottom = "#ffffff", _mix(c["surface"], c["bg"], 0.6)
-        edge = (
-            f"border: 1px solid {c['border']};"
-            f"border-bottom: 1px solid {_mix(c['border'], c['border_strong'], 0.6)};"
+    light = is_light()
+    if _cards == "outline":
+        # Заливка как у плоских, зато рамка заметная: карточку видно по контуру.
+        border = c["border_strong"] if light else _mix(c["border_strong"], "#ffffff", 0.08)
+        return f"\nQFrame#Card {{ border: 1px solid {border}; }}\n"
+    if _cards == "raised":
+        # Ровная заливка чуть светлее фона и блик на верхнем ребре. Серый текст
+        # стоит на одном и том же тоне по всей карточке и не тонет.
+        if light:
+            fill = c["surface"]
+            edge = (
+                f"border: 1px solid {c['border']};"
+                f"border-bottom: 1px solid {_mix(c['border'], c['border_strong'], 0.6)};"
+            )
+        else:
+            fill = _mix(c["surface"], "#ffffff", 0.025)
+            edge = (
+                f"border: 1px solid {_mix(c['border'], c['bg'], 0.15)};"
+                f"border-top: 1px solid {_mix(c['border'], '#ffffff', 0.14)};"
+            )
+        return f"\nQFrame#Card {{ background: {fill}; {edge} }}\n"
+    if _cards == "gradient":
+        # Объём даёт свет: верх карточки чуть светлее, низ темнее, как у поверхности
+        # под лампой. Кромка сверху — блик на ребре.
+        if light:
+            top, bottom = "#ffffff", _mix(c["surface"], c["bg"], 0.6)
+            edge = (
+                f"border: 1px solid {c['border']};"
+                f"border-bottom: 1px solid {_mix(c['border'], c['border_strong'], 0.6)};"
+            )
+        else:
+            top = _mix(c["surface"], "#ffffff", 0.06)
+            bottom = _mix(c["surface"], c["bg"], 0.35)
+            edge = (
+                f"border: 1px solid {c['border']};"
+                f"border-top: 1px solid {_mix(c['border'], '#ffffff', 0.12)};"
+            )
+        fill = (
+            "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+            f"stop:0 {top}, stop:1 {bottom});"
         )
-    else:
-        top, bottom = _mix(c["surface"], "#ffffff", 0.06), _mix(c["surface"], c["bg"], 0.35)
-        edge = (
-            f"border: 1px solid {c['border']};"
-            f"border-top: 1px solid {_mix(c['border'], '#ffffff', 0.12)};"
-        )
-    fill = (
-        "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
-        f"stop:0 {top}, stop:1 {bottom});"
-    )
-    return f"\nQFrame#Card {{ {fill} {edge} }}\n"
+        return f"\nQFrame#Card {{ {fill} {edge} }}\n"
+    return ""
 
 
 def _mix(first: str, second: str, share: float) -> str:

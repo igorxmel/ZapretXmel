@@ -57,6 +57,9 @@ THEMES = {
 # подписи в двух местах — верный способ развести их по содержанию.
 TRAY_STYLES = TRAY_ICON_STYLES
 
+# Вид карточек: подпись в списке → значение в настройках.
+CARD_TITLES = {title: key for key, title in polish.CARD_STYLES.items()}
+
 # Масштаб интерфейса. 0 — не вмешиваться в то, что задано в Windows.
 SCALES = {
     "Как в Windows": 0.0,
@@ -264,6 +267,18 @@ class SettingsView(QWidget):
         ))
         body.addWidget(self._scale)
 
+        body.addWidget(QLabel("Карточки"))
+        self._card_style = QComboBox()
+        for title in polish.CARD_STYLES.values():
+            self._card_style.addItem(title)
+        self._card_style.setToolTip(
+            "Как карточки отделяются от фона. «Плоские» — вид до 0.4.11. «С контуром» — "
+            "заметная рамка. «Приподнятые» — заливка чуть светлее фона и блик на верхнем "
+            "ребре. «С градиентом» — верх светлее низа; серые подписи на нём читаются хуже."
+        )
+        self._card_style.currentTextChanged.connect(self._save_look)
+        body.addWidget(self._card_style)
+
         body.addWidget(Divider())
         self._animations = QCheckBox("Анимации в интерфейсе")
         self._animations.setToolTip(
@@ -275,14 +290,22 @@ class SettingsView(QWidget):
         self._animations.toggled.connect(self._save_flags)
         body.addWidget(self._animations)
 
-        self._polish = QCheckBox("Объёмное оформление")
-        self._polish.setToolTip(
-            "Кромка у карточек, плавная смена разделов и окон, уведомления поверх окна "
-            "вместо строки внизу. Снимите галочку, чтобы вернуть прежний плоский вид — "
-            "сразу, без перезапуска."
+        self._smooth_pages = QCheckBox("Плавная смена разделов и окон")
+        self._smooth_pages.setToolTip(
+            "Раздел проявляется при переходе, а справка и диалоги — при открытии. "
+            "Без «Анимаций в интерфейсе» не работает."
         )
-        self._polish.toggled.connect(self._toggle_polish)
-        body.addWidget(self._polish)
+        self._smooth_pages.toggled.connect(self._save_look)
+        body.addWidget(self._smooth_pages)
+
+        self._floating_toasts = QCheckBox("Уведомления поверх окна")
+        self._floating_toasts.setToolTip(
+            "Сообщения всплывают капсулой внизу окна. Без галочки — строкой под "
+            "разделом, как раньше: она сдвигает страницу на свою высоту."
+        )
+        self._floating_toasts.toggled.connect(self._save_look)
+        body.addWidget(self._floating_toasts)
+
 
         return card
 
@@ -575,7 +598,11 @@ class SettingsView(QWidget):
             self._shortcut.setChecked(shortcut.exists())
             self._start_menu.setChecked(shortcut.exists(shortcut.START_MENU))
             self._animations.setChecked(self.controller.settings.animations)
-            self._polish.setChecked(self.controller.settings.polish)
+            self._smooth_pages.setChecked(self.controller.settings.smooth_pages)
+            self._floating_toasts.setChecked(self.controller.settings.floating_toasts)
+            self._select_by_value(
+                self._card_style, CARD_TITLES, self.controller.settings.card_style
+            )
             self._select_by_value(self._scale, SCALES, self.controller.settings.ui_scale)
             self._select_by_value(self._theme, THEMES, self.controller.settings.theme)
             self._select_by_value(
@@ -894,14 +921,20 @@ class SettingsView(QWidget):
         self._autostart_hint.setText(AUTOSTART_HINTS[mode])
         self.controller.message.emit("Режим запуска изменится при следующем включении обхода")
 
-    def _toggle_polish(self, enabled: bool) -> None:
+    def _save_look(self, *_args) -> None:
         if self._loading:
             return
-        self.controller.settings.polish = enabled
-        self.controller.settings.save()
-        polish.set_enabled(enabled)
-        # Кромка карточек — часть таблицы стилей, её надо пересобрать.
-        use_theme(self.controller.settings.theme)
+        settings = self.controller.settings
+        cards = CARD_TITLES.get(self._card_style.currentText(), polish.DEFAULT_CARDS)
+        restyle = cards != settings.card_style
+        settings.card_style = cards
+        settings.smooth_pages = self._smooth_pages.isChecked()
+        settings.floating_toasts = self._floating_toasts.isChecked()
+        settings.save()
+        polish.configure(cards, settings.smooth_pages, settings.floating_toasts)
+        # Вид карточек — часть таблицы стилей, её надо пересобрать.
+        if restyle:
+            use_theme(settings.theme)
 
     def _save_flags(self) -> None:
         if self._loading:

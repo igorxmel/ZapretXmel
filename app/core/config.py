@@ -66,9 +66,11 @@ class Settings:
     # Анимации в интерфейсе. Короткие и служебные, но на слабой машине или
     # через удалённый рабочий стол любое движение лишнее.
     animations: bool = True
-    # «Объёмное оформление»: кромка у карточек, плавная смена разделов и всплывающие
-    # уведомления. Выключено — вид как до 0.4.11 (app/ui/polish.py).
-    polish: bool = True
+    # Оформление по частям (app/ui/polish.py): вид карточек — flat, outline, raised
+    # или gradient; плавная смена разделов и окон; уведомления поверх окна.
+    card_style: str = "raised"
+    smooth_pages: bool = True
+    floating_toasts: bool = True
     # Получать тестовые сборки. GitHub не отдаёт их в «последнем релизе»,
     # поэтому без этой галочки их никто не увидит.
     testing_builds: bool = False
@@ -124,6 +126,14 @@ class Settings:
             data["ignored_updates"] = sorted(
                 {*data.get("ignored_updates", []), "app", "core", "proxy"}
             )
+        # Прежняя общая галочка «Объёмное оформление» (0.4.11–0.5.0). Кто её снял,
+        # хотел прежний вид целиком — снимаем все три части. Кто оставил, тот видел
+        # градиент: пусть он и остаётся, пока сам не сменит.
+        if "polish" in raw and "card_style" not in raw:
+            if raw["polish"] is False:
+                data.update(card_style="flat", smooth_pages=False, floating_toasts=False)
+            else:
+                data["card_style"] = "gradient"
         ai_raw = data.pop("ai", {})
         settings = cls(**data)
         if isinstance(ai_raw, dict):

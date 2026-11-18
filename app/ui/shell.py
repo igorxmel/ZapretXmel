@@ -1069,7 +1069,7 @@ class MainWindow(FramelessWindow):
         self._sidebar_proxy.setStyleSheet(f"color: {colour}; padding: 0 {SPACE['lg']}px;")
 
     def _show_toast(self, text: str, color: str) -> None:
-        floating = polish.enabled() and not self._compact
+        floating = polish.toasts_enabled() and not self._compact
         for label in (self._toast, self._mini.toast):
             if label is self._toast and floating:
                 label.setText("")

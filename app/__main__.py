@@ -79,8 +79,8 @@ def apply_chosen_theme() -> None:
     try:
         loaded = Settings.load()
         wanted = loaded.theme
-        # До таблицы стилей: кромка карточек — её часть.
-        polish.set_enabled(loaded.polish)
+        # До таблицы стилей: вид карточек — её часть.
+        polish.configure(loaded.card_style, loaded.smooth_pages, loaded.floating_toasts)
     except Exception:  # noqa: BLE001 — настройки битые, значит тема обычная
         wanted = "dark"
 
