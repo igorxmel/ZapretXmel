@@ -18,7 +18,7 @@ import time
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication
 
-from app import logging_setup
+from app import logging_setup, smoke
 from app.core import autostart, elevation, location, paths, singleton
 from app.core.config import Settings
 from app.core.updater import selfupdate
@@ -308,7 +308,11 @@ def main() -> int:
 
     paths.ensure_dirs()
     logging_setup.setup()
-    install_crash_handler()
+    checking = smoke.requested()
+    if checking:
+        smoke.install_crash_exit()
+    else:
+        install_crash_handler()
     log.info("Запуск ZapretXmel (admin=%s)", elevation.is_admin())
     log.info("Версии — %s", _versions())
 
@@ -323,7 +327,8 @@ def main() -> int:
 
     # Флаг для разработки: позволяет открыть интерфейс без запроса UAC.
     # Управление обходом в таком режиме не работает — это ожидаемо.
-    skip_elevation = "--no-elevate" in sys.argv
+    # Проверка сборки идёт на машине, где права уже есть, и окно UAC ей не нужно.
+    skip_elevation = "--no-elevate" in sys.argv or checking
 
     set_app_identity()
 
@@ -373,6 +378,9 @@ def main() -> int:
         window.hide()
     else:
         window.present()
+
+    if checking:
+        smoke.run(app, window)
 
     return app.exec()
 

@@ -73,27 +73,37 @@ jobs:
             }
           }
 
-      # Установщик проверяется целиком, как у человека: тихая установка,
-      # запуск установленной программы и удаление. Удаление зовёт саму
-      # программу (--uninstall), и если она там упадёт, папка не исчезнет.
-      - name: Проверить установщик
+      # Прошлый стабильный релиз — чтобы проверить то, что видят люди при
+      # обновлении: новая версия поверх данных старой и установщик поверх установки.
+      - name: Скачать прошлый релиз
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $current = '${{ github.ref_name }}'.TrimStart('v')
+          $tag = gh release list -R ${{ github.repository }} --exclude-drafts --exclude-pre-releases `
+            --limit 10 --json tagName --jq '.[].tagName' |
+            Where-Object { $_.TrimStart('v') -ne $current } | Select-Object -First 1
+          if (-not $tag) { Write-Host 'прошлого релиза нет'; exit 0 }
+          Write-Host "прошлый релиз: $tag"
+          gh release download $tag -R ${{ github.repository }} -D prev `
+            -p 'ZapretXmel-Windows-Portable.exe' -p 'ZapretXmel-Windows-Setup.exe'
+
+      # Сборка проходит путь человека: чистый запуск со всеми разделами,
+      # самообновление переносной и установленной, запуск поверх данных прошлой
+      # версии, установка поверх прошлой и удаление. Сценарии — в самом скрипте.
+      - name: Проверить запуск, обновление и установку
         shell: pwsh
         run: |
-          $dir = Join-Path $env:RUNNER_TEMP 'ZapretXmel-test'
-          $setup = Start-Process dist/ZapretXmel-Windows-Setup.exe -PassThru -Wait -ArgumentList `
-            '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=$dir", "/LOG=$env:RUNNER_TEMP\setup.log"
-          if ($setup.ExitCode -ne 0) { Get-Content "$env:RUNNER_TEMP\setup.log"; throw "установщик вернул $($setup.ExitCode)" }
-          if (-not (Test-Path "$dir\_internal")) { throw "установщик не положил сборку папкой" }
+          $prev = if (Test-Path prev) { 'prev' } else { '' }
+          ./tools/smoke_release.ps1 -Dist dist -Previous $prev -Work "$env:RUNNER_TEMP\smoke"
 
-          $app = Start-Process "$dir\ZapretXmel.exe" -ArgumentList '--version' -PassThru
-          if (-not $app.WaitForExit(60000) -or $app.ExitCode -ne 0) { throw "установленная программа не запускается" }
-
-          Start-Process "$dir\unins000.exe" -Wait -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART'
-          # Деинсталлятор перезапускает себя копией и сразу возвращает управление.
-          $deadline = (Get-Date).AddMinutes(2)
-          while ((Test-Path "$dir\ZapretXmel.exe") -and (Get-Date) -lt $deadline) { Start-Sleep 2 }
-          if (Test-Path "$dir\ZapretXmel.exe") { throw "удаление не убрало программу" }
-          if (Test-Path "$dir\data") { throw "удаление оставило данные программы" }
+      - name: Сохранить журналы проверки
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-logs-${{ github.sha }}
+          path: ${{ runner.temp }}/smoke/**/data/logs/
 
       # Запуск руками ничего не выкладывает, но собранное нужно где-то взять,
       # чтобы проверить установщик до релиза.
