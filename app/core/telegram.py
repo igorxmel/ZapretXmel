@@ -240,6 +240,36 @@ _STATS = re.compile(r"stats: (.+)$")
 _TAIL_BYTES = 64 * 1024
 
 
+_SECRET_PARAM = re.compile(r"(secret=)[^&\s\"']+", re.IGNORECASE)
+# Ключ MTProto — 32 шестнадцатеричных знака, иногда с префиксом dd/ee и доменом за ним.
+_SECRET_HEX = re.compile(r"\b(?:dd|ee)?[0-9a-f]{32}[0-9a-f]*\b", re.IGNORECASE)
+HIDDEN = "••••"
+
+
+def redact(line: str) -> str:
+    """Строка журнала прокси без ключа.
+
+    В журнале tg-ws-proxy есть ссылка подключения с ключом. Экран логов умеет
+    «Скопировать», и строка с ключом уехала бы в чат вместе с вопросом о помощи —
+    а по ключу к прокси может подключиться кто угодно.
+    """
+    line = _SECRET_PARAM.sub(lambda match: match.group(1) + HIDDEN, line)
+    return _SECRET_HEX.sub(HIDDEN, line)
+
+
+def log_tail(limit: int = 2000) -> list[str]:
+    """Последние строки журнала прокси, уже без ключа. Нет журнала — пусто."""
+    try:
+        with log_file().open("rb") as handle:
+            handle.seek(0, 2)
+            size = handle.tell()
+            handle.seek(max(0, size - 512 * 1024))
+            text = handle.read().decode("utf-8", errors="replace")
+    except OSError:
+        return []
+    return [redact(line) for line in text.splitlines()[-limit:]]
+
+
 def log_file() -> Path:
     return data_dir() / "proxy.log"
 

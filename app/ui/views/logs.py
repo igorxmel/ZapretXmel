@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QUrl
+from PyQt6.QtCore import QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QApplication,
@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import paths
+from app.core import paths, telegram
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.widgets import Card, view_header
@@ -25,6 +25,10 @@ MAX_LINES = 2000
 
 WINWS = "winws"
 APP = "app"
+PROXY = "proxy"
+
+# Журнал прокси пишет сам tg-ws-proxy в файл; пока вкладка открыта, перечитываем его.
+PROXY_REFRESH_MS = 2000
 
 
 class LogsView(QWidget):
@@ -36,7 +40,10 @@ class LogsView(QWidget):
         self._source = WINWS
         # Строки держим отдельно от показанного текста: поиск прячет часть,
         # а терять её нельзя — иначе снятый фильтр покажет пустоту.
-        self._lines: dict[str, list[str]] = {WINWS: [], APP: []}
+        self._lines: dict[str, list[str]] = {WINWS: [], APP: [], PROXY: []}
+        self._proxy_timer = QTimer(self)
+        self._proxy_timer.setInterval(PROXY_REFRESH_MS)
+        self._proxy_timer.timeout.connect(self._refresh_proxy)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -44,8 +51,8 @@ class LogsView(QWidget):
         layout.addWidget(
             view_header(
                 "Логи",
-                "Вывод winws виден только в режиме обычного процесса: запущенная "
-                "как служба программа пишет в системный журнал, а не нам.",
+                "Вывод winws, журнал прокси для Telegram и самой программы. Вывод winws "
+                "виден только в режиме обычного процесса: служба пишет в системный журнал.",
             )
         )
 
@@ -58,7 +65,11 @@ class LogsView(QWidget):
         self._tabs = QButtonGroup(self)
         self._tabs.setExclusive(True)
         self._tab_buttons: dict[str, QPushButton] = {}
-        for key, title in ((WINWS, "Вывод winws"), (APP, "Журнал программы")):
+        for key, title in (
+            (WINWS, "Вывод winws"),
+            (PROXY, "Прокси Telegram"),
+            (APP, "Журнал программы"),
+        ):
             button = QPushButton(title)
             button.setObjectName("Chip")
             button.setCheckable(True)
@@ -131,7 +142,33 @@ class LogsView(QWidget):
         """Журнал перечитывается при каждом открытии экрана: он растёт сам."""
         if self._source == APP:
             self._read_app_log()
+        elif self._source == PROXY:
+            self._read_proxy_log()
         self._redraw()
+
+    def _read_proxy_log(self) -> None:
+        lines = telegram.log_tail(MAX_LINES)
+        self._lines[PROXY] = lines or [
+            "Журнал прокси пуст: прокси для Telegram ещё не запускался. "
+            "Ключ подключения в этом журнале скрыт."
+        ]
+
+    def _refresh_proxy(self) -> None:
+        if self._source != PROXY or not self.isVisible():
+            return
+        before = self._lines[PROXY]
+        self._read_proxy_log()
+        if self._lines[PROXY] != before:
+            self._redraw()
+
+    def hideEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        super().hideEvent(event)
+        self._proxy_timer.stop()
+
+    def showEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        super().showEvent(event)
+        if self._source == PROXY:
+            self._proxy_timer.start()
 
     def _read_app_log(self) -> None:
         path = paths.logs_dir() / "app.log"
@@ -149,6 +186,12 @@ class LogsView(QWidget):
         self._source = source
         if source == APP:
             self._read_app_log()
+        elif source == PROXY:
+            self._read_proxy_log()
+        if source == PROXY:
+            self._proxy_timer.start()
+        else:
+            self._proxy_timer.stop()
         self._redraw()
 
     def _matches(self, line: str) -> bool:
