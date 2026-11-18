@@ -25,11 +25,15 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import json
 import logging
+import os
 import re
 import socket
+import sys
 from collections import Counter
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -108,6 +112,100 @@ class Profile:
         return ", ".join(parts)
 
 
+@dataclass(frozen=True)
+class Program:
+    """Программа, которая ходит в сеть, — со всеми своими процессами.
+
+    Список по процессам выглядел как семь строк «Discord.exe (pid …)» подряд, и было
+    непонятно, какую выбирать. Записывать при этом нужно их все: у браузеров и
+    клиентов на Electron сеть держит не главный процесс, а соседний.
+    """
+
+    exe: str
+    title: str
+    pids: tuple[int, ...]
+
+    @property
+    def file_name(self) -> str:
+        return Path(self.exe).name if self.exe else self.title
+
+
+# Не то, что человек хочет пропустить через обход: службы Windows, сама программа,
+# winws. Их видно в списке среди прочего, и они только мешают найти нужное.
+_HIDDEN_NAMES = frozenset({"winws.exe", "zapretxmel.exe", "python.exe", "pythonw.exe"})
+
+
+def _is_hidden(exe: str, name: str) -> bool:
+    if name.lower() in _HIDDEN_NAMES or not exe:
+        return True
+    windows = os.environ.get("SYSTEMROOT", r"C:\Windows").lower()
+    return exe.lower().startswith(windows + "\\")
+
+
+def display_name(exe: str) -> str:
+    """Название из свойств файла («Google Chrome»), а без него — имя файла без .exe."""
+    described = _file_description(exe) if exe else ""
+    return described or Path(exe).stem or exe
+
+
+@functools.lru_cache(maxsize=256)
+def _file_description(exe: str) -> str:
+    """FileDescription из ресурсов версии — то, что Windows пишет в диспетчере задач."""
+    if sys.platform != "win32":
+        return ""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        version = ctypes.WinDLL("version")
+        size = version.GetFileVersionInfoSizeW(exe, None)
+        if not size:
+            return ""
+        buffer = ctypes.create_string_buffer(size)
+        if not version.GetFileVersionInfoW(exe, 0, size, buffer):
+            return ""
+        pointer = ctypes.c_void_p()
+        length = wintypes.UINT()
+        if not version.VerQueryValueW(
+            buffer, "\\VarFileInfo\\Translation", ctypes.byref(pointer), ctypes.byref(length)
+        ) or length.value < 4:
+            return ""
+        codes = ctypes.cast(pointer, ctypes.POINTER(ctypes.c_uint16))
+        block = f"\\StringFileInfo\\{codes[0]:04x}{codes[1]:04x}\\FileDescription"
+        if not version.VerQueryValueW(buffer, block, ctypes.byref(pointer), ctypes.byref(length)):
+            return ""
+        # Длина бывает с запасом: за нулём лежит соседняя запись ресурса.
+        return ctypes.wstring_at(pointer, length.value).split("\x00", 1)[0].strip()
+    except (OSError, AttributeError, ValueError):
+        return ""
+
+
+def running_programs() -> list[Program]:
+    """Программы с сетевыми соединениями, по одной строке на программу."""
+    pids_by_exe: dict[str, set[int]] = {}
+    for app in running_apps():
+        if _is_hidden(app.exe, app.name):
+            continue
+        pids_by_exe.setdefault(app.exe, set()).add(app.pid)
+
+    programs = [
+        Program(exe=exe, title=display_name(exe), pids=tuple(sorted(pids)))
+        for exe, pids in pids_by_exe.items()
+    ]
+    return sorted(programs, key=lambda program: program.title.lower())
+
+
+def pids_of(exe: str) -> set[int]:
+    """Все процессы, запущенные из этого файла, — и те, что появились позже."""
+    found: set[int] = set()
+    wanted = os.path.normcase(exe)
+    for process in psutil.process_iter(["exe"]):
+        path = process.info.get("exe") or ""
+        if path and os.path.normcase(path) == wanted:
+            found.add(process.pid)
+    return found
+
+
 def running_apps() -> list[AppInfo]:
     """Программы, у которых сейчас есть сетевые соединения.
 
@@ -158,10 +256,17 @@ class Recorder:
     тех, что уже есть. Для сбора портов и адресов этого достаточно.
     """
 
-    def __init__(self, pid: int):
-        self.pid = pid
+    def __init__(self, pid: int | Iterable[int], exe: str = ""):
+        """`pid` — процесс или все процессы программы. С `exe` в запись попадают и
+        процессы, которые программа запустит уже во время записи."""
+        roots = {pid} if isinstance(pid, int) else set(pid)
+        self.pid = min(roots) if roots else 0
+        self._roots = roots
+        self._exe = exe
         self.seen: Counter[tuple[str, int, str]] = Counter()
-        self._pids = process_tree(pid)
+        self._pids: set[int] = set()
+        for root in roots:
+            self._pids |= process_tree(root)
 
     @property
     def endpoints(self) -> list[Endpoint]:
@@ -171,7 +276,10 @@ class Recorder:
         ]
 
     def refresh_tree(self) -> None:
-        self._pids |= process_tree(self.pid)
+        if self._exe:
+            self._roots |= pids_of(self._exe)
+        for root in self._roots:
+            self._pids |= process_tree(root)
 
     def sample(self) -> int:
         """Один опрос. Возвращает, сколько новых точек прибавилось."""

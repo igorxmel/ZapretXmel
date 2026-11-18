@@ -10,10 +10,11 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import QFileInfo, QSize, Qt, QTimer
+from PyQt6.QtGui import QColor, QIcon
 from PyQt6.QtWidgets import (
     QCheckBox,
+    QFileIconProvider,
     QHBoxLayout,
     QLabel,
     QListWidget,
@@ -30,11 +31,39 @@ from app.ui import dialogs
 from app.ui.controller import Controller, Status
 from app.ui.theme.tokens import COLORS, SPACE
 from app.ui.views.profileedit import ProfileEditor
-from app.ui.widgets import Card, Divider, view_header
+from app.ui.widgets import Card, IconButton, IconChip, SectionTitle, view_header
 
 log = logging.getLogger(__name__)
 
 SAMPLE_INTERVAL_MS = 1000
+
+ICON_SIZE = 20
+RECORD_TEXT = "Записывать"
+EXE_ROLE = Qt.ItemDataRole.UserRole
+PIDS_ROLE = Qt.ItemDataRole.UserRole + 1
+
+MIN_HITS_HINT = (
+    "Адреса, к которым программа обратилась реже этого числа раз за запись, в фильтр не "
+    "попадут: обычно это телеметрия и проверки обновлений."
+)
+
+_icons: QFileIconProvider | None = None
+
+
+def program_icon(exe: str) -> QIcon:
+    """Значок самой программы — так её узнают быстрее, чем по имени файла."""
+    global _icons
+    if not exe or not Path(exe).is_file():
+        return QIcon()
+    if _icons is None:
+        _icons = QFileIconProvider()
+    return _icons.icon(QFileInfo(exe))
+
+
+def program_tip(program: appprofile.Program) -> str:
+    processes = len(program.pids)
+    count = f"{processes} процесс" + ("" if processes == 1 else "а" if processes < 5 else "ов")
+    return f"{program.exe}\n{count}, все попадут в запись"
 
 # Как часто перечитывать список запущенных программ, пока экран открыт.
 APPS_REFRESH_MS = 3000
@@ -93,11 +122,18 @@ class ProfilesView(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(SPACE["lg"])
+        # Пояснения — за значком «i» у заголовка: на экране они стояли серыми
+        # абзацами и закрывали собой то, что нужно нажимать.
+        about = IconButton("info", "Как работают профили", size=24, icon_size=18)
+        about.clicked.connect(
+            lambda: dialogs.tell(self, "Профили приложений", "Как это работает", LIMITS)
+        )
         layout.addWidget(
             view_header(
                 "Профили приложений",
                 "Пропустить через обход отдельную программу — игру или клиент, "
                 "которому не помогают обычные стратегии.",
+                aside=about,
             )
         )
 
@@ -110,48 +146,42 @@ class ProfilesView(QWidget):
         controller.status_changed.connect(self._apply_status)
 
     def _build_record_card(self) -> Card:
-        card = Card("Запись")
+        card = Card("Записать программу")
         body = card.body()
 
-        hint = QLabel(
-            "Выберите программу, нажмите «Записывать» и попользуйтесь ей пару минут — "
-            "зайдите в игру, подключитесь к голосовому каналу. Чем дольше запись, "
-            "тем полнее фильтр."
-        )
+        hint = QLabel("Выберите программу и попользуйтесь ей пару минут, пока идёт запись.")
         hint.setObjectName("Dim")
         hint.setWordWrap(True)
         body.addWidget(hint)
 
+        # Одна строка на программу, со значком и названием из свойств файла. Список
+        # по процессам показывал семь «Discord.exe (pid …)» подряд, и было непонятно,
+        # какой выбирать. Обновляется сам, пока экран открыт.
         self._apps = QListWidget()
+        self._apps.setObjectName("ProgramList")
+        self._apps.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
+        self._apps.itemDoubleClicked.connect(lambda _item: self._toggle_record())
         body.addWidget(self._apps, 1)
 
         row = QHBoxLayout()
-        row.setSpacing(SPACE["sm"])
-
-        refresh = QPushButton("Обновить список")
-        refresh.clicked.connect(self.reload)
-        row.addWidget(refresh)
-
-        self._record_button = QPushButton("Записывать")
+        row.setSpacing(SPACE["md"])
+        self._record_button = QPushButton(RECORD_TEXT)
         self._record_button.setObjectName("Primary")
         self._record_button.clicked.connect(self._toggle_record)
         row.addWidget(self._record_button)
         row.addStretch(1)
-        body.addLayout(row)
 
-        threshold = QHBoxLayout()
-        threshold.setSpacing(SPACE["sm"])
-        threshold.addWidget(QLabel("Отсекать адреса, замеченные реже чем"))
+        # Порог — тонкая настройка, нужна редко: компактно справа, пояснение в подсказке.
+        rare = QLabel("Отсев редких адресов")
+        rare.setObjectName("Muted")
+        rare.setToolTip(MIN_HITS_HINT)
+        row.addWidget(rare)
         self._min_hits = QSpinBox()
         self._min_hits.setRange(1, 20)
         self._min_hits.setValue(2)
-        self._min_hits.setToolTip(
-            "В записи оседает телеметрия и проверки обновлений — им в фильтре не место"
-        )
-        threshold.addWidget(self._min_hits)
-        threshold.addWidget(QLabel("раз"))
-        threshold.addStretch(1)
-        body.addLayout(threshold)
+        self._min_hits.setToolTip(MIN_HITS_HINT)
+        row.addWidget(self._min_hits)
+        body.addLayout(row)
 
         self._record_status = QLabel("")
         self._record_status.setObjectName("Muted")
@@ -161,42 +191,54 @@ class ProfilesView(QWidget):
         return card
 
     def _build_profiles_card(self) -> Card:
-        card = Card("Сохранённые профили")
+        card = Card()
         body = card.body()
 
+        # Заголовок свой, а не из Card: справа от него «+» — создать профиль руками.
+        head = QHBoxLayout()
+        head.setSpacing(SPACE["sm"])
+        head.addWidget(SectionTitle("Мои профили"))
+        head.addStretch(1)
+        self._new_button = IconChip(
+            "plus", "Создать профиль вручную — если порты и адреса известны заранее"
+        )
+        self._new_button.clicked.connect(self._new_profile)
+        head.addWidget(self._new_button)
+        body.addLayout(head)
+
         self._list = QListWidget()
+        self._list.setObjectName("ProgramList")
+        self._list.setIconSize(QSize(ICON_SIZE, ICON_SIZE))
         self._list.currentRowChanged.connect(self._sync_buttons)
+        self._list.itemDoubleClicked.connect(lambda _item: self._edit_profile())
         body.addWidget(self._list, 1)
 
+        self._empty = QLabel(
+            "Профилей пока нет. Запишите программу слева — профиль появится здесь."
+        )
+        self._empty.setObjectName("Muted")
+        self._empty.setWordWrap(True)
+        self._empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        body.addWidget(self._empty)
+
+        # Пять кнопок в ряд не помещались при узком окне. Осталось главное действие,
+        # правка и удаление значком; «Создать» — плюсом у заголовка.
         row = QHBoxLayout()
         row.setSpacing(SPACE["sm"])
+        self._toggle_button = QPushButton("Включить")
+        self._toggle_button.setObjectName("Primary")
+        self._toggle_button.clicked.connect(self._toggle_profile)
+        row.addWidget(self._toggle_button)
 
-        self._apply_button = QPushButton("Включить")
-        self._apply_button.setObjectName("Primary")
-        self._apply_button.clicked.connect(self._apply_profile)
-        row.addWidget(self._apply_button)
-
-        self._stop_button = QPushButton("Выключить")
-        self._stop_button.clicked.connect(self._stop_profile)
-        row.addWidget(self._stop_button)
-
-        self._edit_button = QPushButton("Посмотреть и править")
+        self._edit_button = QPushButton("Изменить")
         self._edit_button.setToolTip("Что внутри профиля: приложение, порты, адреса")
         self._edit_button.clicked.connect(self._edit_profile)
         row.addWidget(self._edit_button)
+        row.addStretch(1)
 
-        self._new_button = QPushButton("Создать вручную")
-        self._new_button.setToolTip(
-            "Если порты и адреса известны заранее — записывать трафик незачем"
-        )
-        self._new_button.clicked.connect(self._new_profile)
-        row.addWidget(self._new_button)
-
-        self._delete_button = QPushButton("Удалить")
-        self._delete_button.setObjectName("Danger")
+        self._delete_button = IconButton("trash", "Удалить профиль")
         self._delete_button.clicked.connect(self._delete_profile)
         row.addWidget(self._delete_button)
-        row.addStretch(1)
         body.addLayout(row)
 
         # Профиль включают перед игрой и забывают выключить — или не включают
@@ -205,13 +247,6 @@ class ProfilesView(QWidget):
         self._auto_start.setToolTip(AUTO_START_HINT)
         self._auto_start.toggled.connect(self._save_auto_start)
         body.addWidget(self._auto_start)
-
-        body.addWidget(Divider())
-
-        limits = QLabel(LIMITS)
-        limits.setObjectName("Muted")
-        limits.setWordWrap(True)
-        body.addWidget(limits)
 
         return card
 
@@ -241,26 +276,23 @@ class ProfilesView(QWidget):
             return
 
         chosen = self._apps.currentItem()
-        wanted = chosen.data(Qt.ItemDataRole.UserRole) if chosen else None
+        wanted = chosen.data(EXE_ROLE) if chosen else None
+        scrolled = self._apps.verticalScrollBar().value()
 
         self._apps.clear()
-        for app in appprofile.running_apps():
-            item = QListWidgetItem(app.label)
-            item.setData(Qt.ItemDataRole.UserRole, app.pid)
-            item.setData(Qt.ItemDataRole.UserRole + 1, app.exe)
+        for program in appprofile.running_programs():
+            item = QListWidgetItem(program_icon(program.exe), program.title)
+            item.setToolTip(program_tip(program))
+            item.setData(EXE_ROLE, program.exe)
+            item.setData(PIDS_ROLE, list(program.pids))
             self._apps.addItem(item)
-            if app.pid == wanted:
+            if program.exe == wanted:
                 self._apps.setCurrentItem(item)
+        self._apps.verticalScrollBar().setValue(scrolled)
 
     def reload(self) -> None:
         if self._recorder is None:
-            self._apps.clear()
-            for app in appprofile.running_apps():
-                item = QListWidgetItem(app.label)
-                item.setData(Qt.ItemDataRole.UserRole, app.pid)
-                item.setData(Qt.ItemDataRole.UserRole + 1, app.exe)
-                self._apps.addItem(item)
-
+            self._refresh_apps()
         self._reload_profiles()
 
     def _reload_profiles(self) -> None:
@@ -281,9 +313,13 @@ class ProfilesView(QWidget):
         )
 
         self._list.clear()
+        self._list.setVisible(bool(self._profiles))
+        self._empty.setVisible(not self._profiles)
         for profile in self._profiles:
             running = profile.name in active
-            item = QListWidgetItem(self._profile_label(profile, running))
+            item = QListWidgetItem(
+                program_icon(profile.exe), self._profile_label(profile, running)
+            )
             if running:
                 item.setForeground(QColor(COLORS["success"]))
                 font = item.font()
@@ -302,9 +338,9 @@ class ProfilesView(QWidget):
         фильтр по портам и адресам, и без имени программы через неделю уже
         не вспомнить, к чему он относится.
         """
-        head = f"{profile.name} ● работает" if running else profile.name
-        app = Path(profile.exe).name if profile.exe else "приложение не записано"
-        return f"{head}\n{app} · {profile.summary}"
+        head = f"{profile.name}  ·  работает" if running else profile.name
+        app = appprofile.display_name(profile.exe) if profile.exe else "приложение не указано"
+        return f"{head}\n{app}"
 
     def _selected_name(self) -> str:
         profile = self._current_profile()
@@ -329,11 +365,16 @@ class ProfilesView(QWidget):
         # поднимало второй экземпляр winws поверх первого.
         this_one_runs = bool(profile and profile.name in active)
 
-        self._apply_button.setEnabled(profile is not None and not this_one_runs)
-        self._apply_button.setText("Работает" if this_one_runs else "Включить")
+        self._toggle_button.setEnabled(profile is not None)
+        self._toggle_button.setText("Выключить" if this_one_runs else "Включить")
+        # Включённый профиль — главное действие уже не «включить», кнопка не кричит.
+        wanted = "" if this_one_runs else "Primary"
+        if self._toggle_button.objectName() != wanted:
+            self._toggle_button.setObjectName(wanted)
+            self._toggle_button.style().unpolish(self._toggle_button)
+            self._toggle_button.style().polish(self._toggle_button)
         self._delete_button.setEnabled(profile is not None)
         self._edit_button.setEnabled(profile is not None)
-        self._stop_button.setEnabled(this_one_runs)
 
         self._auto_start.setEnabled(profile is not None and bool(profile.exe))
         self._auto_start.setToolTip(
@@ -390,11 +431,12 @@ class ProfilesView(QWidget):
             self.controller.error.emit("Выберите программу из списка.")
             return
 
-        self._recorder = Recorder(item.data(Qt.ItemDataRole.UserRole))
         # Путь к приложению нужен профилю: по нему сторож потом узнаёт, что
         # приложение запустилось. Без него галочка «включать вместе с
         # приложением» оставалась серой — включать было нечего.
-        self._recorded_exe = item.data(Qt.ItemDataRole.UserRole + 1) or ""
+        self._recorded_exe = item.data(EXE_ROLE) or ""
+        # Все процессы программы и те, что она запустит во время записи.
+        self._recorder = Recorder(item.data(PIDS_ROLE) or [], exe=self._recorded_exe)
         self._record_button.setText("Остановить запись")
         self._apps.setEnabled(False)
         self._timer.start()
@@ -410,7 +452,7 @@ class ProfilesView(QWidget):
     def _finish_record(self) -> None:
         self._timer.stop()
         recorder, self._recorder = self._recorder, None
-        self._record_button.setText("Записывать")
+        self._record_button.setText(RECORD_TEXT)
         self._apps.setEnabled(True)
 
         if recorder is None:
@@ -457,6 +499,15 @@ class ProfilesView(QWidget):
         self._reload_profiles()
 
     # --- применение -----------------------------------------------------
+
+    def _toggle_profile(self) -> None:
+        profile = self._current_profile()
+        if profile is None:
+            return
+        if profile.name in self.controller.status.active_profiles:
+            self._stop_profile()
+        else:
+            self._apply_profile()
 
     def _apply_profile(self) -> None:
         profile = self._current_profile()
@@ -516,6 +567,15 @@ class ProfilesView(QWidget):
     def _delete_profile(self) -> None:
         profile = self._current_profile()
         if profile is None:
+            return
+        if not dialogs.confirm(
+            self,
+            "Удалить профиль",
+            f"Удалить профиль «{profile.name}»?",
+            "Вернуть его можно только новой записью.",
+            action="Удалить",
+            danger=True,
+        ):
             return
         if profile.name in self.controller.status.active_profiles:
             self.controller.stop_profile(profile.name)

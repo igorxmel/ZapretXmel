@@ -396,6 +396,9 @@ def build_stylesheet() -> str:
     /* Каталог — названия для людей, а не строки файла: обычный шрифт и воздух. */
     QListWidget#CatalogList {{ font-family: {FONTS["ui"]}; font-size: {FONT_SIZE["body"]}px; }}
     QListWidget#CatalogList::item {{ padding: {s["sm"]}px {s["md"]}px; }}
+    /* Программы и профили: названия для людей, со значками. */
+    QListWidget#ProgramList {{ font-family: {FONTS["ui"]}; font-size: {FONT_SIZE["body"]}px; }}
+    QListWidget#ProgramList::item {{ padding: {s["sm"]}px {s["sm"]}px; }}
 
     QListWidget::item, QTreeWidget::item {{
         padding: {s["xs"]}px {s["sm"]}px;
