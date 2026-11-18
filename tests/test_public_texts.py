@@ -41,10 +41,15 @@ def test_site_folder_is_gone() -> None:
     assert not (ROOT / "docs").exists()
 
 
-def test_title_bar_has_only_github() -> None:
+def test_title_bar_has_only_official_places() -> None:
+    """Официальных мест два: репозиторий и форум. Третья ссылка — уже чужая."""
+    from app.core import guide
     from app.ui.frameless import LINKS
 
-    assert LINKS == (("GITHUB", "https://github.com/igorxmel/ZapretXmel"),)
+    assert LINKS == (
+        ("ФОРУМ", guide.FORUM_URL),
+        ("GITHUB", "https://github.com/igorxmel/ZapretXmel"),
+    )
 
 
 def test_readme_pictures_exist() -> None:

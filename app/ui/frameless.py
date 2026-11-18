@@ -41,9 +41,13 @@ WINDOWS = sys.platform == "win32"
 
 TITLEBAR_HEIGHT = 40
 
-# Ссылка наружу. Держим её здесь, а не в разделах: исходники и релизы нужны
-# из любого места программы, а заголовок виден всегда.
-LINKS = (("GITHUB", "https://github.com/igorxmel/ZapretXmel"),)
+# Ссылки наружу. Держим их здесь, а не в разделах: исходники, релизы и форум нужны
+# из любого места программы, а заголовок виден всегда. Адрес форума — из guide, чтобы
+# он был в коде один.
+LINKS = (
+    ("ФОРУМ", "https://t.me/XmelNet"),
+    ("GITHUB", "https://github.com/igorxmel/ZapretXmel"),
+)
 GRIP_THICKNESS = 5
 SVG_ICON_SIZE = 20
 
