@@ -274,7 +274,10 @@ class ListsView(QWidget):
         head.addWidget(self._mode)
         body.addLayout(head)
 
+        # Прозрачный: иначе он закрашивал себя фоном окна, и за скруглёнными полем
+        # ввода и областью тегов проступал прямоугольник.
         self._pages = QStackedWidget()
+        self._pages.setObjectName("ListPages")
         self._pages.addWidget(self._build_tags_page())
         self._editor = QPlainTextEdit()
         self._editor.setObjectName("ListEditor")
@@ -308,11 +311,13 @@ class ListsView(QWidget):
 
     def _build_tags_page(self) -> QWidget:
         page = QWidget()
+        page.setObjectName("Flow")
         column = QVBoxLayout(page)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(SPACE["sm"])
 
-        column.setSpacing(SPACE["md"])
+        # Поле ввода и уже введённое — разные вещи, между ними воздух.
+        column.setSpacing(SPACE["xl"])
 
         entry_row = QHBoxLayout()
         entry_row.setSpacing(SPACE["sm"])
@@ -323,6 +328,9 @@ class ListsView(QWidget):
         add_button = QPushButton("Добавить")
         add_button.setObjectName("Primary")
         add_button.clicked.connect(self._add_typed)
+        # Одной высоты с полем — иначе кнопка торчала над ним.
+        add_button.setFixedHeight(40)
+        self._new_entry.setFixedHeight(40)
         entry_row.addWidget(add_button)
         column.addLayout(entry_row)
 

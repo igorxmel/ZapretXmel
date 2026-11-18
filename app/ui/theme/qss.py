@@ -613,6 +613,7 @@ def build_stylesheet() -> str:
         background: {c["surface"] if is_light() else c["border_strong"]};
         color: {c["text"]};
     }}
+    QStackedWidget#ListPages {{ background: transparent; border: none; }}
     QFrame#TagsWell {{
         background: {c["bg"]};
         border: 1px solid {c["border"]};
@@ -623,7 +624,7 @@ def build_stylesheet() -> str:
         border-radius: {r["lg"]}px;
         padding: {s["sm"]}px;
     }}
-    QLineEdit#ListEntry {{ min-height: 30px; padding: 4px {s["md"]}px; }}
+    QLineEdit#ListEntry {{ padding: 0px {s["md"]}px; }}
     QFrame#TagChip {{
         background: {c["elevated"]};
         border: 1px solid {c["border_strong"]};
