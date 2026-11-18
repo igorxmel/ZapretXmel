@@ -39,8 +39,8 @@ ISSUES_URL = f"{REPO_URL}/issues/new?template=bug.yml"
 REPORT_ACTION = "Скопировать и открыть GitHub"
 REPORT_WIDTH = 760
 
-# Те, кто ловил поломки на себе, пока их не поймали все остальные.
-TESTERS = ("Dencraz", "Drendr", "DynamitNS")
+# Те, кто помогает проекту: ловит поломки, пишет код, рисует, подсказывает.
+TESTERS = ("Dencraz", "Drendr", "DynamitNS", "Zanvex")
 
 
 COIN_ICON = 22
@@ -277,8 +277,10 @@ class SupportView(QWidget):
         """
         heart = f'<span style="color: {COLORS["heart"]};">&#9829;</span>'
         self._testers.setText(
-            "Спасибо любимым тестировщикам: "
-            + ", ".join(f"{escape(name)} {heart}" for name in TESTERS)
+            "Спасибо всем, кто помогает проекту, — тестировщикам, разработчикам, "
+            "дизайнерам и всем, кто подсказывает:<br>"
+            # Неразрывный пробел: сердечко переносилось на строку без своего имени.
+            + ", ".join(f"{escape(name)}&nbsp;{heart}" for name in TESTERS)
         )
 
     def reload(self) -> None:
