@@ -6,11 +6,12 @@ import logging
 from pathlib import Path
 
 from PyQt6.QtCore import Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtGui import QDesktopServices, QFont, QFontDatabase
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
     QComboBox,
+    QCompleter,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -36,7 +37,7 @@ from app.core import (
     uninstall,
 )
 from app.core.gamefilter import GameFilter
-from app.ui import dialogs, motion, polish
+from app.ui import dialogs, fonts, motion, polish
 from app.ui.controller import Controller
 from app.ui.theme import use_theme
 from app.ui.theme.tokens import COLORS, SPACE
@@ -56,6 +57,9 @@ THEMES = {
 # Оформление значка в трее берётся оттуда, где он и рисуется: держать
 # подписи в двух местах — верный способ развести их по содержанию.
 TRAY_STYLES = TRAY_ICON_STYLES
+
+# Последний пункт списка шрифтов — ввести название своего.
+CUSTOM_FONT = "*"
 
 # Вид карточек: подпись в списке → значение в настройках.
 CARD_TITLES = {title: key for key, title in polish.CARD_STYLES.items()}
@@ -266,6 +270,39 @@ class SettingsView(QWidget):
             "ui_scale", SCALES.get(title, 0.0), title.lower()
         ))
         body.addWidget(self._scale)
+
+        body.addWidget(QLabel("Шрифт"))
+        self._font = QComboBox()
+        self._font.setToolTip(
+            "Встроенные шрифты идут вместе с программой и в систему не ставятся. "
+            "Свой — любой шрифт, уже установленный в Windows: впишите его название."
+        )
+        self._font.currentIndexChanged.connect(self._font_chosen)
+        body.addWidget(self._font)
+
+        self._font_custom = QWidget()
+        custom_row = QHBoxLayout(self._font_custom)
+        custom_row.setContentsMargins(0, 0, 0, 0)
+        custom_row.setSpacing(SPACE["sm"])
+        self._font_name = QLineEdit()
+        self._font_name.setPlaceholderText("Название установленного шрифта, например Calibri")
+        # Подсказка по уже установленным: название не нужно помнить точно.
+        completer = QCompleter(QFontDatabase.families(), self._font_name)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        self._font_name.setCompleter(completer)
+        self._font_name.returnPressed.connect(self._apply_custom_font)
+        custom_row.addWidget(self._font_name, 1)
+        apply_font = QPushButton("Применить")
+        apply_font.clicked.connect(self._apply_custom_font)
+        custom_row.addWidget(apply_font)
+        self._font_custom.hide()
+        body.addWidget(self._font_custom)
+
+        self._font_note = QLabel("")
+        self._font_note.setObjectName("Muted")
+        self._font_note.setWordWrap(True)
+        body.addWidget(self._font_note)
 
         body.addWidget(QLabel("Карточки"))
         self._card_style = QComboBox()
@@ -598,6 +635,7 @@ class SettingsView(QWidget):
             self._shortcut.setChecked(shortcut.exists())
             self._start_menu.setChecked(shortcut.exists(shortcut.START_MENU))
             self._animations.setChecked(self.controller.settings.animations)
+            self._fill_fonts(self.controller.settings.ui_font)
             self._smooth_pages.setChecked(self.controller.settings.smooth_pages)
             self._floating_toasts.setChecked(self.controller.settings.floating_toasts)
             self._select_by_value(
@@ -920,6 +958,67 @@ class SettingsView(QWidget):
         self._run_mode_hint.setText(RUN_MODE_HINTS[mode])
         self._autostart_hint.setText(AUTOSTART_HINTS[mode])
         self.controller.message.emit("Режим запуска изменится при следующем включении обхода")
+
+    # --- шрифт -------------------------------------------------------------
+
+    def _fill_fonts(self, current: str) -> None:
+        """Список шрифтов; каждый пункт набран своим шрифтом — видно, что выбираешь."""
+        self._font.clear()
+        self._font.addItem(f"Как в Windows ({fonts.SYSTEM})", "")
+        for family in fonts.bundled():
+            self._font.addItem(family, family)
+            self._font.setItemData(self._font.count() - 1, QFont(family), Qt.ItemDataRole.FontRole)
+        self._font.addItem("Другой — ввести название…", CUSTOM_FONT)
+
+        index = self._font.findData(current) if current else 0
+        if index < 0:
+            index = self._font.count() - 1
+            self._font_name.setText(current)
+        self._font.setCurrentIndex(index)
+        self._font_custom.setVisible(self._font.currentData() == CUSTOM_FONT)
+        self._show_font_support(current or fonts.SYSTEM)
+
+    def _font_chosen(self, _index: int) -> None:
+        if self._loading:
+            return
+        chosen = self._font.currentData()
+        custom = chosen == CUSTOM_FONT
+        self._font_custom.setVisible(custom)
+        if custom:
+            self._font_name.setFocus()
+            self._font_note.setText(
+                "Впишите название шрифта, установленного в Windows, и нажмите «Применить»."
+            )
+            self._font_note.setStyleSheet("")
+            return
+        self._set_font(chosen or "")
+
+    def _apply_custom_font(self) -> None:
+        found = fonts.support(self._font_name.text())
+        if not found.family:
+            return
+        self._show_font_support(found.family)
+        if found.usable:
+            self._font_name.setText(found.family)
+            self._set_font(found.family, note=False)
+
+    def _set_font(self, family: str, note: bool = True) -> None:
+        settings = self.controller.settings
+        settings.ui_font = family
+        settings.save()
+        fonts.apply(family)
+        use_theme(settings.theme)
+        if note:
+            self._show_font_support(family or fonts.SYSTEM)
+
+    def _show_font_support(self, family: str) -> None:
+        found = fonts.support(family)
+        tone = (
+            COLORS["success"] if found.complete
+            else COLORS["warning"] if found.usable else COLORS["danger"]
+        )
+        self._font_note.setText(found.describe())
+        self._font_note.setStyleSheet(f"color: {tone};")
 
     def _save_look(self, *_args) -> None:
         if self._loading:

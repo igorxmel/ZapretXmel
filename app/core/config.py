@@ -69,6 +69,8 @@ class Settings:
     # Оформление по частям (app/ui/polish.py): вид карточек — flat, outline, raised
     # или gradient; плавная смена разделов и окон; уведомления поверх окна.
     card_style: str = "raised"
+    # Шрифт интерфейса по названию семейства (app/ui/fonts.py). Пусто — как в Windows.
+    ui_font: str = ""
     smooth_pages: bool = True
     floating_toasts: bool = True
     # Получать тестовые сборки. GitHub не отдаёт их в «последнем релизе»,

@@ -22,7 +22,7 @@ from app import logging_setup, smoke
 from app.core import autostart, elevation, location, paths, singleton
 from app.core.config import Settings
 from app.core.updater import selfupdate
-from app.ui import dialogs, motion, polish, theme
+from app.ui import dialogs, fonts, motion, polish, theme
 from app.ui.theme import build_stylesheet
 from app.ui.theme.live import apply_palette
 from app.ui.widgets import WheelGuard
@@ -81,6 +81,9 @@ def apply_chosen_theme() -> None:
         wanted = loaded.theme
         # До таблицы стилей: вид карточек — её часть.
         polish.configure(loaded.card_style, loaded.smooth_pages, loaded.floating_toasts)
+        # И шрифт: таблица стилей берёт его оттуда же.
+        fonts.load_bundled()
+        fonts.apply(loaded.ui_font)
     except Exception:  # noqa: BLE001 — настройки битые, значит тема обычная
         wanted = "dark"
 
