@@ -304,6 +304,13 @@ class UpdatesView(QWidget):
             )
             return
 
+        if paths.is_scoop():
+            self._app_say(
+                f"Программа поставлена через Scoop и обновляется им: {paths.SCOOP_UPDATE}",
+                COLORS["text_muted"],
+            )
+            return
+
         self._app_check.setEnabled(False)
         self._app_say("Смотрю релизы программы…")
         self._task = Task(selfupdate.check, testing=self.controller.settings.testing_builds)

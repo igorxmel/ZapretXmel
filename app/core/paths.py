@@ -145,6 +145,20 @@ def install_root() -> Path:
     return chosen
 
 
+SCOOP_UPDATE = "scoop update zapretxmel"
+
+
+def is_scoop() -> bool:
+    """Программа поставлена через Scoop (бакет igorxmel/scoop-xmel).
+
+    Тогда обновляет её Scoop: подмени она сама свой exe, Scoop продолжал бы считать,
+    что стоит старая версия, и при следующем `scoop update` скачал бы ту же новую.
+    Scoop кладёт программы в `<папка scoop>\\apps\\<имя>\\<версия или current>\\`.
+    """
+    parts = [part.lower() for part in executable().parts]
+    return len(parts) >= 4 and parts[-4] == "apps" and parts[-3] == "zapretxmel"
+
+
 def is_portable() -> bool:
     """Правда, если место установки не выбирали и всё лежит рядом с программой."""
     return install_root() == app_root()

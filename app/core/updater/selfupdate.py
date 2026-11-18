@@ -158,6 +158,9 @@ def check(
     `testing` включает тестовые сборки: они помечены на GitHub как
     pre-release и в обычный «последний релиз» не попадают.
     """
+    # Поставленную через Scoop обновляет Scoop — иначе он теряет, какая версия стоит.
+    if paths.is_scoop():
+        return None
     release = github.latest_release(repo, timeout=timeout, testing=testing)
     return release if github.is_newer(release.version, newest_here()) else None
 
