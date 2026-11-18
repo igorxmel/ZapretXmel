@@ -22,7 +22,7 @@ from app import logging_setup
 from app.core import autostart, elevation, location, paths, singleton
 from app.core.config import Settings
 from app.core.updater import selfupdate
-from app.ui import dialogs, motion, theme
+from app.ui import dialogs, motion, polish, theme
 from app.ui.theme import build_stylesheet
 from app.ui.widgets import WheelGuard
 
@@ -76,7 +76,10 @@ def set_app_identity() -> None:
 def apply_chosen_theme() -> None:
     """Применяет выбранное оформление до того, как собрана таблица стилей."""
     try:
-        wanted = Settings.load().theme
+        loaded = Settings.load()
+        wanted = loaded.theme
+        # До таблицы стилей: кромка карточек — её часть.
+        polish.set_enabled(loaded.polish)
     except Exception:  # noqa: BLE001 — настройки битые, значит тема обычная
         wanted = "dark"
 

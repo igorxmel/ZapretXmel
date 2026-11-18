@@ -36,7 +36,7 @@ from app.core import (
     uninstall,
 )
 from app.core.gamefilter import GameFilter
-from app.ui import dialogs, motion
+from app.ui import dialogs, motion, polish
 from app.ui.controller import Controller
 from app.ui.theme import use_theme
 from app.ui.theme.tokens import COLORS, SPACE
@@ -274,6 +274,15 @@ class SettingsView(QWidget):
         )
         self._animations.toggled.connect(self._save_flags)
         body.addWidget(self._animations)
+
+        self._polish = QCheckBox("Объёмное оформление")
+        self._polish.setToolTip(
+            "Кромка у карточек, плавная смена разделов и окон, уведомления поверх окна "
+            "вместо строки внизу. Снимите галочку, чтобы вернуть прежний плоский вид — "
+            "сразу, без перезапуска."
+        )
+        self._polish.toggled.connect(self._toggle_polish)
+        body.addWidget(self._polish)
 
         return card
 
@@ -566,6 +575,7 @@ class SettingsView(QWidget):
             self._shortcut.setChecked(shortcut.exists())
             self._start_menu.setChecked(shortcut.exists(shortcut.START_MENU))
             self._animations.setChecked(self.controller.settings.animations)
+            self._polish.setChecked(self.controller.settings.polish)
             self._select_by_value(self._scale, SCALES, self.controller.settings.ui_scale)
             self._select_by_value(self._theme, THEMES, self.controller.settings.theme)
             self._select_by_value(
@@ -883,6 +893,15 @@ class SettingsView(QWidget):
         self._run_mode_hint.setText(RUN_MODE_HINTS[mode])
         self._autostart_hint.setText(AUTOSTART_HINTS[mode])
         self.controller.message.emit("Режим запуска изменится при следующем включении обхода")
+
+    def _toggle_polish(self, enabled: bool) -> None:
+        if self._loading:
+            return
+        self.controller.settings.polish = enabled
+        self.controller.settings.save()
+        polish.set_enabled(enabled)
+        # Кромка карточек — часть таблицы стилей, её надо пересобрать.
+        use_theme(self.controller.settings.theme)
 
     def _save_flags(self) -> None:
         if self._loading:

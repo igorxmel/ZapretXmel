@@ -119,6 +119,13 @@ class Dialog(QDialog):
         self._answer = label
         self.accept()
 
+    def showEvent(self, event) -> None:  # noqa: N802 — имя задано Qt
+        super().showEvent(event)
+        if not event.spontaneous():
+            from app.ui import polish
+
+            polish.fade_window(self)
+
     def ask(self) -> str:
         """Показывает окно и возвращает подпись нажатой кнопки.
 

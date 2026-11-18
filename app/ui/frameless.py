@@ -431,6 +431,11 @@ class FramelessWindow(QWidget):
         for grip in self.grips:
             grip.raise_()
 
+        if not event.spontaneous():
+            from app.ui import polish
+
+            polish.fade_window(self)
+
     def nativeEvent(self, kind, message):  # noqa: N802 — имя задано Qt
         if not self._native_frame or kind != b"windows_generic_MSG":
             return False, 0

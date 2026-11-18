@@ -8,6 +8,7 @@ Qt не знает CSS-переменных, поэтому стили соби�
 from __future__ import annotations
 
 from app.core import paths
+from app.ui import polish
 from app.ui.theme.tokens import BRAND, COLORS, FONT_SIZE, FONTS, RADIUS, SIZE, SPACE, is_light
 
 
@@ -616,4 +617,4 @@ def build_stylesheet() -> str:
     QMenu::item:selected {{ background: {c["surface_hover"]}; }}
     QMenu::item:disabled {{ color: {c["text_muted"]}; font-size: {FONT_SIZE["caption"]}px; }}
     QMenu::separator {{ height: 1px; background: {c["border"]}; margin: {s["xs"]}px {s["sm"]}px; }}
-    """
+    """ + polish.card_rules()

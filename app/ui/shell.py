@@ -23,7 +23,7 @@ from app import __version__
 from app.core import changelog, foreground, singleton, updates
 from app.core.config import Settings
 from app.core.updater import selfupdate
-from app.ui import dialogs, motion
+from app.ui import dialogs, motion, polish
 from app.ui.activation import ActivationListener
 from app.ui.controller import Controller, Status
 from app.ui.frameless import FramelessWindow, SvgCaptionButton
@@ -226,6 +226,9 @@ class MainWindow(FramelessWindow):
         self._toast.setObjectName("Muted")
         self._toast.setWordWrap(True)
         content_layout.addWidget(self._toast)
+        # С объёмным оформлением уведомление всплывает поверх страницы, а строка
+        # внизу остаётся пустой и ничего не сдвигает.
+        self._floating_toast = polish.Toast(content)
 
         root.addWidget(content, 1)
 
@@ -516,7 +519,10 @@ class MainWindow(FramelessWindow):
         if self._compact and key != "dashboard":
             self.set_compact(False)
 
+        changed = self._stack.currentWidget() is not view
         self._stack.setCurrentWidget(view)
+        if changed:
+            polish.fade_in(view)
         self._fit_stack_margin()
         self._current_section = key
         if button := self._nav_buttons.get(key):
@@ -1063,9 +1069,15 @@ class MainWindow(FramelessWindow):
         self._sidebar_proxy.setStyleSheet(f"color: {colour}; padding: 0 {SPACE['lg']}px;")
 
     def _show_toast(self, text: str, color: str) -> None:
+        floating = polish.enabled() and not self._compact
         for label in (self._toast, self._mini.toast):
+            if label is self._toast and floating:
+                label.setText("")
+                continue
             label.setText(text)
             label.setStyleSheet(f"color: {color};")
+        if floating:
+            self._floating_toast.show_message(text, color, TOAST_MS)
         QTimer.singleShot(TOAST_MS, lambda: self._clear_toast(text))
 
     def _clear_toast(self, text: str) -> None:
