@@ -247,7 +247,15 @@ class HelpWindow(FramelessWindow):
         )
 
         footer = QHBoxLayout()
-        ask = QPushButton("Не нашли ответа? Спросите на GitHub")
+        footer.setSpacing(SPACE["lg"])
+        # Форум — первым: туда идут с вопросами. Задача на GitHub — для поломок.
+        forum = QPushButton("Не нашли ответа? Спросите на форуме")
+        forum.setObjectName("Link")
+        forum.setCursor(Qt.CursorShape.PointingHandCursor)
+        forum.setToolTip(guide.FORUM_URL)
+        forum.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(guide.FORUM_URL)))
+        footer.addWidget(forum)
+        ask = QPushButton("Сообщить об ошибке")
         ask.setObjectName("Link")
         ask.setCursor(Qt.CursorShape.PointingHandCursor)
         ask.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(guide.ASK_URL)))

@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from app.core import donate, paths, report
+from app.core import donate, guide, paths, report
 from app.core.updater import github
 from app.ui import dialogs
 from app.ui.controller import Controller
@@ -166,6 +166,13 @@ class SupportView(QWidget):
         )
         self._issue.clicked.connect(self._collect_report)
         body.addWidget(self._issue)
+
+        forum = QPushButton("Форум в Telegram")
+        forum.setToolTip(
+            f"{guide.FORUM_URL} — вопросы, помощь с настройкой и обмен рабочими стратегиями"
+        )
+        forum.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(guide.FORUM_URL)))
+        body.addWidget(forum)
 
         body.addWidget(Divider())
 

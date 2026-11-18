@@ -66,6 +66,10 @@ STEPS = "## С чего начать\n\n" + "".join(
 
 ASK_URL = "https://github.com/igorxmel/ZapretXmel/issues"
 
+# Форум проекта в Telegram: вопросы, помощь с настройкой, обмен стратегиями. Ссылка одна
+# на всю программу — README и SECURITY.md сверяются с ней тестом.
+FORUM_URL = "https://t.me/XmelNet"
+
 def faq_file() -> Path:
     """Где лежит FAQ: в сборке рядом с картинками, в исходниках в корне проекта."""
     packed = paths.assets_dir() / FAQ_FILENAME

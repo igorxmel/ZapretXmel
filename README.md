@@ -11,7 +11,8 @@
 
   <p>
     <a href="https://github.com/igorxmel/ZapretXmel/releases"><strong>Релизы</strong></a> ·
-    <a href="CHANGELOG.md"><strong>Что менялось</strong></a>
+    <a href="CHANGELOG.md"><strong>Что менялось</strong></a> ·
+    <a href="https://t.me/XmelNet"><strong>Форум в Telegram</strong></a>
   </p>
 
   <p>
@@ -252,7 +253,8 @@ Pull request'ы открыты, и мелкие тоже — опечатка в
 в интерфейсе ничем не хуже новой возможности. Как собрать у себя, о чём помнить
 в коде и как оформлять коммиты — в [CONTRIBUTING.md](CONTRIBUTING.md).
 
-Нашли ошибку — заводите задачу. Если дело в работе zapret, приложите пакет
+Вопросы, помощь с настройкой и обмен стратегиями — на
+[форуме в Telegram](https://t.me/XmelNet). Нашли ошибку — заводите задачу. Если дело в работе zapret, приложите пакет
 из раздела «Диагностика»: там состояние системы и логи, по ним видно больше, чем
 по описанию. Про дыру в безопасности — не публично, а по
 [SECURITY.md](SECURITY.md).

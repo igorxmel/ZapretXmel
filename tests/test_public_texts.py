@@ -87,3 +87,14 @@ def test_readme_coin_icons_exist() -> None:
     assert icons
     for icon in icons:
         assert (ROOT / icon).is_file(), icon
+
+
+def test_forum_link_is_the_same_everywhere() -> None:
+    """Форум в Telegram — второе официальное место. Чужая ссылка, подменённая в одном
+    файле, уводила бы людей в поддельный чат."""
+    from app.core import guide
+
+    for name in ("README.md", "SECURITY.md"):
+        text = (ROOT / name).read_text(encoding="utf-8")
+        links = set(re.findall(r"https://t\.me/[A-Za-z0-9_]+", text))
+        assert links == {guide.FORUM_URL}, name
