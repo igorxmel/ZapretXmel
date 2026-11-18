@@ -290,6 +290,20 @@ def describe(strategy: str, now: datetime | None = None) -> str:
     return text
 
 
+def service_rates(strategy: str, now: datetime | None = None) -> list[tuple[str, int]]:
+    """[("Discord", 96), ("YouTube", 76)] — сервисы с достаточным числом проверок."""
+    return [
+        (name, round(passed / total * 100))
+        for name, (passed, total) in sorted(services(strategy, now).items())
+        if total >= ENOUGH_CHECKS
+    ]
+
+
+def failure_window(strategy: str, now: datetime | None = None) -> tuple[int, int] | None:
+    """Часы, на которые приходится большинство сбоев, — числами для плитки."""
+    return failure_hours(_entries(strategy, load(), now or datetime.now()))
+
+
 def describe_hours(strategy: str, now: datetime | None = None) -> str:
     """«с 19:00 до 23:00», если сбои собираются в эти часы. Отдельной строкой: в общей подписи
     она не помещалась в ширину карточки."""

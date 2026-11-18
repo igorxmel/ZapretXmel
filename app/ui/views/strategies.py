@@ -14,11 +14,13 @@ from PyQt6.QtCore import Qt, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -26,8 +28,21 @@ from PyQt6.QtWidgets import (
 from app.core import stability, strategies, strategycheck
 from app.core.batfile import StrategySpec
 from app.ui.controller import Controller, Status
+from app.ui.strategy_parts import (
+    BROKEN_ROLE,
+    FAVORITE_ROLE,
+    NAME_ROLE,
+    PERCENT_ROLE,
+    STATE_ROLE,
+    FlowLayout,
+    SectionRow,
+    StrategyDelegate,
+    Tile,
+    pill,
+    rate_colour,
+)
 from app.ui.theme.tokens import COLORS, SPACE
-from app.ui.widgets import Card, KeyValueRow, view_header
+from app.ui.widgets import Card, view_header
 from app.ui.workers import Task
 
 log = logging.getLogger(__name__)
@@ -74,7 +89,13 @@ class StrategiesView(QWidget):
     def _build_list_card(self) -> Card:
         card = Card("Доступные стратегии")
         self._list = QListWidget()
+        self._list.setObjectName("StrategyList")
+        self._list.setItemDelegate(StrategyDelegate(self._list))
+        self._list.setMouseTracking(True)
+        # Длинное имя обрезается многоточием, а не уводит строку вбок.
+        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._list.currentRowChanged.connect(self._show_details)
+        self._list.itemDoubleClicked.connect(lambda _item: self._apply_selected())
         card.add(self._list)
 
         # Свои стратегии складываются в ту же папку и переживают обновление
@@ -154,48 +175,61 @@ class StrategiesView(QWidget):
         self._name.setObjectName("ViewTitle")
         body.addWidget(self._name)
 
-        self._row_sections = KeyValueRow("Секций обхода")
-        self._row_args = KeyValueRow("Аргументов winws")
-        self._row_stability = KeyValueRow("Стабильность")
-        self._row_stability.setToolTip(
-            "Проверки за последние две недели, пока эта стратегия работала. Одиночный сбой сторожа"
-            " не считается, если следующая проверка прошла. Если файл стратегии изменился, счёт"
-            " начинается заново. Хранится только на этом компьютере."
-        )
-        self._row_launch = KeyValueRow("Запуск")
-        self._row_launch.setToolTip(
+        self._launch = QLabel("")
+        self._launch.setWordWrap(True)
+        self._launch.setToolTip(
             "winws проверяет стратегию, не перехватывая трафик: разбирает аргументы и сразу"
             " выходит. Не запускается — значит, ни подбор, ни ручное включение с ней не"
-            " заработают. Справа — причина словами самого winws."
+            " заработают. Причина — словами самого winws."
         )
-        self._row_launch.hide()
-        body.addWidget(self._row_launch)
-        body.addWidget(self._row_sections)
-        body.addWidget(self._row_args)
-        body.addWidget(self._row_stability)
-        self._row_services = KeyValueRow("По сервисам")
-        self._row_services.setToolTip(
-            "Как часто каждый сервис работал с этой стратегией за последние две недели. Помогает"
-            " понять, что именно у неё отваливается."
+        self._launch.hide()
+        body.addWidget(self._launch)
+
+        # Сводка плитками вместо пяти строк «подпись — значение».
+        tiles = QHBoxLayout()
+        tiles.setSpacing(SPACE["sm"])
+        self._tile_stability = Tile("пока не проверялась")
+        self._tile_stability.setToolTip(
+            "Проверки сторожа за последние две недели, пока эта стратегия работала. Одиночный"
+            " сбой не считается, если следующая проверка прошла. Если файл стратегии изменился,"
+            " счёт начинается заново. Хранится только на этом компьютере."
         )
-        body.addWidget(self._row_services)
-        self._row_hours = KeyValueRow("Сбои")
-        self._row_hours.setToolTip(
+        self._tile_sections = Tile("секций")
+        self._tile_hours = Tile("часы, когда чаще сбоит")
+        self._tile_hours.setToolTip(
             "Когда сбои собираются в одни и те же часы, дело обычно в провайдере: многие строже"
             " вечером. Стратегия при этом может быть лучшей из доступных."
         )
-        body.addWidget(self._row_hours)
-        KeyValueRow.line_up(
-            self._row_launch, self._row_sections, self._row_args, self._row_stability,
-            self._row_services, self._row_hours,
+        for tile in (self._tile_stability, self._tile_sections, self._tile_hours):
+            tiles.addWidget(tile, 1)
+        body.addLayout(tiles)
+
+        services_box = QWidget()
+        services_box.setObjectName("Flow")
+        services_box.setToolTip(
+            "Как часто каждый сервис работал с этой стратегией за последние две недели. Помогает"
+            " понять, что именно у неё отваливается."
         )
+        self._services_flow = FlowLayout(services_box)
+        body.addWidget(services_box)
+
         # Отметки «98%» в списке. Считаются при перечитывании, а не на каждом опросе состояния:
         # опрос идёт раз в несколько секунд и читал бы журнал по кругу.
         self._marks: dict[str, str] = {}
 
-        self._sections = QListWidget()
-        self._sections.setSelectionMode(QListWidget.SelectionMode.NoSelection)
-        body.addWidget(self._sections, 1)
+        # Секции — строками с таблетками, а не сырой строкой аргументов.
+        self._sections_box = QWidget()
+        self._sections_layout = QVBoxLayout(self._sections_box)
+        self._sections_layout.setContentsMargins(0, 0, SPACE["sm"], 0)
+        self._sections_layout.setSpacing(SPACE["xs"])
+        self._sections_layout.addStretch(1)
+        scroll = QScrollArea()
+        scroll.setObjectName("SectionsScroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(self._sections_box)
+        body.addWidget(scroll, 1)
 
         buttons = QHBoxLayout()
         buttons.setSpacing(SPACE["sm"])
@@ -235,12 +269,12 @@ class StrategiesView(QWidget):
         self._list.clear()
         for spec in self._specs:
             item = QListWidgetItem(spec.name)
-            item.setData(Qt.ItemDataRole.UserRole, spec.name)
+            item.setData(NAME_ROLE, spec.name)
             self._list.addItem(item)
 
         if not self._specs:
             self._name.setText("Ядро не установлено")
-            self._sections.clear()
+            self._fill_sections([])
             self._apply_button.setEnabled(False)
             self._select_button.setEnabled(False)
             return
@@ -284,25 +318,54 @@ class StrategiesView(QWidget):
         spec = self._specs[row]
         self._name.setText(spec.name)
         reason = self._broken.get(spec.name, "")
-        self._row_launch.setVisible(bool(reason))
+        self._launch.setVisible(bool(reason))
         if reason:
-            self._row_launch.set_value(f"не запускается — {reason}")
-            self._row_launch.set_value_color(COLORS["danger"])
-        self._row_sections.set_value(str(len(spec.sections)))
-        self._row_args.set_value(str(len(spec.argv)))
-        self._row_stability.set_value(stability.describe(spec.name))
-        self._row_services.set_value(
-            stability.describe_services(spec.name) or "пока мало проверок"
+            self._launch.setText(f"Не запускается: {reason}")
+            self._launch.setStyleSheet(f"color: {COLORS['danger']};")
+
+        mark = self._marks.get(spec.name, "")
+        described = stability.describe(spec.name)
+        if mark:
+            percent = int(mark.rstrip("%"))
+            self._tile_stability.show_value(
+                mark, described.removeprefix("прошла "), rate_colour(percent)
+            )
+        else:
+            self._tile_stability.show_value("—", described)
+        self._tile_sections.show_value(
+            str(len(spec.sections)), f"секций · {len(spec.argv)} аргументов winws"
         )
-        hours = stability.describe_hours(spec.name)
-        self._row_hours.set_value(hours)
-        self._row_hours.setVisible(bool(hours))
+        hours = stability.failure_window(spec.name)
+        self._tile_hours.setVisible(hours is not None)
+        if hours is not None:
+            self._tile_hours.show_value(f"{hours[0]:02d}–{hours[1]:02d}", colour=COLORS["warning"])
 
+        self._fill_services(spec.name)
         self._sync_favorite_button()
+        self._fill_sections(spec.sections)
 
-        self._sections.clear()
-        for number, section in enumerate(spec.sections, start=1):
-            self._sections.addItem(f"{number}.  {section.describe()}")
+    def _fill_services(self, name: str) -> None:
+        while self._services_flow.count():
+            item = self._services_flow.takeAt(0)
+            if item is not None and item.widget() is not None:
+                item.widget().deleteLater()
+        rates = stability.service_rates(name)
+        if not rates:
+            hint = QLabel("По сервисам пока мало проверок")
+            hint.setObjectName("Muted")
+            self._services_flow.addWidget(hint)
+            return
+        for service, percent in rates:
+            self._services_flow.addWidget(pill(f"{service}  {percent}%", rate_colour(percent)))
+
+    def _fill_sections(self, sections: list) -> None:
+        layout = self._sections_layout
+        while layout.count() > 1:
+            item = layout.takeAt(0)
+            if item is not None and item.widget() is not None:
+                item.widget().deleteLater()
+        for number, section in enumerate(sections, start=1):
+            layout.insertWidget(layout.count() - 1, SectionRow(number, section))
 
     def _current_spec(self) -> StrategySpec | None:
         row = self._list.currentRow()
@@ -348,23 +411,29 @@ class StrategiesView(QWidget):
         self.controller.start()
 
     def _apply_status(self, status: Status) -> None:
-        """Помечает в списке стратегию, с которой обход работает прямо сейчас."""
+        """Помечает в списке стратегию, с которой обход работает прямо сейчас.
+
+        Всё рисует `StrategyDelegate` по данным строки: точка состояния, звезда избранного,
+        процент стабильности и «не запускается». Текст строки — только имя: по нему её ищут.
+        """
         favorites = self.controller.settings.favorites
+        selected = self.controller.settings.selected_strategy
         for row in range(self._list.count()):
             item = self._list.item(row)
-            name = item.data(Qt.ItemDataRole.UserRole)
-            star = "★ " if name in favorites else ""
-            mark = f"   {self._marks[name]}" if name in self._marks else ""
-            if name in self._broken:
-                mark += "   ⚠ не запускается"
-
+            name = item.data(NAME_ROLE)
             if name == status.active_strategy and status.is_active:
-                item.setText(f"{star}{name}{mark}   ● активна")
-                item.setForeground(Qt.GlobalColor.white)
-            elif name == self.controller.settings.selected_strategy:
-                item.setText(f"{star}{name}{mark}   ○ выбрана")
+                state = "active"
+            elif name == selected:
+                state = "selected"
             else:
-                item.setText(f"{star}{name}{mark}")
+                state = ""
+            mark = self._marks.get(name)
+            item.setData(STATE_ROLE, state)
+            item.setData(FAVORITE_ROLE, name in favorites)
+            item.setData(BROKEN_ROLE, name in self._broken)
+            item.setData(PERCENT_ROLE, int(mark.rstrip("%")) if mark else None)
+            hint = {"active": "работает сейчас", "selected": "выбрана, но обход выключен"}
+            item.setToolTip(f"{name}\n{hint[state]}" if state else name)
 
         self._sync_favorite_button()
 

@@ -552,6 +552,34 @@ def build_stylesheet() -> str:
     /* Прозу моноширинным шрифтом читать тяжело. */
     QTextBrowser#HelpText {{ font-family: {FONTS["ui"]}; }}
 
+    /* --- стратегии --- */
+
+    QListWidget#StrategyList {{ font-family: {FONTS["ui"]}; font-size: {FONT_SIZE["body"]}px; }}
+    QListWidget#StrategyList::item {{ background: transparent; border: none; }}
+    QFrame#StatTile {{
+        background: {c["surface_hover"]};
+        border: 1px solid {c["border"]};
+        border-radius: {r["md"]}px;
+    }}
+    QLabel#StatValue {{ font-size: {FONT_SIZE["display"] - 4}px; font-weight: 700; }}
+    QFrame#SectionRow {{
+        background: {c["surface_hover"]};
+        border: 1px solid {c["border"]};
+        border-radius: {r["md"]}px;
+    }}
+    QLabel#SectionNumber {{
+        background: {c["elevated"]};
+        border: 1px solid {c["border_strong"]};
+        border-radius: 11px;
+        color: {c["text_dim"]};
+        font-size: {FONT_SIZE["caption"]}px;
+        font-weight: 600;
+    }}
+    QWidget#Flow {{ background: transparent; }}
+    QScrollArea#SectionsScroll, QScrollArea#SectionsScroll > QWidget > QWidget {{
+        background: transparent;
+    }}
+
     /* --- итог подбора --- */
 
     QFrame#BestBanner {{

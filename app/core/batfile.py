@@ -57,6 +57,31 @@ class Section:
                 return arg.split("=", 1)[1]
         return ""
 
+    @property
+    def protocols(self) -> list[tuple[str, str]]:
+        """[("TCP", "80,443"), ("UDP", "443")] — что секция ловит."""
+        found = []
+        for arg in self.args:
+            if arg.startswith("--filter-tcp="):
+                found.append(("TCP", arg.split("=", 1)[1]))
+            elif arg.startswith("--filter-udp="):
+                found.append(("UDP", arg.split("=", 1)[1]))
+        return found
+
+    @property
+    def methods(self) -> list[str]:
+        """Способы обхода по отдельности: «fake,multisplit» → ["fake", "multisplit"]."""
+        return [part for part in self.desync.split(",") if part]
+
+    @property
+    def list_names(self) -> list[str]:
+        """Списки доменов и адресов без папки и .txt: «list-general», «ipset-all»."""
+        return [
+            Path(arg.split("=", 1)[1].strip('"')).stem
+            for arg in self.args
+            if arg.startswith(("--hostlist=", "--ipset="))
+        ]
+
     def describe(self) -> str:
         """Короткое человекочитаемое описание секции для интерфейса."""
         proto = []
