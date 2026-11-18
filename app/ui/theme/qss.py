@@ -552,6 +552,17 @@ def build_stylesheet() -> str:
     /* Прозу моноширинным шрифтом читать тяжело. */
     QTextBrowser#HelpText {{ font-family: {FONTS["ui"]}; }}
 
+    /* Свёрнутые успешные проверки в диагностике. */
+    QPushButton#PassedToggle {{
+        background: transparent;
+        border: none;
+        text-align: left;
+        padding: {s["sm"]}px 0px;
+        color: {c["success"]};
+        font-weight: 600;
+    }}
+    QPushButton#PassedToggle:hover {{ color: {c["text"]}; }}
+
     /* --- стратегии --- */
 
     QListWidget#StrategyList {{ font-family: {FONTS["ui"]}; font-size: {FONT_SIZE["body"]}px; }}

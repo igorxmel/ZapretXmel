@@ -29,7 +29,7 @@ from app.ui import dialogs
 from app.ui.controller import Controller
 from app.ui.theme.tokens import COLORS, SEVERITY_COLORS, SPACE
 from app.ui.views.aiwindow import AiWindow
-from app.ui.widgets import Card, Divider, view_header
+from app.ui.widgets import Card, Divider, SectionTitle, view_header
 from app.ui.workers import Task
 
 SEVERITY_MARKS: dict[Severity, str] = {
@@ -373,9 +373,46 @@ class DiagnosticsView(QWidget):
         self._clear()
 
         body = self._container.body()
-        for finding in findings:
-            body.addWidget(FindingRow(finding, self._apply_fix))
-            body.addWidget(Divider())
+        # Сначала то, с чем надо что-то делать, потом к сведению, а успешные проверки —
+        # свёрнутым списком в конце. Длинная колонка зелёных галочек заслоняла собой
+        # одну настоящую проблему.
+        groups = (
+            ("Проблемы", [f for f in findings if f.severity in (Severity.ERROR, Severity.WARNING)]),
+            ("К сведению", [f for f in findings if f.severity is Severity.INFO]),
+        )
+        for title, items in groups:
+            if not items:
+                continue
+            body.addWidget(SectionTitle(f"{title} · {len(items)}"))
+            for finding in items:
+                body.addWidget(FindingRow(finding, self._apply_fix))
+                body.addWidget(Divider())
+
+        passed = [f for f in findings if f.severity is Severity.OK]
+        if passed:
+            self._passed_toggle = QPushButton(f"Всё в порядке · {len(passed)}")
+            self._passed_toggle.setObjectName("PassedToggle")
+            self._passed_toggle.setCheckable(True)
+            self._passed_toggle.setCursor(Qt.CursorShape.PointingHandCursor)
+            box = QWidget()
+            column = QVBoxLayout(box)
+            column.setContentsMargins(0, 0, 0, 0)
+            column.setSpacing(0)
+            for finding in passed:
+                column.addWidget(FindingRow(finding, self._apply_fix))
+            box.setVisible(False)
+            self._passed_box = box
+
+            def toggle(opened: bool) -> None:
+                box.setVisible(opened)
+                self._passed_toggle.setText(
+                    f"{'▾' if opened else '▸'}  Всё в порядке · {len(passed)}"
+                )
+
+            self._passed_toggle.toggled.connect(toggle)
+            toggle(False)
+            body.addWidget(self._passed_toggle)
+            body.addWidget(box)
         body.addStretch(1)
 
         problems = rules.problems(findings)
