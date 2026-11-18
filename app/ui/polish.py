@@ -95,19 +95,36 @@ def card_rules() -> str:
     if not _enabled:
         return ""
     c = COLORS
+    # Объём даёт свет, а не толщина рамки: верх карточки чуть светлее, низ темнее, как
+    # у поверхности под лампой. Кромка сверху — блик на ребре.
     if is_light():
+        top, bottom = "#ffffff", _mix(c["surface"], c["bg"], 0.6)
         edge = (
-            f"border-bottom: 2px solid {c['border_strong']};"
-            f"border-left: 1px solid {c['border']}; border-right: 1px solid {c['border']};"
-            f"border-top: 1px solid {c['border']};"
+            f"border: 1px solid {c['border']};"
+            f"border-bottom: 1px solid {_mix(c['border'], c['border_strong'], 0.6)};"
         )
     else:
+        top, bottom = _mix(c["surface"], "#ffffff", 0.06), _mix(c["surface"], c["bg"], 0.35)
         edge = (
-            f"border-top: 1px solid {c['border_strong']};"
-            f"border-left: 1px solid {c['border']}; border-right: 1px solid {c['border']};"
-            f"border-bottom: 1px solid {c['bg']};"
+            f"border: 1px solid {c['border']};"
+            f"border-top: 1px solid {_mix(c['border'], '#ffffff', 0.12)};"
         )
-    return f"\nQFrame#Card {{ {edge} }}\n"
+    fill = (
+        "background: qlineargradient(x1:0, y1:0, x2:0, y2:1, "
+        f"stop:0 {top}, stop:1 {bottom});"
+    )
+    return f"\nQFrame#Card {{ {fill} {edge} }}\n"
+
+
+def _mix(first: str, second: str, share: float) -> str:
+    """Цвет между двумя: share = 0 — первый, 1 — второй."""
+    a, b = QColor(first), QColor(second)
+    blend = QColor(
+        round(a.red() + (b.red() - a.red()) * share),
+        round(a.green() + (b.green() - a.green()) * share),
+        round(a.blue() + (b.blue() - a.blue()) * share),
+    )
+    return blend.name()
 
 
 class Toast(QWidget):

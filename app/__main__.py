@@ -24,6 +24,7 @@ from app.core.config import Settings
 from app.core.updater import selfupdate
 from app.ui import dialogs, motion, polish, theme
 from app.ui.theme import build_stylesheet
+from app.ui.theme.live import apply_palette
 from app.ui.widgets import WheelGuard
 
 log = logging.getLogger(__name__)
@@ -341,6 +342,7 @@ def main() -> int:
     # Стили вешаем на приложение, а не на окно: меню в трее создаётся без
     # родителя и оформление окна до него не доходит.
     app.setStyleSheet(build_stylesheet())
+    apply_palette(app)
 
     # Колесо мыши не должно менять значения при прокрутке страницы.
     guard = WheelGuard(app)

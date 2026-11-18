@@ -13,12 +13,27 @@ from __future__ import annotations
 
 import logging
 
+from PyQt6.QtGui import QColor, QPalette
 from PyQt6.QtWidgets import QApplication
 
 from app.ui.theme.qss import build_stylesheet
-from app.ui.theme.tokens import apply_theme, system_theme
+from app.ui.theme.tokens import BRAND, apply_theme, system_theme
 
 log = logging.getLogger(__name__)
+
+
+def apply_palette(app: QApplication) -> None:
+    """Цвет ссылок — фирменный оранжевый.
+
+    Ссылку в обычной надписи (QLabel с разметкой) таблица стилей не красит: Qt берёт
+    цвет из палитры, а там по умолчанию системный — в тёмной теме он выходил
+    тёмно-розовым. Ссылки в размеченном тексте красит `widgets.set_markdown`.
+    """
+    palette = app.palette()
+    orange = QColor(BRAND["orange"])
+    for role in (QPalette.ColorRole.Link, QPalette.ColorRole.LinkVisited):
+        palette.setColor(role, orange)
+    app.setPalette(palette)
 
 
 def use_theme(wanted: str) -> str:
@@ -35,6 +50,7 @@ def use_theme(wanted: str) -> str:
         # Таблица стилей собирается из палитры, поэтому пересобрать её
         # нужно после смены, а не до.
         app.setStyleSheet(build_stylesheet())
+        apply_palette(app)
 
     log.info("Оформление: %s", applied)
     return applied

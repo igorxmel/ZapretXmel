@@ -37,3 +37,23 @@ def test_no_motion_means_no_fade(monkeypatch) -> None:
 
     monkeypatch.setattr(motion, "_enabled", False)
     assert not polish._animated()
+
+
+def test_cards_get_light_not_just_a_thicker_border() -> None:
+    """Кромка в пару пикселей читалась как обводка потолще — объём даёт градиент."""
+    polish.set_enabled(True)
+
+    assert "qlineargradient" in polish.card_rules()
+
+
+def test_links_are_orange(qapp=None) -> None:
+    """Ссылка в надписи брала цвет из палитры Qt и выходила тёмно-розовой."""
+    from PyQt6.QtWidgets import QApplication
+
+    from app.ui.theme.live import apply_palette
+    from app.ui.theme.tokens import BRAND
+
+    app = QApplication.instance() or QApplication([])
+    apply_palette(app)
+
+    assert app.palette().link().color().name().lower() == BRAND["orange"].lower()
