@@ -1,0 +1,6 @@
+# Записи каталога сверяются по байтам на Windows и Linux.
+catalog.json -text
+/*/*.html -text
+/*/*.css -text
+/*/*.js -text
+/*/*.json -text

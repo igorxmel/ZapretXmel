@@ -1,0 +1,11 @@
+{
+  "id": "console",
+  "title": "Пульт",
+  "version": "1.0.0",
+  "api": 1,
+  "files": {
+    "index.html": "510d9abedfac471f4df84954147c4b45f24258ddeabf563add4c82fae82b3bcc",
+    "style.css": "bd26820bc2c2c12514fec2a8452008fb13ae70adc0d9da3021c1937df3941828",
+    "app.js": "1f070b846e6f675b06b16c522a3c527882ecb112edd00b10e221139eb781ef1b"
+  }
+}

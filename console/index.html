@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ZapretXmel · Пульт</title>
+  <link rel="stylesheet" href="/style.css">
+  <script defer src="/app.js"></script>
+</head>
+<body>
+  <main>
+    <header>
+      <span>ZapretXmel</span>
+      <span id="connection" role="status">Подключение…</span>
+    </header>
+    <h1>Пульт</h1>
+    <section aria-labelledby="bypass-title">
+      <div>
+        <h2 id="bypass-title">Обход</h2>
+        <p id="bypass-state">Ожидание состояния</p>
+      </div>
+      <button id="bypass" disabled>Включить</button>
+      <div class="strategy">
+        <label for="strategy">Стратегия для следующего запуска</label>
+        <select id="strategy" disabled></select>
+      </div>
+    </section>
+    <section aria-labelledby="proxy-title">
+      <div>
+        <h2 id="proxy-title">Telegram-прокси</h2>
+        <p id="proxy-state">Ожидание состояния</p>
+      </div>
+      <button id="proxy" disabled>Включить</button>
+    </section>
+    <p id="notice" role="alert"></p>
+  </main>
+</body>
+</html>

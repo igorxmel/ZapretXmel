@@ -1,0 +1,28 @@
+name: Проверка оболочек
+
+on:
+  push:
+    branches: [community-ui]
+  pull_request:
+    branches: [community-ui]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: candidate
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.base.sha || github.sha }}
+          path: validator
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python validator/tools/check_catalog.py candidate

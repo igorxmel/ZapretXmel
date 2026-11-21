@@ -1,0 +1,30 @@
+:root {
+  color-scheme: dark;
+  font: 16px "Segoe UI", sans-serif;
+  background: #141b24;
+  color: #f0f4f7;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { width: min(44rem, 100% - 2rem); margin: 3rem auto; }
+header { display: flex; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #415266; }
+#connection, section p, label { color: #b3c2d0; }
+h1 { margin: 1.9rem 0 1.35rem; font-size: clamp(2.5rem, 8vw, 4rem); letter-spacing: -.055em; line-height: 1; }
+section { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 1rem; align-items: center; margin-bottom: .75rem; padding: 1.2rem; border-left: 3px solid #758da4; background: #202b38; }
+section.running { border-left-color: #8edcc1; }
+h2 { margin: 0; font-size: 1.1rem; }
+section p { margin: .35rem 0 0; overflow-wrap: anywhere; }
+.strategy { grid-column: 1 / -1; padding-top: .85rem; border-top: 1px solid #415266; }
+label { display: block; margin-bottom: .5rem; font-size: .9rem; }
+button, select { min-height: 2.6rem; border: 1px solid #627991; border-radius: .3rem; font: inherit; }
+button { padding: .5rem .8rem; background: #8edcc1; color: #132b25; font-weight: 650; cursor: pointer; }
+.running button { background: #273746; color: #f0f4f7; }
+select { width: 100%; padding: .45rem; background: #141b24; color: inherit; }
+:disabled { opacity: .65; cursor: default; }
+:focus-visible { outline: 3px solid #f1d294; outline-offset: 3px; }
+#notice { color: #f1d294; }
+@media (max-width: 360px) {
+  main { margin-top: 1.5rem; }
+  section { grid-template-columns: 1fr; }
+  section button { justify-self: start; }
+}
